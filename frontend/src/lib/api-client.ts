@@ -248,6 +248,7 @@ export const api = {
                       : ["ADMIN"],
         employee_id: "EMP-DEV-01",
         full_name: username,
+        store_code: isStore ? "STR-001" : undefined,
       };
       storeAuthSession(mockUser, rememberMe);
       return mockUser;
@@ -866,6 +867,14 @@ export const api = {
     });
   },
 
+  async updateSupplierStatus(id: string, status: string, remarks?: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/suppliers/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, remarks }),
+    });
+  },
+
   async createSupplier(data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/suppliers`, {
       method: "POST",
@@ -932,6 +941,19 @@ export const api = {
   async processMaterialRequest(id: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}/process`, {
       method: "POST",
+    });
+  },
+
+  async updateMaterialRequestStatus(
+    id: string,
+    status: string,
+    comments?: string,
+    actor?: string,
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, comments, actor }),
     });
   },
 
@@ -1033,6 +1055,20 @@ export const api = {
   async createRfq(data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async cancelRfq(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs/${id}/cancel`, {
+      method: "POST",
+    });
+  },
+
+  async updateRfq(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs/${id}`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
@@ -1273,6 +1309,22 @@ export const api = {
         method: "POST",
       },
     );
+  },
+
+  async acknowledgePurchaseOrder(id: string, comments?: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/purchase-orders/${id}/acknowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comments }),
+    });
+  },
+
+  async amendPurchaseOrder(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/purchase-orders/${id}/amend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
   },
   async getNotifications(
     role: string,

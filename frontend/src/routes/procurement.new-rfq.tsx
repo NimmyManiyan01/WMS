@@ -171,7 +171,8 @@ function NewRfq() {
       try {
         setLoadingRequests(true);
         const allMRs = await api.getMaterialRequests();
-        setMaterialRequests(allMRs);
+        const approvedMRs = allMRs.filter((request: any) => request.status === "Approved");
+        setMaterialRequests(approvedMRs);
 
         let fromRequestId = new URLSearchParams(window.location.search).get("fromRequestId");
         if (!fromRequestId && typeof window !== "undefined") {
@@ -180,15 +181,17 @@ function NewRfq() {
         }
 
         if (fromRequestId) {
-          const found = allMRs.find(
+          const found = approvedMRs.find(
             (request: any) =>
               request.id === fromRequestId || request.requestNumber === fromRequestId,
           );
           if (found) {
-            applyMaterialRequest(found.id, allMRs);
+            applyMaterialRequest(found.id, approvedMRs);
+          } else {
+            toast.error("Only approved material requests can be converted to RFQ");
           }
-        } else if (allMRs.length > 0) {
-          applyMaterialRequest(allMRs[0].id, allMRs);
+        } else if (approvedMRs.length > 0) {
+          applyMaterialRequest(approvedMRs[0].id, approvedMRs);
         }
       } catch (e) {
         console.error("Failed to load material requests", e);

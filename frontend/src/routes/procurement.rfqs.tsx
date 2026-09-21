@@ -84,6 +84,20 @@ function Rfqs() {
     }
   };
 
+  const handleCancelRfq = async (rfqId: string) => {
+    try {
+      setSendingRfq(true);
+      await api.cancelRfq(rfqId);
+      toast.success("RFQ Cancelled successfully");
+      setSelectedRfq(null);
+      await fetchData();
+    } catch (error: any) {
+      toast.error("Failed to cancel RFQ", { description: error.message });
+    } finally {
+      setSendingRfq(false);
+    }
+  };
+
   return (
     <AppShell
       title="Request for Quotations"
@@ -359,28 +373,43 @@ function Rfqs() {
             </div>
 
             {/* Footer */}
-            <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/70 bg-card px-6 py-4">
-              <Button variant="outline" className="rounded-xl" onClick={() => setSelectedRfq(null)}>
-                Close
-              </Button>
-              {(selectedRfq.status === "DRAFT" || selectedRfq.status === "OPEN") && (
-                <Button
-                  className="rounded-xl shadow-glow"
-                  disabled={sendingRfq}
-                  onClick={() => handleSendRfq(selectedRfq.id)}
-                >
-                  {sendingRfq ? (
-                    <>
-                      <Loader2 className="mr-2 size-4 animate-spin" /> Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 size-4" />{" "}
-                      {selectedRfq.status === "OPEN" ? "Resend RFQ Email" : "Approve & Send RFQ"}
-                    </>
-                  )}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-card px-6 py-4">
+              <div className="flex items-center gap-2">
+                {selectedRfq.status !== "CANCELLED" && selectedRfq.status !== "CLOSED" && (
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs"
+                    disabled={sendingRfq}
+                    onClick={() => handleCancelRfq(selectedRfq.id)}
+                  >
+                    <X className="mr-1.5 size-3.5" /> Cancel RFQ
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button variant="outline" className="rounded-xl" onClick={() => setSelectedRfq(null)}>
+                  Close
                 </Button>
-              )}
+                {(selectedRfq.status === "DRAFT" || selectedRfq.status === "OPEN" || selectedRfq.status === "SENT") && (
+                  <Button
+                    className="rounded-xl shadow-glow font-bold text-xs"
+                    disabled={sendingRfq}
+                    onClick={() => handleSendRfq(selectedRfq.id)}
+                  >
+                    {sendingRfq ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" /> Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 size-4" />{" "}
+                        {selectedRfq.status === "DRAFT" ? "Approve & Send RFQ" : "Resend RFQ Email"}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </Card>
         </div>

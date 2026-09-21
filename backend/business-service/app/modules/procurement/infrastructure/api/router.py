@@ -94,6 +94,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ArrivalNotificationResponse,
     PurchaseOrderResponse,
     PurchaseOrderItemSchema,
+    PurchaseOrderAmendmentRequest,
     MaterialRequestResponse,
     MaterialRequestItemSchema,
     CreateMaterialRequest,
@@ -102,6 +103,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     MaterialStockResponse,
     FinanceApprovalResponse,
     POApprovalHistorySchema,
+    PORevisionSchema,
     ProcurementStatsResponse,
     ProcurementTrendItem,
     SupplierLoginRequest,
@@ -127,6 +129,7 @@ from app.modules.procurement.infrastructure.persistence.models import (
     QuotationDocumentModel,
     PurchaseOrderModel,
     PurchaseOrderItemModel,
+    PORevisionModel,
     MaterialModel,
     MaterialVariantModel,
     MaterialRequestModel,
@@ -181,6 +184,57 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         total_value_res = await uow.session.execute(total_value_stmt)
         total_po_value = total_value_res.scalar() or Decimal("0.0")
 
+        pending_approvals_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status.in_([
+                "DRAFT",
+                "PENDING_APPROVAL",
+                "PENDING_FINANCE",
+                "SUBMITTED",
+                "RESUBMITTED",
+            ])
+        )
+        pending_approvals_res = await uow.session.execute(pending_approvals_stmt)
+        pending_approvals = pending_approvals_res.scalar() or 0
+
+        pending_quotations_stmt = select(func.count(RfqModel.id)).where(
+            RfqModel.status.in_(["PUBLISHED", "SENT", "OPEN", "INVITED", "PENDING_QUOTATION"])
+        )
+        pending_quotations_res = await uow.session.execute(pending_quotations_stmt)
+        pending_quotations = pending_quotations_res.scalar() or 0
+
+        awaiting_confirmation_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status == "SENT"
+        )
+        awaiting_confirmation_res = await uow.session.execute(awaiting_confirmation_stmt)
+        awaiting_supplier_confirmation = awaiting_confirmation_res.scalar() or 0
+
+        overdue_pos_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.expected_delivery_date < date.today(),
+            PurchaseOrderModel.status.notin_(["FULLY_RECEIVED", "RECEIVED", "CLOSED", "CANCELLED"]),
+        )
+        overdue_pos_res = await uow.session.execute(overdue_pos_stmt)
+        overdue_pos = overdue_pos_res.scalar() or 0
+
+        partially_received_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status.in_(["PARTIALLY_RECEIVED", "PARTIAL_RECEIVED", "PARTIAL"])
+        )
+        partially_received_res = await uow.session.execute(partially_received_stmt)
+        partially_received_pos = partially_received_res.scalar() or 0
+
+        rfqs_closing_today_stmt = select(func.count(RfqModel.id)).where(
+            cast(RfqModel.closing_date, Date) == date.today(),
+            RfqModel.status.notin_(["CLOSED", "CANCELLED", "SELECTED"]),
+        )
+        rfqs_closing_today_res = await uow.session.execute(rfqs_closing_today_stmt)
+        rfqs_closing_today = rfqs_closing_today_res.scalar() or 0
+
+        asns_expected_today_stmt = select(func.count(AsnModel.id)).where(
+            cast(AsnModel.expected_arrival_at, Date) == date.today(),
+            AsnModel.status.notin_(["RECEIVED", "COMPLETED", "CANCELLED", "GRN_POSTED"]),
+        )
+        asns_expected_today_res = await uow.session.execute(asns_expected_today_stmt)
+        asns_expected_today = asns_expected_today_res.scalar() or 0
+
 
 
         total_approved_stmt = select(func.count(PurchaseOrderModel.id)).where(
@@ -233,6 +287,13 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
             active_suppliers=active_suppliers,
             total_suppliers=total_suppliers,
             open_pos=open_pos,
+            pending_approvals=pending_approvals,
+            pending_quotations=pending_quotations,
+            awaiting_supplier_confirmation=awaiting_supplier_confirmation,
+            overdue_pos=overdue_pos,
+            partially_received_pos=partially_received_pos,
+            rfqs_closing_today=rfqs_closing_today,
+            asns_expected_today=asns_expected_today,
             compliance_rate=round(compliance_rate, 1) if compliance_rate is not None else None,
             compliance_target=99.0,
             total_po_value=total_po_value,
@@ -1685,7 +1746,10 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             if selected_quotation_uuid and str(getattr(existing_po, "quotation_id", "")) != str(selected_quotation_uuid):
                 quote_res = await uow.session.execute(
                     select(QuotationModel)
-                    .options(selectinload(QuotationModel.lines))
+                    .options(
+                        selectinload(QuotationModel.lines),
+                        selectinload(QuotationModel.documents),
+                    )
                     .where(
                         QuotationModel.id == selected_quotation_uuid,
                         QuotationModel.rfq_id == rfq_uuid,
@@ -1734,7 +1798,10 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         if selected_quotation_uuid:
             quo_filters.append(QuotationModel.id == selected_quotation_uuid)
 
-        quo_stmt = select(QuotationModel).options(selectinload(QuotationModel.lines)).where(
+        quo_stmt = select(QuotationModel).options(
+            selectinload(QuotationModel.lines),
+            selectinload(QuotationModel.documents),
+        ).where(
             *quo_filters
         ).order_by(QuotationModel.created_at.desc()).limit(1)
         q_res = await uow.session.execute(quo_stmt)
@@ -1771,9 +1838,11 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             supplier_email=supplier.contact.primary_email if supplier and supplier.contact else None,
             supplier_gstin=supplier.gstin if supplier else None,
             supplier_address=supplier.address.registered_address if supplier and supplier.address else None,
+            billing_address=supplier.address.registered_address if supplier and supplier.address else None,
             warehouse_id=rfq.warehouse,
             delivery_warehouse_name=rfq.warehouse,
             delivery_address="Main Industrial Area, Phase 2, Pune, MH",
+            delivery_terms=getattr(quotation, "delivery_time", None) if quotation else None,
             department=mr_dept,
             status="PENDING_FINANCE",
             total_amount=total_amount,
@@ -1783,7 +1852,17 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             freight_charges=freight_charges,
             additional_charges=Decimal("0.0"),
             expected_delivery_date=rfq.required_delivery_date,
-            payment_terms=quotation.payment_terms,
+            payment_terms=quotation.payment_terms if quotation else None,
+            warranty=getattr(quotation, "warranty", None) if quotation else None,
+            notes=request.selection_comments,
+            attachments=[
+                {
+                    "document_type": document.document_type,
+                    "file_name": document.file_name,
+                    "file_url": document.file_url,
+                }
+                for document in (getattr(quotation, "documents", []) if quotation else [])
+            ],
             procurement_officer=rfq.procurement_officer,
             selection_reason=request.selection_reason,
             procurement_comments=request.selection_comments,
@@ -1793,7 +1872,14 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
 
         new_po.history.append(POApprovalHistoryModel(
             id=uuid.uuid4(),
-            status="SUBMITTED",
+            status="DRAFT",
+            actor_name=_user.username,
+            comments="PO draft created from selected quotation"
+        ))
+
+        new_po.history.append(POApprovalHistoryModel(
+            id=uuid.uuid4(),
+            status="PENDING_FINANCE",
             actor_name=_user.username,
             comments="Proposal submitted for Finance Approval"
         ))
@@ -1923,6 +2009,7 @@ async def list_purchase_orders(
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
             selectinload(PurchaseOrderModel.rfq),
@@ -1964,6 +2051,7 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         .options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
             selectinload(PurchaseOrderModel.rfq),
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
         )
@@ -2165,6 +2253,7 @@ async def get_purchase_order_by_number(po_number: str, uow: UnitOfWork = Depends
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
         ).where(PurchaseOrderModel.po_number == po_number)
@@ -2188,6 +2277,7 @@ async def get_purchase_order(id: str, uow: UnitOfWork = Depends(get_uow)):
     stmt = select(PurchaseOrderModel).options(
         selectinload(PurchaseOrderModel.items),
         selectinload(PurchaseOrderModel.history),
+        selectinload(PurchaseOrderModel.revisions),
         selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
         selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
     ).where(PurchaseOrderModel.id == uuid.UUID(id))
@@ -2204,6 +2294,7 @@ async def list_finance_approvals(uow: UnitOfWork = Depends(get_uow)):
     stmt = select(PurchaseOrderModel).options(
         selectinload(PurchaseOrderModel.items),
         selectinload(PurchaseOrderModel.history),
+        selectinload(PurchaseOrderModel.revisions),
         selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
         selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
         joinedload(PurchaseOrderModel.rfq)
@@ -2463,6 +2554,192 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/purchase-orders/{id}/acknowledge")
+async def acknowledge_purchase_order(id: str, request: dict | None = None, uow: UnitOfWork = Depends(get_uow), _user: CurrentUser = Depends(get_current_user)):
+    try:
+        po_id = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid purchase order ID")
+
+    result = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(selectinload(PurchaseOrderModel.history))
+        .where(PurchaseOrderModel.id == po_id)
+    )
+    po = result.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+
+    if po.status not in {"SENT", "ACKNOWLEDGED"}:
+        raise HTTPException(status_code=400, detail="Only sent purchase orders can be acknowledged")
+
+    comments = (request or {}).get("comments") or "Supplier acknowledged the purchase order"
+    if po.status != "ACKNOWLEDGED":
+        po.status = "ACKNOWLEDGED"
+        po.history.append(POApprovalHistoryModel(
+            id=uuid.uuid4(),
+            status="ACKNOWLEDGED",
+            actor_name=_user.username or po.supplier_name or "supplier",
+            comments=comments,
+        ))
+
+        uow.session.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="PROCUREMENT",
+            title="PO Acknowledged",
+            message=f"Supplier acknowledged Purchase Order {po.po_number}.",
+            link=f"/purchase-order?poId={po.id}",
+        ))
+
+        await uow.commit()
+
+    return {"status": "success", "po_number": po.po_number}
+
+
+@router.post("/purchase-orders/{id}/amend", response_model=PurchaseOrderResponse)
+async def amend_purchase_order(
+    id: str,
+    request: PurchaseOrderAmendmentRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        po_id = uuid.UUID(id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid purchase order ID") from exc
+
+    if not request.reason.strip():
+        raise HTTPException(status_code=400, detail="Amendment reason is mandatory")
+
+    result = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(
+            selectinload(PurchaseOrderModel.items),
+            selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
+        )
+        .where(PurchaseOrderModel.id == po_id)
+    )
+    po = result.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if po.status in {"CLOSED", "CANCELLED", "FULLY_RECEIVED"}:
+        raise HTTPException(status_code=400, detail="Closed, cancelled, or fully received POs cannot be amended")
+
+    allowed_fields = {
+        "expected_delivery_date": "expected_delivery_date",
+        "payment_terms": "payment_terms",
+        "delivery_terms": "delivery_terms",
+        "warranty": "warranty",
+        "billing_address": "billing_address",
+        "delivery_address": "delivery_address",
+        "notes": "notes",
+        "freight_charges": "freight_charges",
+        "additional_charges": "additional_charges",
+        "discount_amount": "discount_amount",
+        "tax_amount": "tax_amount",
+    }
+
+    actor = _user.username or "system"
+    reason = request.reason.strip()
+    next_revision = int(getattr(po, "revision_number", None) or 1) + 1
+    revisions: list[PORevisionModel] = []
+
+    def stringify(value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
+
+    def add_revision(field: str, old_value, new_value) -> None:
+        revisions.append(PORevisionModel(
+            id=uuid.uuid4(),
+            purchase_order_id=po.id,
+            revision_number=next_revision,
+            changed_field=field,
+            old_value=stringify(old_value),
+            new_value=stringify(new_value),
+            changed_by=actor,
+            reason=reason,
+        ))
+
+    for incoming_field, value in (request.changes or {}).items():
+        attr = allowed_fields.get(incoming_field)
+        if not attr:
+            raise HTTPException(status_code=400, detail=f"Field cannot be amended: {incoming_field}")
+
+        if attr == "expected_delivery_date" and value:
+            new_value = datetime.strptime(str(value), "%Y-%m-%d").date()
+        elif attr in {"freight_charges", "additional_charges", "discount_amount", "tax_amount"}:
+            new_value = Decimal(str(value or 0))
+        else:
+            new_value = value
+
+        old_value = getattr(po, attr, None)
+        if stringify(old_value) != stringify(new_value):
+            add_revision(attr, old_value, new_value)
+            setattr(po, attr, new_value)
+
+    items_by_code = {item.material_code: item for item in po.items}
+    for line_change in request.items:
+        item = items_by_code.get(line_change.material_code)
+        if not item:
+            raise HTTPException(status_code=400, detail=f"PO item not found: {line_change.material_code}")
+
+        for attr in ("quantity", "unit_price", "discount", "tax"):
+            new_value = getattr(line_change, attr)
+            if new_value is None:
+                continue
+            old_value = getattr(item, attr)
+            if Decimal(str(old_value)) != Decimal(str(new_value)):
+                add_revision(f"item.{item.material_code}.{attr}", old_value, new_value)
+                setattr(item, attr, Decimal(str(new_value)))
+
+    if not revisions:
+        return _to_po_response(po, quotation=await _get_purchase_order_quotation(uow.session, po))
+
+    po.revision_number = next_revision
+    po.subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
+    taxable_amount = max(po.subtotal - Decimal(str(po.discount_amount or 0)), Decimal("0.0"))
+    po.total_amount = (
+        taxable_amount
+        + Decimal(str(po.tax_amount or 0))
+        + Decimal(str(po.freight_charges or 0))
+        + Decimal(str(po.additional_charges or 0))
+    )
+    po.updated_at = datetime.now()
+
+    for revision in revisions:
+        uow.session.add(revision)
+
+    po.history.append(POApprovalHistoryModel(
+        id=uuid.uuid4(),
+        status="AMENDED",
+        actor_name=actor,
+        comments=f"Revision {next_revision}: {reason}",
+    ))
+
+    await uow.commit()
+    await uow.session.refresh(po)
+
+    refreshed = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(
+            selectinload(PurchaseOrderModel.items),
+            selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
+        )
+        .where(PurchaseOrderModel.id == po.id)
+    )
+    saved_po = refreshed.scalar_one()
+    return _to_po_response(saved_po, quotation=await _get_purchase_order_quotation(uow.session, saved_po))
+
+
 @router.post("/purchase-orders/{id}/resubmit")
 async def resubmit_purchase_order(id: str, request: dict, uow: UnitOfWork = Depends(get_uow), _user: CurrentUser = Depends(get_current_user)):
     try:
@@ -2560,6 +2837,7 @@ def _to_po_response(
         po_number=po.po_number,
         po_date=po.po_date or date.today(),
         status=po.status,
+        revision_number=getattr(po, "revision_number", 1) or 1,
         rfq_id=str(po.rfq_id) if po.rfq_id else None,
         rfq_number=rfq_number,
         quotation_id=(
@@ -2575,6 +2853,7 @@ def _to_po_response(
         supplier_email=getattr(po, "supplier_email", None),
         supplier_gstin=getattr(po, "supplier_gstin", None),
         supplier_address=getattr(po, "supplier_address", None),
+        billing_address=getattr(po, "billing_address", None) or getattr(po, "supplier_address", None),
         warehouse_id=po.warehouse_id,
         delivery_warehouse_name=getattr(po, "delivery_warehouse_name", None),
         delivery_address=getattr(po, "delivery_address", None),
@@ -2588,6 +2867,20 @@ def _to_po_response(
         additional_charges=getattr(po, "additional_charges", Decimal("0.0")),
         expected_delivery_date=po.expected_delivery_date,
         payment_terms=getattr(po, "payment_terms", None),
+        delivery_terms=getattr(po, "delivery_terms", None) or (getattr(response_quotation, "delivery_time", None) if response_quotation else None),
+        warranty=getattr(po, "warranty", None) or (getattr(response_quotation, "warranty", None) if response_quotation else None),
+        notes=getattr(po, "notes", None) or getattr(po, "procurement_comments", None),
+        attachments=(
+            getattr(po, "attachments", None)
+            or [
+                {
+                    "document_type": document.document_type,
+                    "file_name": document.file_name,
+                    "file_url": document.file_url,
+                }
+                for document in (getattr(response_quotation, "documents", []) if response_quotation else [])
+            ]
+        ),
         procurement_officer=getattr(po, "procurement_officer", None),
         selection_reason=getattr(po, "selection_reason", None),
         procurement_comments=getattr(po, "procurement_comments", None),
@@ -2618,6 +2911,18 @@ def _to_po_response(
                 created_at=h.created_at
             )
             for h in (po.history or [])
+        ],
+        revisions=[
+            PORevisionSchema(
+                revision_number=r.revision_number,
+                changed_field=r.changed_field,
+                old_value=r.old_value,
+                new_value=r.new_value,
+                changed_by=r.changed_by,
+                changed_at=r.changed_at,
+                reason=r.reason,
+            )
+            for r in sorted((getattr(po, "revisions", None) or []), key=lambda entry: (entry.revision_number, entry.changed_at))
         ],
         created_at=getattr(po, "created_at", None) or datetime.now(),
         updated_at=getattr(po, "updated_at", None) or getattr(po, "created_at", None) or datetime.now()
@@ -3347,6 +3652,11 @@ async def create_asn(
         ).where(AsnModel.id == asn_id.value)
         res = await uow.session.execute(stmt)
         asn = res.scalar_one()
+        asn.invoice_number = request.invoice_number
+        asn.invoice_date = request.invoice_date
+        asn.challan_number = request.challan_number
+        asn.challan_date = request.challan_date
+        await uow.commit()
 
         return AsnResponse(
             id=str(asn.id),
@@ -3369,6 +3679,10 @@ async def create_asn(
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
+            invoice_number=asn.invoice_number,
+            invoice_date=asn.invoice_date,
+            challan_number=asn.challan_number,
+            challan_date=asn.challan_date,
             documents=[AsnDocumentSchema(
                 document_type=d.document_type,
                 file_name=d.file_name,
@@ -3478,6 +3792,10 @@ async def list_asns(
                     number_of_packages=asn.number_of_packages,
                     package_type=asn.package_type,
                     shipping_method=asn.shipping_method,
+                    invoice_number=asn.invoice_number,
+                    invoice_date=asn.invoice_date,
+                    challan_number=asn.challan_number,
+                    challan_date=asn.challan_date,
                     warehouse_status=warehouse_entry.status if warehouse_entry else None,
                     warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
                     assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -3552,6 +3870,10 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
+            invoice_number=asn.invoice_number,
+            invoice_date=asn.invoice_date,
+            challan_number=asn.challan_number,
+            challan_date=asn.challan_date,
             warehouse_status=warehouse_entry.status if warehouse_entry else None,
             warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
             assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -3627,6 +3949,10 @@ async def resubmit_asn(
         asn.number_of_packages = request.number_of_packages
         asn.package_type = request.package_type
         asn.shipping_method = request.shipping_method
+        asn.invoice_number = request.invoice_number
+        asn.invoice_date = request.invoice_date
+        asn.challan_number = request.challan_number
+        asn.challan_date = request.challan_date
         asn.status = "DISPATCHED"
 
 
@@ -3706,6 +4032,10 @@ async def resubmit_asn(
         number_of_packages=asn.number_of_packages,
         package_type=asn.package_type,
         shipping_method=asn.shipping_method,
+        invoice_number=asn.invoice_number,
+        invoice_date=asn.invoice_date,
+        challan_number=asn.challan_number,
+        challan_date=asn.challan_date,
         documents=[AsnDocumentSchema(
             document_type=document.document_type,
             file_name=document.file_name,
@@ -4143,8 +4473,7 @@ async def get_user_navigation(
                 {"label": "Quotations", "to": "/procurement/quotations", "icon": "FileBadge"},
                 {"label": "Purchase Orders", "to": "/procurement/purchase-orders", "icon": "FileText"},
                 {"label": "ASNs", "to": "/procurement/asns", "icon": "Truck"},
-                {"label": "Quality Issues", "to": "/procurement/quality-issues", "icon": "AlertTriangle"},
-                {"label": "Damage Claims", "to": "/damage-claims", "icon": "FileCheck2"},
+                {"label": "Reports", "to": "/reports", "icon": "BarChart3"},
             ]
         },
         "SUPPLIER": {
