@@ -178,6 +178,17 @@ async def lifespan(app: FastAPI):
                 logger.debug(f"Ensured column {col[0]} exists on asn")
             except Exception: pass
 
+        for col in [
+            ("priority", "VARCHAR(32) DEFAULT 'MEDIUM'"),
+            ("suggested_supplier", "VARCHAR(255)"),
+            ("attachments", "JSONB DEFAULT '[]'::jsonb"),
+            ("approval_history", "JSONB DEFAULT '[]'::jsonb"),
+            ("updated_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        ]:
+            try:
+                await run_ddl(f"ALTER TABLE material_request ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+            except Exception: pass
+
         # Ensure supplier_contact has primary_email and secondary_email
         try:
             await run_ddl("ALTER TABLE supplier_contact RENAME COLUMN email TO primary_email")
@@ -200,6 +211,8 @@ async def lifespan(app: FastAPI):
             ("supplier_code", "VARCHAR(64)"),
             ("rating", "NUMERIC(3,2) DEFAULT 0"),
             ("performance_score", "NUMERIC(5,2) DEFAULT 0"),
+            ("payment_terms", "VARCHAR(128)"),
+            ("credit_period_days", "INTEGER"),
             ("remarks", "VARCHAR(1000)"),
             ("status", "VARCHAR(32) DEFAULT 'Active'"),
             ("main_materials", "JSON"),
@@ -270,6 +283,9 @@ async def lifespan(app: FastAPI):
             ("assigned_store_id", "UUID"),
             ("assigned_store_code", "VARCHAR(64)"),
             ("assigned_store_name", "VARCHAR(128)"),
+            ("assigned_store_manager_id", "VARCHAR(128)"),
+            ("assigned_store_manager_username", "VARCHAR(128)"),
+            ("assigned_store_manager_name", "VARCHAR(128)"),
             ("movement_started_by", "VARCHAR(128)"),
             ("movement_started_at", "TIMESTAMP WITH TIME ZONE"),
             ("dock_checked_in_by", "VARCHAR(128)"),
@@ -304,6 +320,9 @@ async def lifespan(app: FastAPI):
             ("assigned_store_id", "UUID"),
             ("assigned_store_code", "VARCHAR(64)"),
             ("assigned_store_name", "VARCHAR(128)"),
+            ("assigned_store_manager_id", "VARCHAR(128)"),
+            ("assigned_store_manager_username", "VARCHAR(128)"),
+            ("assigned_store_manager_name", "VARCHAR(128)"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE dock_allocation_requests ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
@@ -494,6 +513,8 @@ async def lifespan(app: FastAPI):
 
         try:
             await run_ddl("ALTER TABLE purchase_order ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
+            await run_ddl("ALTER TABLE quotation ADD COLUMN IF NOT EXISTS additional_charges NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE quotation ADD COLUMN IF NOT EXISTS warranty VARCHAR(128)")
         except Exception: pass
 
         # Create po_approval_history table

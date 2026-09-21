@@ -410,9 +410,11 @@ function SubmitQuotation() {
         discount: parseFloat(metaData.discount) || 0,
         tax: parseFloat(metaData.tax) || 0,
         freight_charges: parseFloat(metaData.freightCharges) || 0,
+        additional_charges: parseFloat((metaData as any).otherCharges || "0") || 0,
         delivery_time: metaData.deliveryTime,
         expected_delivery_date: metaData.expectedDeliveryDate || null,
         payment_terms: metaData.paymentTerms,
+        warranty: (metaData as any).warranty || "12 Months Warranty",
         remarks: metaData.remarks,
         documents: uploadedDocs,
       };
@@ -452,7 +454,8 @@ function SubmitQuotation() {
     const discount = calculateDiscountAmount();
     const taxRate = Number(metaData.tax) || 0;
     const freight = Number(metaData.freightCharges) || 0;
-    const taxableAmount = subtotal - discount;
+    const otherCharges = Number((metaData as any).otherCharges) || 0;
+    const taxableAmount = Math.max(0, subtotal - discount);
     const taxAmount = taxableAmount * (taxRate / 100);
 
     return {
@@ -465,7 +468,8 @@ function SubmitQuotation() {
       taxRate,
       taxAmount,
       freight,
-      total: taxableAmount + taxAmount + freight,
+      otherCharges,
+      total: subtotal - discount + taxAmount + freight + otherCharges,
     };
   })();
 

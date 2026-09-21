@@ -51,7 +51,7 @@ type QuotationsSearch = {
   rfqId?: string;
 };
 
-const OTHER_SELECTION_REASON = "Other — Requires Justification";
+const OTHER_SELECTION_REASON = "Other - Requires Justification";
 
 const selectionReasons = [
   { value: "L1 Cost Effective Bid", detail: "Lowest evaluated commercial cost" },
@@ -177,7 +177,7 @@ function Quotations() {
     setTargetQuotationId(quotationId);
     setTargetSupplierId(supplierId);
     setModalMode(mode);
-    setReason(mode === "SELECT" ? "L1 Cost Effective Bid" : "");
+    setReason(mode === "SELECT" ? "Best Overall Value" : "");
     setProcurementComments("");
     setRejectionJustification("");
     setIsModalOpen(true);
@@ -279,6 +279,16 @@ function Quotations() {
     return total;
   };
 
+  const formatMoney = (value: number) =>
+    `INR ${Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0"}`;
+
+  const calculateLowestUnitRate = (q: any) => {
+    const rates = (q.lines || [])
+      .map((line: any) => parseFloat(line.unitPrice || line.unit_price || 0))
+      .filter((rate: number) => Number.isFinite(rate) && rate > 0);
+    return rates.length > 0 ? Math.min(...rates) : 0;
+  };
+
   const bestQuotationId = comparisonQuotations.length > 0
     ? comparisonQuotations.reduce((prev, curr) =>
         (calculateTotal(curr) < calculateTotal(prev) ? curr : prev), comparisonQuotations[0]
@@ -330,7 +340,7 @@ function Quotations() {
                     Bidding Comparison Matrix
                   </h2>
                   <p className="text-sm text-muted-foreground font-medium">
-                    Side-by-side analysis of all received supplier quotations
+                    Side-by-side analysis of price, delivery, terms, warranty, and total value
                   </p>
                 </div>
               </div>
@@ -351,7 +361,7 @@ function Quotations() {
                 <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-success/10 rounded-xl border border-success/20">
                   <Trophy className="size-4 text-success" />
                   <span className="text-[10px] font-black uppercase text-success tracking-wider">
-                    L1 Highlighted
+                    Lowest Total Flagged
                   </span>
                 </div>
               </div>
@@ -387,11 +397,11 @@ function Quotations() {
                               <StatusBadge status={q.status} />
                               {isSelected ? (
                                 <span className="flex items-center gap-1 text-[9px] font-black text-success uppercase bg-success-soft/30 px-2 py-0.5 rounded-md">
-                                  <Sparkles className="size-3" /> Selected L1
+                                  <Sparkles className="size-3" /> Selected
                                 </span>
                               ) : isL1 ? (
                                 <span className="flex items-center gap-1 text-[9px] font-black text-primary uppercase bg-primary-soft/20 px-2 py-0.5 rounded-md">
-                                  <Trophy className="size-3" /> Lowest Bid
+                                  <Trophy className="size-3" /> Lowest Total
                                 </span>
                               ) : null}
                             </div>
@@ -410,6 +420,108 @@ function Quotations() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40 text-xs">
+                  <tr className="bg-muted/30">
+                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                      <div className="flex items-center gap-2 text-primary">
+                        <TableIcon className="size-3.5" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          Decision Criteria
+                        </span>
+                      </div>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td key={`cat-criteria-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                    ))}
+                  </tr>
+
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <span className="text-xs font-bold">Unit Price</span>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-criteria-unit-price`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-sm font-black tabular-nums",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {formatMoney(calculateLowestUnitRate(q))}
+                      </td>
+                    ))}
+                  </tr>
+
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <span className="text-xs font-bold">Delivery</span>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-criteria-delivery`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-xs font-black text-foreground",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {q.deliveryTime || q.delivery_time || q.expectedDeliveryDate || q.expected_delivery_date || "-"}
+                      </td>
+                    ))}
+                  </tr>
+
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <span className="text-xs font-bold">Payment</span>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-criteria-payment`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-xs font-medium leading-relaxed text-muted-foreground",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {q.paymentTerms || q.payment_terms || "-"}
+                      </td>
+                    ))}
+                  </tr>
+
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="size-3.5 text-muted-foreground" />
+                        <span className="text-xs font-bold">Warranty</span>
+                      </div>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-criteria-warranty`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-xs font-black text-foreground",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {q.warranty || "-"}
+                      </td>
+                    ))}
+                  </tr>
+
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <span className="text-xs font-bold">Total</span>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-criteria-total`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-base font-black tabular-nums",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {formatMoney(calculateTotal(q))}
+                      </td>
+                    ))}
+                  </tr>
+
                   {/* Category: Materials */}
                   <tr className="bg-muted/30">
                     <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
@@ -452,7 +564,7 @@ function Quotations() {
                                 <div className="flex items-center justify-between">
                                   <span className="text-[10px] text-muted-foreground font-black uppercase">Rate</span>
                                   <span className="text-sm font-black text-foreground tabular-nums">
-                                    ₹{parseFloat(line.unitPrice || line.unit_price).toLocaleString()}
+                                    {formatMoney(parseFloat(line.unitPrice || line.unit_price))}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -501,7 +613,7 @@ function Quotations() {
                           (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                         )}
                       >
-                        ₹{parseFloat(q.discount || 0).toLocaleString()}
+                        {formatMoney(parseFloat(q.discount || 0))}
                       </td>
                     ))}
                   </tr>
@@ -534,7 +646,7 @@ function Quotations() {
                             (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                           )}
                         >
-                          ₹{taxMoney.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatMoney(taxMoney)}
                           <span className="text-xs font-medium text-muted-foreground ml-1">
                             ({taxRate}%)
                           </span>
@@ -558,7 +670,7 @@ function Quotations() {
                           (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                         )}
                       >
-                        ₹{parseFloat(q.freightCharges || q.freight_charges || 0).toLocaleString()}
+                        {formatMoney(parseFloat(q.freightCharges || q.freight_charges || 0))}
                       </td>
                     ))}
                   </tr>
@@ -590,7 +702,7 @@ function Quotations() {
                           (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                         )}
                       >
-                        {q.deliveryTime || q.delivery_time || "—"}
+                        {q.deliveryTime || q.delivery_time || "-"}
                       </td>
                     ))}
                   </tr>
@@ -607,7 +719,7 @@ function Quotations() {
                           (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                         )}
                       >
-                        {q.expectedDeliveryDate || q.expected_delivery_date || "—"}
+                        {q.expectedDeliveryDate || q.expected_delivery_date || "-"}
                       </td>
                     ))}
                   </tr>
@@ -624,7 +736,7 @@ function Quotations() {
                           (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
                         )}
                       >
-                        {q.paymentTerms || q.payment_terms || "—"}
+                        {q.paymentTerms || q.payment_terms || "-"}
                       </td>
                     ))}
                   </tr>
@@ -711,7 +823,7 @@ function Quotations() {
                             (isSelected || bestQuotationId === q.id) && "bg-primary-hover brightness-110",
                           )}
                         >
-                          ₹{Math.floor(total).toLocaleString()}
+                          {formatMoney(Math.floor(total))}
                         </td>
                       );
                     })}
@@ -736,7 +848,7 @@ function Quotations() {
                           {isSelected ? (
                             <div className="bg-success/10 border border-success/30 rounded-2xl p-4 text-center">
                               <span className="flex items-center justify-center gap-2 text-[10px] font-black uppercase text-success tracking-widest">
-                                <CheckCircle2 className="size-4" /> Selected L1
+                                <CheckCircle2 className="size-4" /> Selected
                               </span>
                             </div>
                           ) : isRejected ? (
@@ -872,7 +984,7 @@ function Quotations() {
                           className="whitespace-nowrap py-2 text-xs"
                         >
                           <span className="font-medium">{selectionReason.value}</span>
-                          <span className="text-muted-foreground"> — {selectionReason.detail}</span>
+                          <span className="text-muted-foreground"> - {selectionReason.detail}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>

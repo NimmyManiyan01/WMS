@@ -89,6 +89,12 @@ class SupplierResponse(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: List[str] = []
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
+    rating: Optional[Decimal] = None
+    performance_score: Optional[Decimal] = None
+    purchase_order_count: int = 0
+    purchase_value: Decimal = Decimal("0")
     address: Optional[SupplierAddressResponse] = None
     contact: Optional[SupplierContactResponse] = None
     bank_info: Optional[SupplierBankInfoResponse] = None
@@ -145,6 +151,8 @@ class CreateSupplierRequest(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: List[str] = []
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
     address: Optional[AddressRequest] = None
     contact: Optional[ContactRequest] = None
     bank_info: Optional[BankInfoRequest] = None
@@ -161,10 +169,17 @@ class UpdateSupplierRequest(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: Optional[List[str]] = None
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
     address: Optional[AddressRequest] = None
     contact: Optional[ContactRequest] = None
     bank_info: Optional[BankInfoRequest] = None
     documents: Optional[List[DocumentRequest]] = None
+    remarks: Optional[str] = None
+
+
+class SupplierStatusRequest(ApiModel):
+    status: str
     remarks: Optional[str] = None
 
 
@@ -238,9 +253,11 @@ class SubmitQuotationRequest(ApiModel):
     discount: Decimal = Field(default=Decimal("0.0"), ge=0)
     tax: Decimal = Field(default=Decimal("0.0"), ge=0, le=100)
     freight_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
+    additional_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
     documents: List[QuotationDocumentSchema] = []
@@ -255,10 +272,12 @@ class QuotationResponse(ApiModel):
     discount: Optional[Decimal] = None
     tax: Optional[Decimal] = None
     freight_charges: Optional[Decimal] = None
+    additional_charges: Optional[Decimal] = None
     total_amount: Optional[Decimal] = None
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
     documents: List[QuotationDocumentSchema] = []
@@ -446,6 +465,8 @@ class CreateMaterialRequest(ApiModel):
     priority: Optional[str] = "MEDIUM"
     required_date: date
     remarks: Optional[str] = None
+    suggested_supplier: Optional[str] = None
+    attachments: List[dict] = []
     items: List[MaterialRequestItemSchema] = Field(..., min_length=1, description="Requested materials list")
 
     @field_validator("items")
@@ -481,8 +502,18 @@ class MaterialRequestResponse(ApiModel):
     priority: str = "MEDIUM"
     required_date: date
     remarks: Optional[str] = None
+    suggested_supplier: Optional[str] = None
+    attachments: List[dict] = []
+    approval_history: List[dict] = []
     items: List[MaterialRequestItemSchema] = []
     created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class MaterialRequestStatusRequest(ApiModel):
+    status: str
+    comments: Optional[str] = None
+    actor: Optional[str] = None
 
 
 class CreateFinishedGoodsRequest(ApiModel):

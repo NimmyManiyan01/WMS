@@ -50,6 +50,8 @@ class SupplierModel(Base):
     main_materials: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     rating: Mapped[float] = mapped_column(Numeric(3, 2), default=0.0, nullable=False)
     performance_score: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0, nullable=False)
+    payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    credit_period_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="Active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -261,9 +263,11 @@ class QuotationModel(Base):
     discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     freight_charges: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
+    additional_charges: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     delivery_time: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     expected_delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    warranty: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     quotation_validity: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
@@ -467,9 +471,14 @@ class MaterialRequestModel(Base):
     department: Mapped[str] = mapped_column(String(64), nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    priority: Mapped[str] = mapped_column(String(32), nullable=False, default="MEDIUM")
     required_date: Mapped[date] = mapped_column(Date, nullable=False)
+    suggested_supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    approval_history: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     items: Mapped[List["MaterialRequestItemModel"]] = relationship(
         "MaterialRequestItemModel", back_populates="request", cascade="all, delete-orphan"

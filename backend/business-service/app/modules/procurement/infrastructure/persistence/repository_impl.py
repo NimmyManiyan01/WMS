@@ -532,9 +532,11 @@ class SqlAlchemyQuotationRepository(QuotationRepository):
         model.discount = quotation.discount
         model.tax = quotation.tax
         model.freight_charges = quotation.freight_charges
+        model.additional_charges = getattr(quotation, "additional_charges", None)
         model.delivery_time = quotation.delivery_time
         model.expected_delivery_date = quotation.expected_delivery_date
         model.payment_terms = quotation.payment_terms
+        model.warranty = getattr(quotation, "warranty", None)
         model.quotation_validity = quotation.quotation_validity
         model.remarks = quotation.remarks
 
@@ -608,9 +610,11 @@ class SqlAlchemyQuotationRepository(QuotationRepository):
             discount=model.discount,
             tax=model.tax,
             freight_charges=model.freight_charges,
+            additional_charges=getattr(model, "additional_charges", None),
             delivery_time=model.delivery_time,
             expected_delivery_date=model.expected_delivery_date,
             payment_terms=model.payment_terms,
+            warranty=getattr(model, "warranty", None),
             quotation_validity=model.quotation_validity,
             remarks=model.remarks,
             documents=[

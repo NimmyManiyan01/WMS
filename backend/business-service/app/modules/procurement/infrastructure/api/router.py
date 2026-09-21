@@ -70,6 +70,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ContactRequest,
     CreateSupplierRequest,
     UpdateSupplierRequest,
+    SupplierStatusRequest,
     DocumentRequest,
     MasterDataCreate,
     MasterDataResponse,
@@ -96,6 +97,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     MaterialRequestResponse,
     MaterialRequestItemSchema,
     CreateMaterialRequest,
+    MaterialRequestStatusRequest,
     SupplierSelectionRequest,
     MaterialStockResponse,
     FinanceApprovalResponse,
@@ -345,37 +347,74 @@ async def get_next_mr_number(uow: UnitOfWork = Depends(get_uow)):
     }
 
 
+MR_STATUS_ALIASES = {
+    "PENDING": "Submitted",
+    "PROCESSED": "Approved",
+    "COMPLETED": "Closed",
+    "CANCELLED": "Closed",
+}
+MR_ALLOWED_STATUSES = {
+    "Draft",
+    "Submitted",
+    "Pending Approval",
+    "Approved",
+    "Rejected",
+    "Converted to RFQ",
+    "Closed",
+}
+MR_STATUS_TRANSITIONS = {
+    "Draft": {"Submitted", "Closed"},
+    "Submitted": {"Pending Approval", "Rejected", "Closed"},
+    "Pending Approval": {"Approved", "Rejected", "Closed"},
+    "Approved": {"Converted to RFQ", "Closed"},
+    "Rejected": {"Draft", "Closed"},
+    "Converted to RFQ": {"Closed"},
+    "Closed": set(),
+}
+
+
+def _normalize_mr_status(value: str | None) -> str:
+    raw = (value or "Submitted").strip()
+    return MR_STATUS_ALIASES.get(raw.upper(), raw)
+
+
+def _material_request_response(m: MaterialRequestModel) -> MaterialRequestResponse:
+    return MaterialRequestResponse(
+        id=str(m.id),
+        request_number=m.request_number,
+        warehouse_id=m.warehouse_id,
+        department=m.department,
+        requested_by=m.requested_by,
+        status=_normalize_mr_status(m.status),
+        priority=getattr(m, "priority", None) or "MEDIUM",
+        required_date=m.required_date,
+        remarks=m.remarks,
+        suggested_supplier=getattr(m, "suggested_supplier", None),
+        attachments=getattr(m, "attachments", None) or [],
+        approval_history=getattr(m, "approval_history", None) or [],
+        items=[
+            MaterialRequestItemSchema(
+                material_id=str(it.material_id) if it.material_id else None,
+                material_variant_id=str(it.material_variant_id) if it.material_variant_id else None,
+                material_code=it.material_code,
+                variant_code=it.variant_code,
+                material_name=it.material_name,
+                quantity=it.quantity,
+                uom=it.uom,
+            )
+            for it in (m.items or [])
+        ],
+        created_at=m.created_at,
+        updated_at=getattr(m, "updated_at", None),
+    )
+
+
 @router.get("/material-requests", response_model=List[MaterialRequestResponse])
 async def list_material_requests(uow: UnitOfWork = Depends(get_uow)):
     stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).order_by(MaterialRequestModel.created_at.desc())
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
-    return [
-        MaterialRequestResponse(
-            id=str(m.id),
-            request_number=m.request_number,
-            warehouse_id=m.warehouse_id,
-            department=m.department,
-            requested_by=m.requested_by,
-            status=m.status,
-            required_date=m.required_date,
-            remarks=m.remarks,
-            items=[
-                MaterialRequestItemSchema(
-                    material_id=str(it.material_id) if it.material_id else None,
-                    material_variant_id=str(it.material_variant_id) if it.material_variant_id else None,
-                    material_code=it.material_code,
-                    variant_code=it.variant_code,
-                    material_name=it.material_name,
-                    quantity=it.quantity,
-                    uom=it.uom
-                )
-                for it in m.items
-            ],
-            created_at=m.created_at
-        )
-        for m in entities
-    ]
+    return [_material_request_response(m) for m in entities]
 
 
 @router.post("/material-requests", status_code=status.HTTP_201_CREATED)
@@ -421,8 +460,19 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
         warehouse_id=request.warehouse_id.strip(),
         department=request.department.strip(),
         requested_by=request.requested_by.strip(),
-        status="PENDING",
+        status="Submitted",
+        priority=(request.priority or "MEDIUM").strip().upper(),
         required_date=request.required_date,
+        suggested_supplier=request.suggested_supplier.strip() if request.suggested_supplier else None,
+        attachments=request.attachments or [],
+        approval_history=[
+            {
+                "status": "Submitted",
+                "actor": request.requested_by.strip(),
+                "comments": "Material request created",
+                "timestamp": datetime.now().isoformat(),
+            }
+        ],
         remarks=request.remarks.strip() if request.remarks else None,
     )
 
@@ -534,6 +584,21 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
     }
 
 
+@router.get("/material-requests/{id}", response_model=MaterialRequestResponse)
+async def get_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
+    try:
+        req_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
+
+    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    res = await uow.session.execute(stmt)
+    req = res.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
+    return _material_request_response(req)
+
+
 @router.post("/material-requests/{id}/process")
 async def process_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     try:
@@ -547,13 +612,22 @@ async def process_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
 
-    if req.status and req.status.upper() != "PENDING":
+    current_status = _normalize_mr_status(req.status)
+    if current_status not in {"Submitted", "Pending Approval"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot process Material Request '{req.request_number}' in '{req.status}' status. Only PENDING requests can be processed."
+            detail=f"Cannot process Material Request '{req.request_number}' in '{current_status}' status."
         )
 
-    req.status = "PROCESSED"
+    req.status = "Approved"
+    history = list(getattr(req, "approval_history", None) or [])
+    history.append({
+        "status": "Approved",
+        "actor": "Procurement",
+        "comments": "Material request approved",
+        "timestamp": datetime.now().isoformat(),
+    })
+    req.approval_history = history
     await uow.commit()
     return {"status": "success"}
 
@@ -571,14 +645,20 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     if not mr:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
 
-    if mr.status and mr.status.upper() in ["PROCESSED", "COMPLETED", "CANCELLED", "REJECTED"]:
+    current_status = _normalize_mr_status(mr.status)
+    if current_status not in {"Draft", "Submitted", "Rejected"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot edit Material Request '{mr.request_number}' because it is in '{mr.status}' status."
+            detail=f"Cannot edit Material Request '{mr.request_number}' because it is in '{current_status}' status."
         )
 
+    mr.warehouse_id = request.warehouse_id.strip()
     mr.department = request.department.strip()
+    mr.requested_by = request.requested_by.strip()
+    mr.priority = (request.priority or "MEDIUM").strip().upper()
     mr.required_date = request.required_date
+    mr.suggested_supplier = request.suggested_supplier.strip() if request.suggested_supplier else None
+    mr.attachments = request.attachments or []
     mr.remarks = request.remarks.strip() if request.remarks else None
 
     mr.items = []
@@ -671,6 +751,54 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     return {"status": "success"}
 
 
+@router.post("/material-requests/{id}/status", response_model=MaterialRequestResponse)
+async def update_material_request_status(
+    id: str,
+    request: MaterialRequestStatusRequest,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    try:
+        req_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
+
+    requested_status = request.status.strip()
+    status_lookup = {s.lower(): s for s in MR_ALLOWED_STATUSES}
+    canonical_status = status_lookup.get(requested_status.lower())
+    if not canonical_status:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported material request status '{request.status}'.",
+        )
+
+    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    res = await uow.session.execute(stmt)
+    mr = res.scalar_one_or_none()
+    if not mr:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
+
+    current_status = _normalize_mr_status(mr.status)
+    allowed_next = MR_STATUS_TRANSITIONS.get(current_status, set())
+    if canonical_status != current_status and canonical_status not in allowed_next:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot move Material Request '{mr.request_number}' from '{current_status}' to '{canonical_status}'.",
+        )
+
+    mr.status = canonical_status
+    history = list(getattr(mr, "approval_history", None) or [])
+    history.append({
+        "status": canonical_status,
+        "actor": (request.actor or "System").strip(),
+        "comments": request.comments.strip() if request.comments else None,
+        "timestamp": datetime.now().isoformat(),
+    })
+    mr.approval_history = history
+    await uow.commit()
+    await uow.session.refresh(mr)
+    return _material_request_response(mr)
+
+
 @router.get("/material-stock", response_model=List[MaterialStockResponse])
 async def list_material_stock(uow: UnitOfWork = Depends(get_uow)):
     try:
@@ -731,6 +859,10 @@ def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
             industry=getattr(entity, 'industry', None),
             gstin=getattr(entity, 'gstin', None),
             main_materials=getattr(entity, 'main_materials', []) if isinstance(getattr(entity, 'main_materials', None), list) else [],
+            payment_terms=getattr(entity, 'payment_terms', None),
+            credit_period_days=getattr(entity, 'credit_period_days', None),
+            rating=getattr(entity, 'rating', None),
+            performance_score=getattr(entity, 'performance_score', None),
             address=SupplierAddressResponse(
                 registered_address=getattr(addr, 'registered_address', None),
                 city=getattr(addr, 'city', None),
@@ -781,6 +913,37 @@ def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
             supplier_name=getattr(entity, 'supplier_name', "Mapping Error"),
             created_at=datetime.now()
         )
+
+
+SUPPLIER_STATUSES = {"Draft", "Pending Approval", "Active", "Suspended", "Blocked"}
+REQUIRED_ACTIVE_DOCUMENTS = {"GST_CERTIFICATE", "CANCELLED_CHEQUE"}
+
+
+def _normalize_document_type(value: str) -> str:
+    return str(value or "").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def _supplier_activation_gaps(entity: SupplierModel) -> list[str]:
+    gaps: list[str] = []
+    if not getattr(entity, "registered_company_name", None):
+        gaps.append("registered company name")
+    if not getattr(entity, "gstin", None):
+        gaps.append("GSTIN")
+    if not getattr(entity, "category", None):
+        gaps.append("supplier category")
+    if not getattr(entity, "address", None):
+        gaps.append("registered address")
+    if not getattr(entity, "contact", None):
+        gaps.append("primary contact")
+    if not getattr(entity, "bank_info", None):
+        gaps.append("bank details")
+
+    docs = getattr(entity, "documents", None) or []
+    uploaded_types = {_normalize_document_type(getattr(doc, "document_type", "")) for doc in docs}
+    missing_docs = sorted(REQUIRED_ACTIVE_DOCUMENTS - uploaded_types)
+    if missing_docs:
+        gaps.append(f"required documents: {', '.join(missing_docs)}")
+    return gaps
 
 
 @router.post("/suppliers/documents")
@@ -893,6 +1056,11 @@ async def create_supplier(
         )
         supplier_id = await use_case.handle(command)
         entity = await repo.find_by_id(supplier_id)
+        if entity:
+            entity.payment_terms = request.payment_terms
+            entity.credit_period_days = request.credit_period_days
+            entity.status = "Pending Approval"
+            await uow.commit()
         return _response_from_entity(entity)
     except DomainRuleViolationException as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -973,7 +1141,16 @@ async def get_supplier(
         if not entity:
             raise HTTPException(status_code=404, detail="Supplier not found")
 
-        return _response_from_entity(entity)
+        response = _response_from_entity(entity)
+        history_stmt = select(
+            func.count(PurchaseOrderModel.id),
+            func.coalesce(func.sum(PurchaseOrderModel.total_amount), Decimal("0")),
+        ).where(PurchaseOrderModel.supplier_id == supplier_id)
+        history_result = await uow.session.execute(history_stmt)
+        po_count, purchase_value = history_result.one()
+        response.purchase_order_count = int(po_count or 0)
+        response.purchase_value = purchase_value or Decimal("0")
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -1015,6 +1192,12 @@ async def update_supplier(
             updated_by=_user.username,
         )
         await use_case.handle(command)
+        model = await uow.session.get(SupplierModel, supplier_id)
+        if model:
+            if request.payment_terms is not None:
+                model.payment_terms = request.payment_terms
+            if request.credit_period_days is not None:
+                model.credit_period_days = request.credit_period_days
         await uow.commit()
 
 
@@ -1030,6 +1213,57 @@ async def update_supplier(
         return _response_from_entity(entity)
     except Exception as e:
         logger.error(f"Update supplier {id} failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suppliers/{id}/status", response_model=SupplierResponse)
+async def update_supplier_status(
+    id: str,
+    request: SupplierStatusRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> SupplierResponse:
+    try:
+        requested_status = request.status.strip()
+        status_lookup = {s.lower(): s for s in SUPPLIER_STATUSES}
+        canonical_status = status_lookup.get(requested_status.lower())
+        if not canonical_status:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unsupported supplier status '{request.status}'.",
+            )
+
+        supplier_id = uuid.UUID(str(id))
+        stmt = select(SupplierModel).options(
+            selectinload(SupplierModel.address),
+            selectinload(SupplierModel.contact),
+            selectinload(SupplierModel.bank_info),
+            selectinload(SupplierModel.documents),
+        ).where(SupplierModel.id == supplier_id)
+        res = await uow.session.execute(stmt)
+        entity = res.scalar_one_or_none()
+        if not entity:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+
+        if canonical_status == "Active":
+            gaps = _supplier_activation_gaps(entity)
+            if gaps:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Supplier cannot become Active until these are complete: " + ", ".join(gaps),
+                )
+
+        entity.status = canonical_status
+        entity.updated_by = _user.username
+        if request.remarks:
+            entity.remarks = request.remarks
+        await uow.commit()
+        await uow.session.refresh(entity)
+        return _response_from_entity(entity)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update supplier status {id} failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1099,6 +1333,20 @@ async def create_rfq(
     _user: CurrentUser = Depends(get_current_user),
 ) -> RfqResponse:
     try:
+        if request.material_request_number:
+            mr_stmt = select(MaterialRequestModel).where(
+                MaterialRequestModel.request_number == request.material_request_number
+            )
+            mr_res = await uow.session.execute(mr_stmt)
+            mr = mr_res.scalar_one_or_none()
+            if mr:
+                mr_status = _normalize_mr_status(mr.status)
+                if mr_status != "Approved":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Material Request '{request.material_request_number}' must be Approved before RFQ creation.",
+                    )
+
         repo = SqlAlchemyRfqRepository(uow.session)
         use_case = CreateRfqUseCase(repo)
         command = CreateRfqCommand(
@@ -1112,6 +1360,22 @@ async def create_rfq(
             remarks=request.remarks,
         )
         rfq_id = await use_case.handle(command)
+        if request.material_request_number:
+            mr_stmt = select(MaterialRequestModel).where(
+                MaterialRequestModel.request_number == request.material_request_number
+            )
+            mr_res = await uow.session.execute(mr_stmt)
+            mr = mr_res.scalar_one_or_none()
+            if mr:
+                mr.status = "Converted to RFQ"
+                history = list(getattr(mr, "approval_history", None) or [])
+                history.append({
+                    "status": "Converted to RFQ",
+                    "actor": _user.username,
+                    "comments": f"RFQ created from material request {request.material_request_number}",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                mr.approval_history = history
         await uow.commit()
 
         if request.supplier_ids:
@@ -1600,7 +1864,8 @@ def _calculate_quotation_financials(
     taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
     tax_amount = taxable_amount * tax_percentage / Decimal("100")
     freight_charges = Decimal(str(quotation.freight_charges or 0))
-    total_amount = taxable_amount + tax_amount + freight_charges
+    additional_charges = Decimal(str(getattr(quotation, "additional_charges", 0) or 0))
+    total_amount = taxable_amount + tax_amount + freight_charges + additional_charges
     return subtotal, discount_amount, tax_percentage, tax_amount, freight_charges, total_amount
 
 async def _get_purchase_order_quotation(
@@ -2414,6 +2679,124 @@ async def get_rfq(
     return _to_rfq_response(entity)
 
 
+@router.put("/rfqs/{id}", response_model=RfqResponse)
+async def revise_rfq(
+    id: str,
+    request: CreateRfqRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> RfqResponse:
+    """Revises an existing RFQ details, supplier list, items, or delivery requirements."""
+    try:
+        rfq_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid RFQ UUID")
+
+    stmt = (
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers),
+        )
+        .where(RfqModel.id == rfq_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    rfq = res.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    if rfq.status in {"CLOSED", "CANCELLED"}:
+        raise HTTPException(status_code=409, detail=f"Cannot revise RFQ in status {rfq.status}")
+
+    if request.warehouse:
+        rfq.warehouse = request.warehouse
+    if request.procurement_officer:
+        rfq.procurement_officer = request.procurement_officer
+    if request.required_delivery_date:
+        rfq.required_delivery_date = request.required_delivery_date
+    if request.closing_date:
+        rfq.closing_date = request.closing_date
+    if request.remarks:
+        rfq.remarks = request.remarks
+
+    if request.supplier_ids is not None:
+        sup_uuids = [uuid.UUID(s) for s in request.supplier_ids if s]
+        sup_res = await uow.session.execute(select(SupplierModel).where(SupplierModel.id.in_(sup_uuids)))
+        rfq.suppliers = list(sup_res.scalars().all())
+
+    if request.items:
+        rfq.items = []
+        for item in request.items:
+            rfq.items.append(
+                RfqItemModel(
+                    id=uuid.uuid4(),
+                    rfq_id=rfq.id,
+                    material_code=item.material_code,
+                    material_name=item.material_name,
+                    category=item.category or "Raw Materials",
+                    quantity=item.quantity,
+                    uom=item.uom or "PCS",
+                )
+            )
+
+    await uow.commit()
+
+    refreshed_res = await uow.session.execute(
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers).options(
+                selectinload(SupplierModel.address),
+                selectinload(SupplierModel.contact),
+            ),
+        )
+        .where(RfqModel.id == rfq.id)
+    )
+    return _to_rfq_response(refreshed_res.scalar_one())
+
+
+@router.post("/rfqs/{id}/cancel", response_model=RfqResponse)
+async def cancel_rfq(
+    id: str,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> RfqResponse:
+    """Cancels an RFQ and marks its status as CANCELLED."""
+    try:
+        rfq_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid RFQ UUID")
+
+    stmt = (
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers),
+        )
+        .where(RfqModel.id == rfq_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    rfq = res.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    rfq.status = "CANCELLED"
+    await uow.commit()
+
+    refreshed_res = await uow.session.execute(
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers).options(
+                selectinload(SupplierModel.address),
+                selectinload(SupplierModel.contact),
+            ),
+        )
+        .where(RfqModel.id == rfq.id)
+    )
+    return _to_rfq_response(refreshed_res.scalar_one())
+
+
 def _to_rfq_response(rfq) -> RfqResponse:
     items = []
     for item in rfq.items:
@@ -2834,10 +3217,12 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
         discount=getattr(q, "discount", Decimal("0")) or Decimal("0"),
         tax=getattr(q, "tax", Decimal("0")) or Decimal("0"),
         freight_charges=getattr(q, "freight_charges", Decimal("0")) or Decimal("0"),
+        additional_charges=getattr(q, "additional_charges", Decimal("0")) or Decimal("0"),
         total_amount=getattr(q, "total_amount", Decimal("0")),
         delivery_time=getattr(q, "delivery_time", None),
         expected_delivery_date=getattr(q, "expected_delivery_date", None),
         payment_terms=getattr(q, "payment_terms", None),
+        warranty=getattr(q, "warranty", None),
         quotation_validity=getattr(q, "quotation_validity", None),
         remarks=getattr(q, "remarks", None),
         documents=documents,
