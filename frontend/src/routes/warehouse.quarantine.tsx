@@ -118,6 +118,11 @@ function WarehouseQuarantinePage() {
   const [confirmScrapOpen, setConfirmScrapOpen] = useState(false);
 
   const user = getUserInfo();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const fetchRecords = async () => {
     try {
@@ -207,7 +212,7 @@ function WarehouseQuarantinePage() {
   return (
     <AppShell
       title="Warehouse Quarantine & Damaged Material"
-      subtitle={`Warehouse Review & Disposition Console · Authenticated as ${user?.username || "Warehouse"}`}
+      subtitle={`Warehouse Review & Disposition Console · Authenticated as ${mounted ? (user?.username || "Warehouse") : "Warehouse"}`}
       actions={
         <Button
           variant="outline"

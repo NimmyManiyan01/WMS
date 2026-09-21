@@ -445,12 +445,30 @@ function MyStorePage() {
   const [confirmingPickup, setConfirmingPickup] = useState(false);
 
   const user = getUserInfo();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const resolveAssignedStore = async () => {
+    const storeKey = user?.store_id || user?.storeId || user?.store_code || user?.storeCode;
+    if (storeKey) {
+      return api.getStore(storeKey);
+    }
+
+    const stores = await api.getStores().catch(() => []);
+    return stores[0] || null;
+  };
 
   const fetchStoreData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const storeData = await api.getMyStore();
+      const storeData = await resolveAssignedStore();
+      if (!storeData) {
+        throw new Error("No assigned store found for this user.");
+      }
       setStore(storeData);
 
       if (storeData?.id) {
@@ -1269,7 +1287,7 @@ function MyStorePage() {
   return (
     <AppShell
       title="Store Management & Putaway Portal"
-      subtitle={`Authenticated as ${user?.username || "Store Keeper"} · Scoped to ${store?.store_name || "Store"}`}
+      subtitle={`Authenticated as ${mounted ? (user?.username || "Store Keeper") : "Store Keeper"} · Scoped to ${store?.store_name || "Store"}`}
       actions={
         <Button
           variant="outline"

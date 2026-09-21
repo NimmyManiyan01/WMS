@@ -23,18 +23,24 @@ import {
   Loader2,
   ShieldCheck,
   Sliders,
-  PanelLeft,
   PanelLeftClose,
   Menu,
   AlertTriangle,
   QrCode,
   PlusCircle,
+  Store,
+  ShieldAlert,
+  DoorOpen,
+  Factory,
+  Users,
+  Inbox,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
+import { getUserInfo } from "@/lib/auth-utils";
 
 const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
@@ -43,16 +49,29 @@ const grnNav = [
   { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList }
 ];
 
+const storeManagerNav = [
+  { label: "My Store Control", to: "/my-store", icon: Store },
+  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
+  { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Inventory", to: "/inventory", icon: Boxes },
+  { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
+  { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
+  { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
+];
+
 const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
+  { label: "Store Management", to: "/my-store", icon: Store },
+  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
   { label: "Material Master", to: "/warehouse/materials", icon: Database },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
+  { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
-  { label: "Dock / Receiving", to: "/dock-management", icon: PackageCheck },
+  { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
@@ -83,6 +102,41 @@ const gateSecurityNav = [
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
 ];
+const ICON_MAP: Record<string, any> = {
+  LayoutDashboard,
+  Building2,
+  ClipboardList,
+  FileQuestion,
+  FileBadge,
+  FileText,
+  Truck,
+  AlertTriangle,
+  FileCheck2,
+  DoorOpen,
+  LogOut,
+  ListOrdered,
+  Boxes,
+  Factory,
+  Users,
+  BarChart3,
+  Settings,
+  Warehouse,
+  Database,
+  PackageCheck,
+  ShieldCheck,
+  QrCode,
+  Bell,
+  Inbox,
+  Store,
+  ShieldAlert,
+  PlusCircle,
+};
+
+function getIconComponent(iconName: any) {
+  if (typeof iconName !== "string") return iconName || LayoutDashboard;
+  return ICON_MAP[iconName] || LayoutDashboard;
+}
+
 export function AppShell({
   children,
   title,
@@ -94,7 +148,7 @@ export function AppShell({
   subtitle?: string;
   actions?: ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -296,6 +350,8 @@ export function AppShell({
     }
     return path === to || (to !== "/dashboard" && path.startsWith(to));
   };
+  const desktopSidebarCollapsed = !sidebarHovered;
+
   return (
     <div className="flex min-h-screen w-full bg-background">
       {mobileSidebarOpen && (
@@ -336,7 +392,7 @@ export function AppShell({
                 const active = isActiveNavItem(item.to);
                 return (
                   <Link
-                    key={item.to}
+                    key={`${item.label}-${item.to}`}
                     to={item.to}
                     title={item.label}
                     className={cn(
@@ -372,18 +428,20 @@ export function AppShell({
       )}
 
       <aside
+        onMouseEnter={() => setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
         className={cn(
           "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-300 md:flex",
-          collapsed ? "w-[76px]" : "w-[264px]",
+          desktopSidebarCollapsed ? "w-[76px]" : "w-[264px]",
         )}
       >
         <div
           className={cn(
             "flex h-16 items-center border-b border-sidebar-border/40 transition-all",
-            collapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
+            desktopSidebarCollapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
           )}
         >
-          {!collapsed ? (
+          {!desktopSidebarCollapsed ? (
             <>
               <div className="flex items-center gap-3 min-w-0">
                 <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
@@ -411,7 +469,7 @@ export function AppShell({
             const active = isActiveNavItem(item.to);
             return (
               <Link
-                key={item.to}
+                key={`${item.label}-${item.to}`}
                 to={item.to}
                 title={item.label}
                 className={cn(
@@ -421,8 +479,8 @@ export function AppShell({
                 )}
               >
                 <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-                {!collapsed && (item as any).badge && (
+                {!desktopSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                {!desktopSidebarCollapsed && (item as any).badge && (
                   <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
                     {(item as any).badge}
                   </span>
@@ -435,25 +493,11 @@ export function AppShell({
         <div className="border-t border-sidebar-border p-3 space-y-1">
           <button
             suppressHydrationWarning
-            onClick={() => setCollapsed((value) => !value)}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent"
-          >
-            {collapsed ? (
-              <PanelLeft className="size-[18px] shrink-0" />
-            ) : (
-              <PanelLeftClose className="size-[18px] shrink-0" />
-            )}
-            {!collapsed && <span>Collapse</span>}
-          </button>
-          <button
-            suppressHydrationWarning
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
           >
             <LogOut className="size-[18px]" />
-            {!collapsed && <span>Logout</span>}
+            {!desktopSidebarCollapsed && <span>Logout</span>}
           </button>
         </div>
       </aside>
@@ -612,6 +656,11 @@ export function StatusBadge({ status }: { status: string }) {
     Blocked: "bg-danger-soft text-destructive border-destructive/25",
     Approved: "bg-success-soft text-success border-success/30",
     APPROVED: "bg-success-soft text-success border-success/30",
+    Draft: "bg-muted text-muted-foreground border-border",
+    Submitted: "bg-primary-soft text-primary border-primary/25",
+    "Pending Approval": "bg-warning-soft text-warning-foreground border-warning/30",
+    "Converted to RFQ": "bg-teal-soft text-teal border-teal/30",
+    Closed: "bg-muted text-muted-foreground border-border",
     "Dock Assigned": "bg-teal-soft text-teal border-teal/30",
     Receiving: "bg-primary-soft text-primary border-primary/25",
     Completed: "bg-success-soft text-success border-success/30",
