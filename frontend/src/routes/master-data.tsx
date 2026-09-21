@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import { ArrowRight, Building2, ClipboardList, Loader2, Plus, RefreshCw, Search } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard, StatCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
@@ -14,25 +14,33 @@ export const Route = createFileRoute("/master-data")({
       {
         name: "description",
         content:
-          "Maintain vendors, vehicles, docks, materials and warehouse topology master records.",
+          "Maintain supplier master records used across procurement and receiving workflows.",
       },
       { property: "og:title", content: "Master Data · NexusWMS" },
-      { property: "og:description", content: "Vendor, vehicle, dock and material master records." },
+      { property: "og:description", content: "Supplier master records for procurement." },
     ],
   }),
   component: MasterData,
 });
 function MasterData() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "blocked">("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const loadSuppliers = async () => {
     setLoading(true);
     setError(null);
     try {
-      setSuppliers(await api.getSuppliers());
+      const [supplierData, requestData] = await Promise.all([
+        api.getSuppliers(),
+        api.getMaterialRequests().catch(() => []),
+      ]);
+      setSuppliers(supplierData);
+      setPendingRequests(
+        requestData.filter((request) => request.status === "Pending Approval").length,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load suppliers.");
     } finally {
@@ -46,7 +54,8 @@ function MasterData() {
     const normalizedQuery = query.trim().toLowerCase();
     return suppliers.filter((supplier) => {
       const matchesStatus =
-        statusFilter === "all" || (supplier.status || "Active").toLowerCase() === statusFilter;
+        statusFilter === "all" ||
+        (supplier.status || "Pending Approval").toLowerCase() === statusFilter;
       const matchesQuery =
         !normalizedQuery ||
         [supplier.supplierName, supplier.registeredCompanyName, supplier.category, supplier.gstin]
@@ -57,19 +66,28 @@ function MasterData() {
   }, [query, statusFilter, suppliers]);
   return (
     <AppShell
-      title="Master data"
-      subtitle="Manage the reference records used across warehouse and procurement operations"
+      title="Supplier Management"
+      subtitle="Manage suppliers used for procurement and warehouse operations"
       actions={
         <Button className="rounded-xl shadow-glow" asChild>
           <Link to="/new-supplier">
-            <Plus className="size-4" /> New supplier
+            <Plus className="size-4" /> Add Supplier
           </Link>
         </Button>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="All suppliers"
+          label="Pending Requests"
+          value={loading ? "…" : String(pendingRequests)}
+          delta="From Warehouse"
+          icon={ClipboardList}
+          tone="warning"
+          to="/procurement/material-requests"
+          showArrow
+        />
+        <StatCard
+          label="Total Suppliers"
           value={loading ? "…" : String(suppliers.length)}
           delta="Vendor master records"
           icon={Building2}
@@ -77,12 +95,12 @@ function MasterData() {
           to="/master-data"
         />
         <StatCard
-          label="Active suppliers"
+          label="Active Suppliers"
           value={
             loading
               ? "…"
               : String(
-                  suppliers.filter((supplier) => (supplier.status || "Active") === "Active").length,
+                  suppliers.filter((supplier) => (supplier.status || "Pending Approval") === "Active").length,
                 )
           }
           delta="Available for operations"
@@ -91,7 +109,7 @@ function MasterData() {
           to="/master-data"
         />
         <StatCard
-          label="Blocked suppliers"
+          label="Blocked Suppliers"
           value={
             loading
               ? "…"
@@ -133,23 +151,21 @@ function MasterData() {
           <div className="mb-4 flex flex-wrap gap-2" aria-label="Supplier status navigation">
             {[
               { id: "all", label: "All suppliers", count: suppliers.length },
+              { id: "draft", label: "Draft", count: suppliers.filter((supplier) => supplier.status === "Draft").length },
               {
-                id: "active",
-                label: "Active",
-                count: suppliers.filter((supplier) => (supplier.status || "Active") === "Active")
-                  .length,
+                id: "pending approval",
+                label: "Pending Approval",
+                count: suppliers.filter((supplier) => (supplier.status || "Pending Approval") === "Pending Approval").length,
               },
-              {
-                id: "blocked",
-                label: "Blocked",
-                count: suppliers.filter((supplier) => supplier.status === "Blocked").length,
-              },
+              { id: "active", label: "Active", count: suppliers.filter((supplier) => supplier.status === "Active").length },
+              { id: "suspended", label: "Suspended", count: suppliers.filter((supplier) => supplier.status === "Suspended").length },
+              { id: "blocked", label: "Blocked", count: suppliers.filter((supplier) => supplier.status === "Blocked").length },
             ].map((item) => (
               <Button
                 key={item.id}
                 variant="outline"
                 size="sm"
-                onClick={() => setStatusFilter(item.id as typeof statusFilter)}
+                onClick={() => setStatusFilter(item.id)}
                 className={cn(
                   "rounded-full",
                   statusFilter === item.id &&
