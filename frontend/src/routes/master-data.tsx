@@ -308,42 +308,83 @@ function MasterData() {
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto px-5">
-              <table className="w-full min-w-[680px] text-sm">
+              <table className="w-full min-w-[780px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 font-medium">Supplier</th>
                     <th className="pb-3 font-medium">Category</th>
                     <th className="pb-3 font-medium">GSTIN</th>
+                    <th className="pb-3 font-medium">Contact</th>
+                    <th className="pb-3 font-medium">Last PO</th>
                     <th className="pb-3 font-medium">Status</th>
+                    <th className="pb-3 font-medium text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredSuppliers.map((supplier) => (
-                    <tr
-                      key={supplier.supplierId}
-                      className="border-b border-border/60 last:border-0"
-                    >
-                      <td className="py-3">
-                        <Link
-                          to="/supplier/$supplierId"
-                          params={{ supplierId: supplier.supplierId }}
-                          className="font-semibold text-primary hover:underline"
-                        >
-                          {supplier.supplierName}
-                        </Link>
-                        <p className="text-[11px] text-muted-foreground">
-                          {supplier.registeredCompanyName ||
-                            supplier.supplierCode ||
-                            supplier.supplierId}
-                        </p>
-                      </td>
-                      <td className="py-3 text-muted-foreground">{supplier.category || "—"}</td>
-                      <td className="py-3 font-mono text-xs">{supplier.gstin || "—"}</td>
-                      <td className="py-3">
-                        <StatusBadge status={supplier.status || "Active"} />
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-border/60">
+                  {filteredSuppliers.map((supplier) => {
+                    const phone =
+                      supplier.contact?.phone ||
+                      supplier.phone ||
+                      supplier.contactPhone ||
+                      "—";
+                    const lastPo =
+                      supplier.lastPoNumber ||
+                      supplier.last_po_number ||
+                      supplier.latestPoNumber ||
+                      "—";
+                    return (
+                      <tr
+                        key={supplier.supplierId || supplier.id}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
+                        <td className="py-3">
+                          <Link
+                            to="/supplier/$supplierId"
+                            params={{ supplierId: supplier.supplierId || supplier.id }}
+                            className="font-semibold text-primary hover:underline"
+                          >
+                            {supplier.supplierName || supplier.supplier_name}
+                          </Link>
+                          <p className="text-[11px] text-muted-foreground">
+                            {supplier.registeredCompanyName ||
+                              supplier.supplierCode ||
+                              supplier.supplier_code ||
+                              supplier.supplierId}
+                          </p>
+                        </td>
+                        <td className="py-3 text-muted-foreground font-medium">
+                          {Array.isArray(supplier.category)
+                            ? supplier.category.join(", ")
+                            : supplier.category || "—"}
+                        </td>
+                        <td className="py-3 font-mono text-xs">{supplier.gstin || "—"}</td>
+                        <td className="py-3 text-xs font-mono text-muted-foreground">
+                          {phone}
+                        </td>
+                        <td className="py-3 font-mono text-xs font-bold text-foreground">
+                          {lastPo}
+                        </td>
+                        <td className="py-3">
+                          <StatusBadge status={supplier.status || "Active"} />
+                        </td>
+                        <td className="py-3 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl h-8 text-xs font-bold"
+                            asChild
+                          >
+                            <Link
+                              to="/supplier/$supplierId"
+                              params={{ supplierId: supplier.supplierId || supplier.id }}
+                            >
+                              View <ArrowRight className="ml-1 size-3.5" />
+                            </Link>
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
