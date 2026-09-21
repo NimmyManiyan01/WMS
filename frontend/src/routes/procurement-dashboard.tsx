@@ -2,7 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import {
   Building2,
+  ClipboardList,
   FileText,
+  FileQuestion,
+  FileBadge,
   Users,
   CheckCircle2,
   Plus,
@@ -11,6 +14,14 @@ import {
   ShieldCheck,
   Loader2,
   Search,
+  Truck,
+  Clock3,
+  AlertTriangle,
+  IndianRupee,
+  PackageCheck,
+  DoorOpen,
+  Warehouse,
+  Boxes,
 } from "lucide-react";
 import {
   Bar,
@@ -42,16 +53,152 @@ export const Route = createFileRoute("/procurement-dashboard")({
   component: ProcurementDashboard,
 });
 
+const procurementModules = [
+  {
+    label: "Suppliers",
+    to: "/master-data",
+    icon: Building2,
+    countKey: "suppliers",
+    tone: "success",
+  },
+  {
+    label: "Material Requests",
+    to: "/procurement/material-requests",
+    icon: ClipboardList,
+    countKey: "requests",
+    tone: "teal",
+  },
+  {
+    label: "RFQs",
+    to: "/procurement/rfqs",
+    icon: FileQuestion,
+    countKey: "rfqs",
+    tone: "warning",
+  },
+  {
+    label: "Quotes",
+    to: "/procurement/quotations",
+    icon: FileBadge,
+    countKey: "quotes",
+    tone: "primary",
+  },
+  {
+    label: "POs",
+    to: "/procurement/purchase-orders",
+    icon: FileText,
+    countKey: "pos",
+    tone: "teal",
+  },
+  {
+    label: "ASNs",
+    to: "/procurement/asns",
+    icon: Truck,
+    countKey: "asns",
+    tone: "success",
+  },
+] as const;
+
+const procurementKpis = [
+  {
+    label: "Pending Approvals",
+    to: "/finance/approvals",
+    icon: Clock3,
+    valueKey: "pendingApprovals",
+    tone: "warning",
+  },
+  {
+    label: "Pending Quotations",
+    to: "/procurement/rfqs",
+    icon: FileBadge,
+    valueKey: "pendingQuotations",
+    tone: "primary",
+  },
+  {
+    label: "POs Awaiting Supplier Confirmation",
+    to: "/procurement/purchase-orders",
+    icon: CheckCircle2,
+    valueKey: "awaitingSupplierConfirmation",
+    tone: "warning",
+  },
+  {
+    label: "Overdue POs",
+    to: "/procurement/purchase-orders",
+    icon: AlertTriangle,
+    valueKey: "overduePos",
+    tone: "danger",
+  },
+  {
+    label: "Partially Received POs",
+    to: "/procurement/purchase-orders",
+    icon: PackageCheck,
+    valueKey: "partiallyReceivedPos",
+    tone: "teal",
+  },
+  {
+    label: "PO Value",
+    to: "/procurement/purchase-orders",
+    icon: IndianRupee,
+    valueKey: "totalPoValue",
+    tone: "success",
+    currency: true,
+  },
+] as const;
+
+function formatInrCompact(value: number): string {
+  if (!Number.isFinite(value)) return "₹0";
+  if (Math.abs(value) >= 10000000) return `₹${(value / 10000000).toFixed(1)}Cr`;
+  if (Math.abs(value) >= 100000) return `₹${(value / 100000).toFixed(1)}L`;
+  return `₹${value.toLocaleString("en-IN")}`;
+}
+
+const receivingFlow = [
+  { label: "Supplier", to: "/master-data", icon: Building2, detail: "Vendor master" },
+  { label: "Material Requests", to: "/procurement/material-requests", icon: ClipboardList, detail: "Warehouse demand approved" },
+  { label: "RFQ", to: "/procurement/rfqs", icon: FileQuestion, detail: "Supplier invited" },
+  { label: "Quotation Comparison", to: "/procurement/quotations", icon: FileBadge, detail: "Selection reason" },
+  { label: "PO Approval", to: "/finance/approvals", icon: CheckCircle2, detail: "Controlled release" },
+  { label: "Supplier Confirmation", to: "/procurement/purchase-orders", icon: Clock3, detail: "Acknowledgement" },
+  { label: "ASN", to: "/procurement/asns", icon: Truck, detail: "Shipment notice" },
+  { label: "Gate Entry", to: "/gate-entry", icon: DoorOpen, detail: "Vehicle verified" },
+  { label: "Dock", to: "/dock-management", icon: Warehouse, detail: "Bay allocated" },
+  { label: "GRN", to: "/grn", icon: FileText, detail: "Goods received" },
+  { label: "Quality Inspection", to: "/procurement/quality-issues", icon: ShieldCheck, detail: "Pass or claim" },
+  { label: "Put Away", to: "/my-store", icon: PackageCheck, detail: "Bin placement" },
+  { label: "Inventory", to: "/inventory", icon: Boxes, detail: "Stock available" },
+] as const;
+
+const threeWayMatchPlan = [
+  { label: "Purchase Order", detail: "Ordered quantity, rate, tax, supplier terms" },
+  { label: "Goods Receipt", detail: "Accepted GRN quantity after receiving and quality" },
+  { label: "Supplier Invoice", detail: "Invoice/challan number, billed quantity and amount" },
+  { label: "3-Way Match", detail: "Auto-pass exact matches; route quantity, price, or tax exceptions to Finance" },
+] as const;
+
 function ProcurementDashboard() {
   const [loading, setLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [pos, setPos] = useState<any[]>([]);
+  const [moduleCounts, setModuleCounts] = useState({
+    suppliers: 0,
+    requests: 0,
+    rfqs: 0,
+    quotes: 0,
+    pos: 0,
+    asns: 0,
+  });
   const [stats, setStats] = useState<any>({
     activeSuppliers: 0,
     activeSuppliersThisMonth: 0,
     totalSuppliers: 0,
     openPos: 0,
+    pendingApprovals: 0,
+    pendingQuotations: 0,
+    awaitingSupplierConfirmation: 0,
+    overduePos: 0,
+    partiallyReceivedPos: 0,
+    rfqsClosingToday: 0,
+    asnsExpectedToday: 0,
     complianceRate: 100,
     totalPoValue: 0,
     trend: [],
@@ -70,16 +217,28 @@ function ProcurementDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [sData, nData, poData, statsData] = await Promise.all([
+      const [sData, nData, poData, statsData, requestData, rfqData, quoteData, asnData] = await Promise.all([
         api.getSuppliers(),
         api.getNotifications("PROCUREMENT"),
         api.getPurchaseOrders(),
         api.getProcurementStats(),
+        api.getMaterialRequests().catch(() => []),
+        api.getRfqs().catch(() => []),
+        api.getQuotations().catch(() => []),
+        api.getAsns().catch(() => []),
       ]);
       setSuppliers(sData);
       setNotifications(nData);
       setPos(poData);
       setStats(statsData);
+      setModuleCounts({
+        suppliers: Array.isArray(sData) ? sData.length : 0,
+        requests: Array.isArray(requestData) ? requestData.length : 0,
+        rfqs: Array.isArray(rfqData) ? rfqData.length : 0,
+        quotes: Array.isArray(quoteData) ? quoteData.length : 0,
+        pos: Array.isArray(poData) ? poData.length : 0,
+        asns: Array.isArray(asnData) ? asnData.length : 0,
+      });
     } catch (err) {
       console.error("Failed to load dashboard data", err);
     } finally {
@@ -157,6 +316,45 @@ function ProcurementDashboard() {
         : "primary",
   }));
 
+  const actionAlerts = [
+    {
+      label: "POs awaiting approval",
+      value: Number(stats.pendingApprovals || 0),
+      tone: "danger",
+      to: "/finance/approvals",
+    },
+    {
+      label: "RFQs closing today",
+      value: Number(stats.rfqsClosingToday || 0),
+      tone: "warning",
+      to: "/procurement/rfqs",
+    },
+    {
+      label: "supplier quotations pending",
+      value: Number(stats.pendingQuotations || 0),
+      tone: "warning",
+      to: "/procurement/rfqs",
+    },
+    {
+      label: "POs overdue",
+      value: Number(stats.overduePos || 0),
+      tone: "danger",
+      to: "/procurement/purchase-orders",
+    },
+    {
+      label: "ASNs expected today",
+      value: Number(stats.asnsExpectedToday || 0),
+      tone: "success",
+      to: "/procurement/asns",
+    },
+  ];
+
+  const alertToneClass = {
+    danger: "border-red-200 bg-red-50 text-red-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-700",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  } as const;
+
   return (
     <AppShell
       title="Procurement Management"
@@ -169,7 +367,38 @@ function ProcurementDashboard() {
         </Button>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-4 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        {procurementModules.map((module) => (
+          <StatCard
+            key={module.label}
+            to={module.to as any}
+            value={loading ? "..." : String(moduleCounts[module.countKey])}
+            label={module.label}
+            icon={module.icon}
+            tone={module.tone}
+            compact
+          />
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {procurementKpis.map((kpi) => {
+          const rawValue = Number(stats[kpi.valueKey] || 0);
+          return (
+            <StatCard
+              key={kpi.label}
+              to={kpi.to as any}
+              value={loading ? "..." : kpi.currency ? formatInrCompact(rawValue) : String(rawValue)}
+              label={kpi.label}
+              icon={kpi.icon}
+              tone={kpi.tone}
+              compact
+            />
+          );
+        })}
+      </div>
+
+      <div className="hidden">
         <StatCard
           label="Active suppliers"
           value={loading ? "..." : String(stats.activeSuppliers)}

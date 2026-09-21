@@ -37,6 +37,9 @@ async def ensure_db_schema_compatible():
                 ("assigned_store_id", "UUID"),
                 ("assigned_store_code", "VARCHAR(64)"),
                 ("assigned_store_name", "VARCHAR(128)"),
+                ("assigned_store_manager_id", "VARCHAR(128)"),
+                ("assigned_store_manager_username", "VARCHAR(128)"),
+                ("assigned_store_manager_name", "VARCHAR(128)"),
                 ("movement_started_by", "VARCHAR(128)"),
                 ("movement_started_at", "TIMESTAMP WITH TIME ZONE"),
                 ("dock_checked_in_by", "VARCHAR(128)"),
@@ -73,6 +76,9 @@ async def ensure_db_schema_compatible():
                 ("assigned_store_id", "UUID"),
                 ("assigned_store_code", "VARCHAR(64)"),
                 ("assigned_store_name", "VARCHAR(128)"),
+                ("assigned_store_manager_id", "VARCHAR(128)"),
+                ("assigned_store_manager_username", "VARCHAR(128)"),
+                ("assigned_store_manager_name", "VARCHAR(128)"),
             ]:
                 try:
                     await session.execute(text(f"ALTER TABLE dock_allocation_requests ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}"))

@@ -177,6 +177,10 @@ function buildAsnPrintHtml(asn: any): string {
             <div class="box"><div class="label">Vehicle</div><div class="value">${escapeHtml(readField(asn, "vehicleNumber", "vehicle_number") || "N/A")}</div></div>
             <div class="box"><div class="label">Driver</div><div class="value">${escapeHtml(readField(asn, "driverName", "driver_name") || "N/A")}</div></div>
             <div class="box"><div class="label">Expected Arrival</div><div class="value">${escapeHtml(readField(asn, "expectedArrivalAt", "expected_arrival_at") ? new Date(readField(asn, "expectedArrivalAt", "expected_arrival_at")).toLocaleDateString() : "N/A")}</div></div>
+            <div class="box"><div class="label">Invoice</div><div class="value">${escapeHtml(readField(asn, "invoiceNumber", "invoice_number") || "N/A")}</div></div>
+            <div class="box"><div class="label">Invoice Date</div><div class="value">${escapeHtml(readField(asn, "invoiceDate", "invoice_date") ? new Date(readField(asn, "invoiceDate", "invoice_date")).toLocaleDateString() : "N/A")}</div></div>
+            <div class="box"><div class="label">Challan</div><div class="value">${escapeHtml(readField(asn, "challanNumber", "challan_number") || "N/A")}</div></div>
+            <div class="box"><div class="label">Challan Date</div><div class="value">${escapeHtml(readField(asn, "challanDate", "challan_date") ? new Date(readField(asn, "challanDate", "challan_date")).toLocaleDateString() : "N/A")}</div></div>
           </section>
           <h2>Shipment Lines</h2>
           <table>
@@ -263,6 +267,10 @@ function Asns() {
         asn.vehicle_number,
         asn.driverName,
         asn.driver_name,
+        asn.invoiceNumber,
+        asn.invoice_number,
+        asn.challanNumber,
+        asn.challan_number,
         status,
       ]
         .filter(Boolean)
@@ -437,6 +445,18 @@ function Asns() {
                         Pkg:{" "}
                         <span className="text-foreground font-bold">
                           {asn.numberOfPackages || 0}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        Invoice:{" "}
+                        <span className="text-foreground font-bold">
+                          {asn.invoiceNumber || asn.invoice_number || "N/A"}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        Challan:{" "}
+                        <span className="text-foreground font-bold">
+                          {asn.challanNumber || asn.challan_number || "N/A"}
                         </span>
                       </span>
                     </div>

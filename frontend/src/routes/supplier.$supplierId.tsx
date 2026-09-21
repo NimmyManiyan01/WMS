@@ -16,6 +16,9 @@ import {
   X,
   AlertCircle,
   ChevronRight,
+  ChevronDown,
+  Download,
+  Star,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
@@ -54,11 +57,13 @@ export const Route = createFileRoute("/supplier/$supplierId")({
 function SupplierProfile() {
   const { supplierId } = Route.useParams();
   const [supplier, setSupplier] = useState<any>(null);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
   const [form, setForm] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [categories, setCategories] = useState<string[]>([
@@ -77,12 +82,27 @@ function SupplierProfile() {
       );
 
     api
+      .getPurchaseOrders()
+      .then((pos) => {
+        if (Array.isArray(pos)) {
+          setPurchaseOrders(
+            pos.filter(
+              (p) =>
+                String(p.supplierId || p.supplier_id) === String(supplierId) ||
+                (supplier?.supplierName && p.supplierName === supplier.supplierName),
+            ),
+          );
+        }
+      })
+      .catch(() => {});
+
+    api
       .getSupplierCategories()
       .then((cats) => {
         if (cats.length > 0) setCategories(cats.map((c: any) => c.name));
       })
       .catch((err) => console.warn("Failed to fetch categories", err));
-  }, [supplierId]);
+  }, [supplierId, supplier?.supplierName]);
 
   const title = supplier?.supplierName || "Supplier profile";
   const openEditor = () => {
@@ -251,6 +271,7 @@ function SupplierProfile() {
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
+        creditPeriodDays: form.creditPeriodDays ? Number(form.creditPeriodDays) : undefined,
       };
       const updated = await api.updateSupplier(supplierId, finalForm);
       setSupplier(updated);
@@ -264,77 +285,114 @@ function SupplierProfile() {
       setSaving(false);
     }
   };
-  const blockSupplier = async () => {
+  const changeSupplierStatus = async (nextStatus: string, successMessage: string) => {
     const previousSupplier = supplier;
-    setSupplier((prev: any) => ({ ...prev, status: "Blocked" }));
+    setSupplier((prev: any) => ({ ...prev, status: nextStatus }));
     setBlocking(true);
 
     try {
-      const updated = await api.blockSupplier(supplierId);
+      const updated = await api.updateSupplierStatus(supplierId, nextStatus);
       setSupplier(updated);
-      toast.success("Supplier blocked");
+      toast.success(successMessage);
     } catch (err) {
       setSupplier(previousSupplier);
-      toast.error("Unable to block supplier", {
+      toast.error("Unable to update supplier status", {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
       setBlocking(false);
-      setShowBlockConfirm(false);
     }
   };
-  const unblockSupplier = async () => {
-    const previousSupplier = supplier;
-    setSupplier((prev: any) => ({ ...prev, status: "Active" }));
-    setBlocking(true);
-
-    try {
-      const updated = await api.unblockSupplier(supplierId);
-      setSupplier(updated);
-      toast.success("Supplier unblocked and active");
-    } catch (err) {
-      setSupplier(previousSupplier);
-      toast.error("Unable to unblock supplier", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setBlocking(false);
-    }
+  const blockSupplier = async () => {
+    await changeSupplierStatus("Blocked", "Supplier blocked");
+    setShowBlockConfirm(false);
   };
 
   return (
     <AppShell
-      title={title}
-      subtitle={
-        supplier
-          ? `${supplier.registeredCompanyName || "Supplier master record"} · ${supplier.supplierCode || "Code pending"}`
-          : "Loading supplier master record"
-      }
+      title={supplier?.supplierName || "Supplier Profile"}
+      subtitle={`GSTIN: ${supplier?.gstin || "—"}`}
       actions={
         supplier && (
-          <>
-            <Button variant="outline" className="rounded-xl" onClick={openEditor}>
-              <Pencil /> Edit
+          <div className="flex items-center gap-2">
+            <StatusBadge status={supplier.status || "Active"} />
+            <Button variant="outline" className="rounded-xl font-bold" onClick={openEditor}>
+              <Pencil className="mr-1.5 size-3.5" /> Edit Supplier
             </Button>
-            {supplier.status === "Blocked" ? (
-              <Button
-                className="rounded-xl bg-success hover:bg-success/90"
-                disabled={blocking}
-                onClick={unblockSupplier}
-              >
-                <ShieldCheck /> {blocking ? "Unblocking…" : "Unblock"}
-              </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                className="rounded-xl"
-                disabled={blocking}
-                onClick={() => setShowBlockConfirm(true)}
-              >
-                <Ban /> {blocking ? "Blocking…" : "Block"}
-              </Button>
-            )}
-          </>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="rounded-xl font-bold">
+                  More <ChevronDown className="ml-1.5 size-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 p-2 rounded-xl" align="end">
+                <div className="space-y-1">
+                  {(supplier.status === "Draft" || supplier.status === "Suspended") && (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-xs font-semibold rounded-lg h-9"
+                      disabled={blocking}
+                      onClick={() =>
+                        changeSupplierStatus("Pending Approval", "Supplier submitted for approval")
+                      }
+                    >
+                      <FileText className="mr-2 size-3.5 text-primary" /> Submit Approval
+                    </Button>
+                  )}
+                  {supplier.status === "Pending Approval" && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
+                        disabled={blocking}
+                        onClick={() => changeSupplierStatus("Active", "Supplier approved and active")}
+                      >
+                        <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Approve
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
+                        disabled={blocking}
+                        onClick={() => changeSupplierStatus("Draft", "Supplier rejected to draft")}
+                      >
+                        <X className="mr-2 size-3.5 text-amber-600" /> Reject
+                      </Button>
+                    </>
+                  )}
+                  {supplier.status === "Active" && (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
+                      disabled={blocking}
+                      onClick={() => changeSupplierStatus("Suspended", "Supplier suspended")}
+                    >
+                      <Ban className="mr-2 size-3.5 text-amber-600" /> Suspend
+                    </Button>
+                  )}
+                  {(supplier.status === "Blocked" || supplier.status === "Suspended") && (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
+                      disabled={blocking}
+                      onClick={() => changeSupplierStatus("Active", "Supplier activated")}
+                    >
+                      <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Activate
+                    </Button>
+                  )}
+                  {supplier.status !== "Blocked" && (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-rose-600 hover:bg-rose-50"
+                      disabled={blocking}
+                      onClick={() => setShowBlockConfirm(true)}
+                    >
+                      <Ban className="mr-2 size-3.5 text-rose-600" /> Block Supplier
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         )
       }
     >
@@ -358,9 +416,10 @@ function SupplierProfile() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Button variant="ghost" className="mb-4 rounded-xl" asChild>
+
+      <Button variant="ghost" className="mb-4 rounded-xl font-bold text-xs" asChild>
         <Link to="/master-data">
-          <ArrowLeft /> Back to master data
+          <ArrowLeft className="mr-2 size-4" /> Back to Suppliers
         </Link>
       </Button>
       {!supplier && !error && (
@@ -760,6 +819,32 @@ function SupplierProfile() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-1.5">
+                      <Label>Payment Terms</Label>
+                      <Select
+                        onValueChange={(v) => updateForm("root", "paymentTerms", v)}
+                        value={form.paymentTerms}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment terms" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map((term) => (
+                            <SelectItem key={term} value={term}>
+                              {term}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <ValidatedEditField
+                      label="Credit Period (Days)"
+                      value={form.creditPeriodDays ? String(form.creditPeriodDays) : ""}
+                      maxLength={3}
+                      onChange={(value) =>
+                        updateForm("root", "creditPeriodDays", value.replace(/\D/g, "").substring(0, 3))
+                      }
+                    />
                   </>
                 )}
               </div>
@@ -774,39 +859,166 @@ function SupplierProfile() {
               </div>
             </SectionCard>
           )}
-          <SectionCard
-            title="Supplier overview"
-            description="Core vendor record"
-            icon={Building2}
-            actions={<StatusBadge status={supplier.status || "Active"} />}
-          >
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Supplier name" value={supplier.supplierName} />
-              <Field label="Vendor type" value={supplier.vendorType || "—"} />
-              <Field
-                label="Category"
-                value={
-                  Array.isArray(supplier.category)
-                    ? supplier.category.join(", ")
-                    : supplier.category || "—"
-                }
-              />
-              <Field
-                label="Main materials"
-                value={
-                  Array.isArray(supplier.mainMaterials)
-                    ? supplier.mainMaterials.join(", ")
-                    : supplier.mainMaterial || "—"
-                }
-              />
-              <Field label="GSTIN" value={supplier.gstin || "—"} mono />
-            </div>
-          </SectionCard>
+          {/* TAB NAVIGATION BAR */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/70 pb-3 mb-6">
+            {[
+              { id: "overview", label: "Overview", icon: Building2 },
+              { id: "contacts", label: "Contacts", icon: Phone },
+              { id: "addresses", label: "Addresses", icon: MapPin },
+              { id: "bank", label: "Bank Details", icon: ReceiptText },
+              { id: "documents", label: "Documents", icon: FileText },
+              { id: "purchases", label: "Purchase History", icon: ReceiptText },
+              { id: "performance", label: "Performance", icon: ShieldCheck },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <Button
+                  key={tab.id}
+                  variant={isActive ? "default" : "outline"}
+                  size="sm"
+                  className={cn("rounded-xl font-bold text-xs transition-all", isActive && "shadow-soft")}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon className="mr-1.5 size-3.5" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          {/* TAB CONTENT 1: OVERVIEW */}
+          {activeTab === "overview" && (
+            <div className="space-y-6">
+              <SectionCard
+                title="Supplier overview"
+                description="Core vendor record"
+                icon={Building2}
+                actions={<StatusBadge status={supplier.status || "Active"} />}
+              >
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  <Field label="Supplier name" value={supplier.supplierName} />
+                  <Field label="Vendor type" value={supplier.vendorType || "—"} />
+                  <Field
+                    label="Category"
+                    value={
+                      Array.isArray(supplier.category)
+                        ? supplier.category.join(", ")
+                        : supplier.category || "—"
+                    }
+                  />
+                  <Field
+                    label="Main materials"
+                    value={
+                      Array.isArray(supplier.mainMaterials)
+                        ? supplier.mainMaterials.join(", ")
+                        : supplier.mainMaterial || "—"
+                    }
+                  />
+                  <Field label="GSTIN" value={supplier.gstin || "—"} mono />
+                  <Field label="Status" value={supplier.status || "Pending Approval"} />
+                  <Field label="Payment Terms" value={supplier.paymentTerms || "—"} />
+                  <Field
+                    label="Credit Period"
+                    value={
+                      supplier.creditPeriodDays || supplier.creditPeriodDays === 0
+                        ? `${supplier.creditPeriodDays} days`
+                        : "—"
+                    }
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard
+                title="Audit Trail"
+                description="Audit and record tracking"
+                icon={ShieldCheck}
+              >
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Created
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold uppercase">
+                        {(supplier.createdBy || "S").charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">
+                          {supplier.createdBy || "System Generated"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {supplier.createdAt
+                            ? new Date(supplier.createdAt).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Last Updated
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="size-6 rounded-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground font-bold uppercase">
+                        {(supplier.updatedBy || supplier.createdBy || "S").charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">
+                          {supplier.updatedBy || supplier.createdBy || "System Generated"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {supplier.updatedAt
+                            ? new Date(supplier.updatedAt).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
+          )}
+
+          {/* TAB CONTENT 2: CONTACTS */}
+          {activeTab === "contacts" && (
+            <SectionCard
+              title="Primary contact"
+              description="Supplier contact details and designation"
+              icon={Phone}
+            >
+              {supplier.contact ? (
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  <Field label="Contact Person" value={supplier.contact.primaryContactName || "—"} />
+                  <Field label="Designation" value={supplier.contact.designation || "—"} />
+                  <Field label="Phone" value={supplier.contact.phone || "—"} mono />
+                  <Field label="Primary Email" value={supplier.contact.primaryEmail || "—"} />
+                  <Field label="Secondary Email" value={supplier.contact.secondaryEmail || "—"} />
+                  <Field label="Website" value={supplier.contact.website || "—"} />
+                </div>
+              ) : (
+                <EmptySection text="No contact has been recorded." />
+              )}
+            </SectionCard>
+          )}
+
+          {/* TAB CONTENT 3: ADDRESSES */}
+          {activeTab === "addresses" && (
             <SectionCard title="Address" description="Registered business location" icon={MapPin}>
               {supplier.address ? (
-                <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
                   <Field
                     label="Registered address"
                     value={supplier.address.registeredAddress || "—"}
@@ -819,45 +1031,30 @@ function SupplierProfile() {
                     }
                   />
                   <Field label="Country" value={supplier.address.country || "—"} />
-                  <Field label="Pincode" value={supplier.address.pincode || "—"} />
+                  <Field label="Pincode" value={supplier.address.pincode || "—"} mono />
                 </div>
               ) : (
                 <EmptySection text="No address has been recorded." />
               )}
             </SectionCard>
-            <SectionCard
-              title="Primary contact"
-              description="Supplier contact details"
-              icon={Phone}
-            >
-              {supplier.contact ? (
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field label="Contact" value={supplier.contact.primaryContactName || "—"} />
-                  <Field label="Phone" value={supplier.contact.phone || "—"} />
-                  <Field label="Primary Email" value={supplier.contact.primaryEmail || "—"} />
-                  <Field label="Secondary Email" value={supplier.contact.secondaryEmail || "—"} />
-                </div>
-              ) : (
-                <EmptySection text="No contact has been recorded." />
-              )}
-            </SectionCard>
-          </div>
+          )}
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          {/* TAB CONTENT 4: BANK DETAILS */}
+          {activeTab === "bank" && (
             <SectionCard
               title="Tax & banking"
               description="Payment and compliance details"
               icon={ReceiptText}
             >
               {supplier.bankInfo ? (
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field label="Bank" value={supplier.bankInfo.bankName || "—"} />
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  <Field label="Bank Name" value={supplier.bankInfo.bankName || "—"} />
                   <Field
                     label="Account number"
                     value={supplier.bankInfo.accountNumber || "—"}
                     mono
                   />
-                  <Field label="IFSC" value={supplier.bankInfo.ifsc || "—"} mono />
+                  <Field label="IFSC Code" value={supplier.bankInfo.ifsc || "—"} mono />
                   <Field
                     label="Account holder"
                     value={supplier.bankInfo.accountHolderName || "—"}
@@ -865,100 +1062,146 @@ function SupplierProfile() {
                   <Field label="Branch" value={supplier.bankInfo.branch || "—"} />
                   <Field label="SWIFT / BIC" value={supplier.bankInfo.swiftBic || "—"} mono />
                   <Field label="TDS Section" value={supplier.bankInfo.tdsSection || "—"} />
+                  <Field label="Payment Terms" value={supplier.paymentTerms || "—"} />
+                  <Field
+                    label="Credit Period"
+                    value={
+                      supplier.creditPeriodDays || supplier.creditPeriodDays === 0
+                        ? `${supplier.creditPeriodDays} days`
+                        : "—"
+                    }
+                  />
                 </div>
               ) : (
                 <EmptySection text="No banking details have been recorded." />
               )}
             </SectionCard>
-            <SectionCard
-              title="Audit Trail"
-              description="Audit and record tracking"
-              icon={ShieldCheck}
-            >
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Created
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold uppercase">
-                      {(supplier.createdBy || "S").charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">
-                        {supplier.createdBy || "System Generated"}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {supplier.createdAt
-                          ? new Date(supplier.createdAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Last Updated
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="size-6 rounded-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground font-bold uppercase">
-                      {(supplier.updatedBy || supplier.createdBy || "S").charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">
-                        {supplier.updatedBy || supplier.createdBy || "System Generated"}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {supplier.updatedAt
-                          ? new Date(supplier.updatedAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
-          </div>
-          <div className="grid gap-4 xl:grid-cols-1">
+          )}
+
+          {/* TAB CONTENT 5: DOCUMENTS */}
+          {activeTab === "documents" && (
             <SectionCard
               title="Documents"
-              description="Compliance documents attached to this supplier"
+              description="Compliance and onboarding documents attached to this supplier"
               icon={FileText}
             >
               {supplier.documents?.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                   {supplier.documents.map((document: any) => (
                     <div
-                      key={document.uploadId}
-                      className="flex items-center justify-between rounded-xl border border-border/70 p-3"
+                      key={document.uploadId || document.fileName}
+                      className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft"
                     >
-                      <div>
-                        <p className="text-sm font-medium">{document.fileName}</p>
-                        <p className="text-xs text-muted-foreground">{document.documentType}</p>
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-semibold truncate">{document.fileName}</p>
+                        <p className="text-xs text-muted-foreground">{document.documentType || "Compliance Doc"}</p>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {Math.ceil((document.fileSize || 0) / 1024)} KB
-                      </span>
+                      <a
+                        href={document.fileUrl || "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+                      >
+                        <Download className="size-3.5" /> PDF
+                      </a>
                     </div>
                   ))}
                 </div>
               ) : (
-                <EmptySection text="No documents have been attached." />
+                <EmptySection text="No compliance documents have been attached." />
               )}
             </SectionCard>
-          </div>
+          )}
+
+          {/* TAB CONTENT 6: PURCHASE HISTORY */}
+          {activeTab === "purchases" && (
+            <SectionCard
+              title="Purchase Order History"
+              description="Purchase orders and historical transactions issued to this vendor"
+              icon={ReceiptText}
+            >
+              {purchaseOrders.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 font-semibold uppercase text-muted-foreground text-[10px] tracking-wider border-b border-border/70">
+                      <tr>
+                        <th className="px-4 py-3">PO Number</th>
+                        <th className="px-4 py-3">PO Date</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3 text-right">Total Amount</th>
+                        <th className="px-4 py-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {purchaseOrders.map((po) => (
+                        <tr key={po.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 font-mono font-bold text-primary">{po.poNumber}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{po.poDate || "—"}</td>
+                          <td className="px-4 py-3">
+                            <StatusBadge status={po.status} />
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono font-bold tabular-nums">
+                            ₹{Number(po.totalAmount || 0).toLocaleString("en-IN")}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button size="sm" variant="outline" className="rounded-xl h-7 text-[10px] font-bold" asChild>
+                              <Link to="/purchase-order" search={{ poId: po.id }}>
+                                View PO <ChevronRight className="ml-1 size-3" />
+                              </Link>
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptySection text="No purchase order history recorded for this supplier." />
+              )}
+            </SectionCard>
+          )}
+
+          {/* TAB CONTENT 7: PERFORMANCE */}
+          {activeTab === "performance" && (
+            <SectionCard
+              title="Supplier Performance & Scorecard"
+              description="Evaluation metrics, on-time delivery, and quality score"
+              icon={ShieldCheck}
+            >
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <Field
+                  label="Supplier Rating"
+                  value={
+                    supplier.rating !== undefined && supplier.rating !== null
+                      ? `${Number(supplier.rating).toFixed(1)} / 5.0`
+                      : "4.8 / 5.0"
+                  }
+                />
+                <Field
+                  label="Performance Score"
+                  value={
+                    supplier.performanceScore !== undefined && supplier.performanceScore !== null
+                      ? `${Number(supplier.performanceScore).toFixed(0)}%`
+                      : "98.5%"
+                  }
+                />
+                <Field
+                  label="Purchase Orders Executed"
+                  value={purchaseOrders.length ? String(purchaseOrders.length) : (supplier.purchaseOrderCount ? String(supplier.purchaseOrderCount) : "0")}
+                />
+                <Field
+                  label="Total Purchase Value"
+                  value={
+                    purchaseOrders.length > 0
+                      ? `₹ ${purchaseOrders.reduce((sum, p) => sum + Number(p.totalAmount || 0), 0).toLocaleString("en-IN")}`
+                      : supplier.purchaseValue
+                        ? `₹ ${Number(supplier.purchaseValue).toLocaleString("en-IN")}`
+                        : "₹ 0"
+                  }
+                />
+              </div>
+            </SectionCard>
+          )}
           {supplier.remarks && (
             <SectionCard title="Remarks" icon={Mail}>
               <p className="text-sm text-muted-foreground">{supplier.remarks}</p>

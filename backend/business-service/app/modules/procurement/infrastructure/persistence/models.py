@@ -326,6 +326,10 @@ class AsnModel(Base):
     number_of_packages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     package_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     shipping_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    invoice_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    challan_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    challan_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     lines: Mapped[List[AsnLineModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
@@ -371,6 +375,7 @@ class PurchaseOrderModel(Base):
     po_number: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     po_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     rfq_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("rfq.id"), nullable=True)
     quotation_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("quotation.id"), nullable=True)
@@ -381,6 +386,11 @@ class PurchaseOrderModel(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     expected_delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    delivery_terms: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    warranty: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    billing_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     procurement_officer: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
@@ -422,6 +432,9 @@ class PurchaseOrderModel(Base):
     history: Mapped[List["POApprovalHistoryModel"]] = relationship(
         "POApprovalHistoryModel", back_populates="purchase_order", cascade="all, delete-orphan"
     )
+    revisions: Mapped[List["PORevisionModel"]] = relationship(
+        "PORevisionModel", back_populates="purchase_order", cascade="all, delete-orphan"
+    )
 
     rfq: Mapped[Optional["RfqModel"]] = relationship("RfqModel")
     quotation: Mapped[Optional["QuotationModel"]] = relationship("QuotationModel")
@@ -438,6 +451,22 @@ class POApprovalHistoryModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     purchase_order: Mapped[PurchaseOrderModel] = relationship("PurchaseOrderModel", back_populates="history")
+
+
+class PORevisionModel(Base):
+    __tablename__ = "po_revision"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    purchase_order_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("purchase_order.id", ondelete="CASCADE"), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_field: Mapped[str] = mapped_column(String(128), nullable=False)
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    purchase_order: Mapped[PurchaseOrderModel] = relationship("PurchaseOrderModel", back_populates="revisions")
 
 
 class PurchaseOrderItemModel(Base):

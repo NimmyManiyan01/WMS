@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { requireRole } from "@/lib/auth-utils";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/procurement/purchase-orders")({
   beforeLoad: () => requireRole("PROCUREMENT"),
@@ -25,10 +26,27 @@ export const Route = createFileRoute("/procurement/purchase-orders")({
 
 const statusOptions = [
   { value: "ALL", label: "All POs" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "PENDING_FINANCE", label: "Pending Approval" },
   { value: "APPROVED", label: "Approved" },
   { value: "SENT", label: "Sent" },
-  { value: "PENDING", label: "Finance pending" },
+  { value: "ACKNOWLEDGED", label: "Acknowledged" },
+  { value: "PARTIALLY_RECEIVED", label: "Partially Received" },
+  { value: "FULLY_RECEIVED", label: "Fully Received" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "CANCELLED", label: "Cancelled" },
   { value: "REJECTED", label: "Rejected" },
+];
+
+const poFlow = [
+  "DRAFT",
+  "PENDING_FINANCE",
+  "APPROVED",
+  "SENT",
+  "ACKNOWLEDGED",
+  "PARTIALLY_RECEIVED",
+  "FULLY_RECEIVED",
+  "CLOSED",
 ];
 
 function PurchaseOrders() {
@@ -68,7 +86,6 @@ function PurchaseOrders() {
       const status = String(po.status || "").toUpperCase();
       const matchesStatus =
         statusFilter === "ALL" ||
-        (statusFilter === "PENDING" && (status.includes("PENDING") || status.includes("PROPOSAL"))) ||
         (statusFilter === "APPROVED" && status.includes("APPROV")) ||
         (statusFilter === "REJECTED" && status.includes("REJECT")) ||
         status === statusFilter;
@@ -155,6 +172,7 @@ function PurchaseOrders() {
               const totalAmount = po.totalAmount ?? po.total_amount;
               const itemCount = po.items?.length || po.lines?.length || 0;
               const deliveryDate = po.expectedDeliveryDate || po.expected_delivery_date || "Not scheduled";
+              const currentStep = Math.max(0, poFlow.indexOf(String(po.status || "").toUpperCase()));
               const isDownloading = downloadingId === po.id;
 
               return (
@@ -200,6 +218,21 @@ function PurchaseOrders() {
                               Ref: {po.rfqNumber || String(po.rfq_id).substring(0, 8)}
                             </span>
                           )}
+                        </div>
+                        <div className="mt-4 grid grid-cols-4 gap-1 text-[10px] font-bold uppercase text-muted-foreground sm:grid-cols-7">
+                          {poFlow.map((step, index) => (
+                            <span
+                              key={step}
+                              className={cn(
+                                "rounded-md border px-2 py-1 text-center",
+                                index <= currentStep
+                                  ? "border-primary/25 bg-primary-soft/20 text-primary"
+                                  : "border-border/60 bg-muted/20",
+                              )}
+                            >
+                              {step.replace("PENDING_FINANCE", "Approval").replaceAll("_", " ")}
+                            </span>
+                          ))}
                         </div>
                       </div>
                     </div>

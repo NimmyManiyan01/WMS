@@ -83,6 +83,7 @@ const procurementNav = [
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
 const supplierNav = [
@@ -659,7 +660,11 @@ export function StatusBadge({ status }: { status: string }) {
     Draft: "bg-muted text-muted-foreground border-border",
     Submitted: "bg-primary-soft text-primary border-primary/25",
     "Pending Approval": "bg-warning-soft text-warning-foreground border-warning/30",
+    "Pending Procurement": "bg-warning-soft text-warning-foreground border-warning/30",
     "Converted to RFQ": "bg-teal-soft text-teal border-teal/30",
+    "RFQ Created": "bg-teal-soft text-teal border-teal/30",
+    "PO Created": "bg-primary-soft text-primary border-primary/25",
+    Fulfilled: "bg-success-soft text-success border-success/30",
     Closed: "bg-muted text-muted-foreground border-border",
     "Dock Assigned": "bg-teal-soft text-teal border-teal/30",
     Receiving: "bg-primary-soft text-primary border-primary/25",

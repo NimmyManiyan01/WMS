@@ -7,6 +7,7 @@ import {
   Info,
   Loader2,
   Package,
+  Plus,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -161,6 +162,7 @@ function getCategoryLabel(dockType: string): string {
 }
 
 function DockManagement() {
+  const [mounted, setMounted] = useState(false);
   const [docks, setDocks] = useState<Dock[]>([]);
   const [metrics, setMetrics] = useState<{
     total_docks: number;
@@ -216,7 +218,7 @@ function DockManagement() {
         id: userInfo?.store_id || userInfo?.storeId,
         code: userInfo?.store_code || userInfo?.storeCode,
       });
-    } else {
+    } else if (isStoreUser) {
       api.getMyStore().then((res) => {
         if (res) {
           setCurrentUserStore({
@@ -228,8 +230,10 @@ function DockManagement() {
       }).catch(() => {
         // ignore if not configured
       });
+    } else {
+      setCurrentUserStore(null);
     }
-  }, [userInfo?.store_id, userInfo?.storeId, userInfo?.store_code, userInfo?.storeCode]);
+  }, [isStoreUser, userInfo?.store_id, userInfo?.storeId, userInfo?.store_code, userInfo?.storeCode]);
 
   const canReleaseDock = useCallback((dock: Dock | null | undefined): boolean => {
     if (!dock) return false;
@@ -263,6 +267,10 @@ function DockManagement() {
     location: "",
     description: "",
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [maintenanceConfirmDock, setMaintenanceConfirmDock] = useState<Dock | null>(null);
 
@@ -520,7 +528,7 @@ function DockManagement() {
     return matchesTab && matchesCategory && matchesSearch;
   });
 
-  if (isStoreUser && !isWarehouseOrAdmin) {
+  if (mounted && isStoreUser && !isWarehouseOrAdmin) {
     return (
       <AppShell
         title="Dock Management"
@@ -557,6 +565,17 @@ function DockManagement() {
       subtitle="Real-time dock allocation, vehicle arrival tracking, and operational status."
       actions={
         <div className="flex items-center gap-2.5">
+          {mounted && isWarehouseOrAdmin && (
+            <Button
+              className="h-9 rounded-full px-4 text-xs font-semibold shadow-glow gap-1.5"
+              onClick={() => {
+                window.location.href = "/dock-master";
+              }}
+            >
+              <Plus className="size-3.5" />
+              New Dock
+            </Button>
+          )}
           <Button
             variant="outline"
             className="h-9 rounded-full px-4 text-xs font-semibold border-border/80 bg-card hover:bg-muted/60 shadow-2xs text-muted-foreground hover:text-foreground gap-1.5"

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from pydantic import Field, field_validator
 
@@ -319,6 +319,10 @@ class CreateAsnRequest(ApiModel):
     number_of_packages: Optional[int] = None
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    challan_number: Optional[str] = None
+    challan_date: Optional[date] = None
     status: Optional[str] = "SUBMITTED"
     documents: List[AsnDocumentSchema] = []
 
@@ -341,6 +345,10 @@ class AsnResponse(ApiModel):
     number_of_packages: Optional[int] = None
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    challan_number: Optional[str] = None
+    challan_date: Optional[date] = None
     documents: List[AsnDocumentSchema] = []
     warehouse_status: Optional[str] = None
     warehouse_status_updated_at: Optional[datetime] = None
@@ -355,6 +363,30 @@ class POApprovalHistorySchema(ApiModel):
     actor_name: str
     comments: Optional[str] = None
     created_at: datetime
+
+
+class PORevisionSchema(ApiModel):
+    revision_number: int
+    changed_field: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    changed_by: str
+    changed_at: datetime
+    reason: str
+
+
+class PurchaseOrderAmendmentLine(ApiModel):
+    material_code: str
+    quantity: Optional[Decimal] = None
+    unit_price: Optional[Decimal] = None
+    discount: Optional[Decimal] = None
+    tax: Optional[Decimal] = None
+
+
+class PurchaseOrderAmendmentRequest(ApiModel):
+    reason: str = Field(..., min_length=1)
+    changes: dict[str, Any] = {}
+    items: List[PurchaseOrderAmendmentLine] = []
 
 
 class PurchaseOrderItemSchema(ApiModel):
@@ -376,6 +408,7 @@ class PurchaseOrderResponse(ApiModel):
     po_number: str
     po_date: date
     status: str
+    revision_number: int = 1
     rfq_id: Optional[str] = None
     supplier_id: Optional[str] = None
     quotation_id: Optional[str] = None
@@ -384,6 +417,11 @@ class PurchaseOrderResponse(ApiModel):
     total_amount: Decimal
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    delivery_terms: Optional[str] = None
+    warranty: Optional[str] = None
+    billing_address: Optional[str] = None
+    notes: Optional[str] = None
+    attachments: List[dict] = []
     procurement_officer: Optional[str] = None
     department: Optional[str] = None
     supplier_code: Optional[str] = None
@@ -409,6 +447,7 @@ class PurchaseOrderResponse(ApiModel):
     quotation: Optional[QuotationResponse] = None
     items: List[PurchaseOrderItemSchema] = []
     history: List[POApprovalHistorySchema] = []
+    revisions: List[PORevisionSchema] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -600,6 +639,13 @@ class ProcurementStatsResponse(ApiModel):
     active_suppliers: int
     total_suppliers: int
     open_pos: int
+    pending_approvals: int = 0
+    pending_quotations: int = 0
+    awaiting_supplier_confirmation: int = 0
+    overdue_pos: int = 0
+    partially_received_pos: int = 0
+    rfqs_closing_today: int = 0
+    asns_expected_today: int = 0
     compliance_rate: Optional[float] = None
     compliance_target: float
     total_po_value: Decimal

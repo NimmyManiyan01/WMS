@@ -172,6 +172,10 @@ async def lifespan(app: FastAPI):
             ("asn_number", "VARCHAR(64)"),
             ("supplier_id", "UUID"),
             ("po_id", "VARCHAR(64)"),
+            ("invoice_number", "VARCHAR(128)"),
+            ("invoice_date", "DATE"),
+            ("challan_number", "VARCHAR(128)"),
+            ("challan_date", "DATE"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE asn ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
@@ -489,10 +493,32 @@ async def lifespan(app: FastAPI):
             ("selected_by", "VARCHAR(128)"),
             ("procurement_officer", "VARCHAR(128)"),
             ("payment_terms", "VARCHAR(128)"),
+            ("delivery_terms", "VARCHAR(255)"),
+            ("warranty", "VARCHAR(128)"),
+            ("billing_address", "TEXT"),
+            ("notes", "TEXT"),
+            ("attachments", "JSONB DEFAULT '[]'::jsonb"),
+            ("revision_number", "INTEGER DEFAULT 1"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE purchase_order ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
             except Exception: pass
+
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS po_revision (
+                    id UUID PRIMARY KEY,
+                    purchase_order_id UUID REFERENCES purchase_order(id) ON DELETE CASCADE,
+                    revision_number INTEGER NOT NULL,
+                    changed_field VARCHAR(128) NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    changed_by VARCHAR(128) NOT NULL,
+                    reason TEXT NOT NULL,
+                    changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        except Exception: pass
 
         # Additional PO Columns for full data snapshot
         for col in [

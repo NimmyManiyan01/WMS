@@ -12,6 +12,7 @@ export function StatCard({
   tone = "primary",
   to,
   showArrow = false,
+  compact = false,
 }: {
   label: string;
   value: string;
@@ -20,6 +21,7 @@ export function StatCard({
   tone?: "primary" | "teal" | "success" | "warning" | "danger";
   to?: string;
   showArrow?: boolean;
+  compact?: boolean;
 }) {
   const tones: Record<string, string> = {
     primary: "bg-primary-soft text-primary",
@@ -29,7 +31,12 @@ export function StatCard({
     danger: "bg-danger-soft text-destructive",
   };
   const cardContent = (
-    <Card className="flex h-full min-h-36 flex-col gap-0 rounded-2xl border-border/70 p-4 shadow-soft transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lift">
+    <Card
+      className={cn(
+        "flex h-full flex-col gap-0 rounded-2xl border-border/70 shadow-soft transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lift",
+        compact ? "min-h-24 justify-center p-4" : "min-h-36 p-4",
+      )}
+    >
       <div className="flex items-center justify-between">
         <span className={cn("grid size-9 place-items-center rounded-xl", tones[tone])}>
           <Icon className="size-4" />
@@ -38,17 +45,19 @@ export function StatCard({
           <ArrowRight className="size-3 -translate-x-1 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
         )}
       </div>
-      <p className="mt-3 text-2xl font-bold tracking-tight tabular-nums">{value}</p>
+      <p className={cn("font-bold tracking-tight tabular-nums", compact ? "mt-2 text-xl" : "mt-3 text-2xl")}>{value}</p>
       <p className="mt-0.5 text-xs font-medium text-muted-foreground line-clamp-1">{label}</p>
-      <p
-        className={cn(
-          "mt-1.5 min-h-4 text-[10px] font-semibold text-muted-foreground/80",
-          !delta && "invisible",
-        )}
-        aria-hidden={!delta}
-      >
-        {delta || "No additional detail"}
-      </p>
+      {!compact && (
+        <p
+          className={cn(
+            "mt-1.5 min-h-4 text-[10px] font-semibold text-muted-foreground/80",
+            !delta && "invisible",
+          )}
+          aria-hidden={!delta}
+        >
+          {delta || "No additional detail"}
+        </p>
+      )}
     </Card>
   );
 

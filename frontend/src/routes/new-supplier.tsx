@@ -115,6 +115,8 @@ function NewSupplier() {
     mainMaterials: [] as string[],
     industry: "",
     gstin: "",
+    paymentTerms: "",
+    creditPeriodDays: "",
     address: {
       registeredAddress: "",
       city: "",
@@ -437,12 +439,20 @@ function NewSupplier() {
     }
 
     if (step === 4) {
+      const hasGstCertificate = formData.documents.some(
+        (d) => d.document_type === "GST Certificate",
+      );
       const hasCancelledCheque = formData.documents.some(
         (d) => d.document_type === "Cancelled Cheque",
       );
-      if (!hasCancelledCheque) {
-        newErrors["documents"] = "Cancelled Cheque is mandatory";
-        toast.error("Cancelled Cheque is mandatory for registration");
+      const missingDocs = [
+        !hasGstCertificate ? "GST Certificate" : null,
+        !hasCancelledCheque ? "Cancelled Cheque" : null,
+      ].filter(Boolean);
+      if (missingDocs.length > 0) {
+        const message = `${missingDocs.join(" and ")} ${missingDocs.length === 1 ? "is" : "are"} mandatory`;
+        newErrors["documents"] = message;
+        toast.error(`${message} for registration`);
       }
     }
 
@@ -610,6 +620,9 @@ function NewSupplier() {
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
+        creditPeriodDays: formData.creditPeriodDays
+          ? Number(formData.creditPeriodDays)
+          : undefined,
         address: {
           ...formData.address,
           registeredAddress: formData.address.registeredAddress.trim(),
@@ -1409,6 +1422,40 @@ function NewSupplier() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="paymentTerms">Payment Terms</Label>
+                  <Select
+                    onValueChange={(v) => updateFormData("root", "paymentTerms", v)}
+                    value={formData.paymentTerms}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment terms" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map((term) => (
+                        <SelectItem key={term} value={term}>
+                          {term}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="creditPeriodDays">Credit Period (Days)</Label>
+                  <Input
+                    id="creditPeriodDays"
+                    value={formData.creditPeriodDays}
+                    maxLength={3}
+                    onChange={(e) =>
+                      updateFormData(
+                        "root",
+                        "creditPeriodDays",
+                        e.target.value.replace(/\D/g, "").substring(0, 3),
+                      )
+                    }
+                    placeholder="e.g. 30"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1423,7 +1470,7 @@ function NewSupplier() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { name: "GST Certificate", mandatory: false },
+                  { name: "GST Certificate", mandatory: true },
                   { name: "Cancelled Cheque", mandatory: true },
                   { name: "Vendor Code of Conduct", mandatory: false },
                   { name: "Other", mandatory: false },

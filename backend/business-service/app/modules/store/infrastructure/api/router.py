@@ -726,6 +726,15 @@ async def get_my_store(
         except (ValueError, TypeError):
             pass
 
+    if user.raw_claims and user.raw_claims.get("store_code"):
+        store = await _resolve_store(uow.session, str(user.raw_claims["store_code"]))
+        if store:
+            count_stmt = select(func.count(StoreZoneModel.id)).where(StoreZoneModel.store_id == store.id)
+            z_count = (await uow.session.execute(count_stmt)).scalar() or 0
+            bin_count_stmt = select(func.count(StoreBinModel.id)).where(StoreBinModel.store_id == store.id)
+            b_count = (await uow.session.execute(bin_count_stmt)).scalar() or 0
+            return _to_store_response(store, zones_count=z_count, bins_count=b_count)
+
     mgr_stmt = select(StoreManagerUserModel).where(
         or_(
             StoreManagerUserModel.username == user.username,
@@ -876,7 +885,7 @@ async def _build_store_dashboard_metrics(uow: UnitOfWork, store: StoreModel) -> 
                 InventoryMovementHistoryModel.material_code.in_(seen_skus) if seen_skus else False,
             )
         )
-        .order_by(InventoryMovementHistoryModel.created_at.desc())
+        .order_by(InventoryMovementHistoryModel.performed_at.desc())
         .limit(10)
     )
     mov_res = await uow.session.execute(mov_stmt)
@@ -886,7 +895,7 @@ async def _build_store_dashboard_metrics(uow: UnitOfWork, store: StoreModel) -> 
         recent_activity.append(
             StoreMovementActivity(
                 id=str(m.id),
-                timestamp=m.created_at.isoformat() if m.created_at else datetime.now(timezone.utc).isoformat(),
+                timestamp=m.performed_at.isoformat() if m.performed_at else datetime.now(timezone.utc).isoformat(),
                 movement_type=m.movement_type,
                 material_code=m.material_code,
                 material_name=m.material_name,
@@ -897,7 +906,7 @@ async def _build_store_dashboard_metrics(uow: UnitOfWork, store: StoreModel) -> 
                 uom=m.uom or "PCS",
                 stock_before=float(m.stock_before) if m.stock_before is not None else None,
                 stock_after=float(m.stock_after) if m.stock_after is not None else None,
-                operator=m.created_by or "System",
+                operator=m.performed_by or "System",
                 reference_document=m.reference_document,
             )
         )

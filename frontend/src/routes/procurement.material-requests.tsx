@@ -9,10 +9,13 @@ import {
   ArrowRight,
   Building2,
   Clock,
+  Check,
+  X,
+  Eye,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api-client";
@@ -54,6 +57,12 @@ function MaterialRequests() {
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === "undefined") return "all";
+    const status = new URLSearchParams(window.location.search).get("status");
+    return status === "pending-procurement" ? "pending-procurement" : "all";
+  });
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -69,20 +78,107 @@ function MaterialRequests() {
   useEffect(() => {
     fetchData();
   }, []);
+  const matchesStatusFilter = (request: any, filter: string) => {
+    const normalizedStatus = String(request.status || "").toLowerCase();
+    if (filter === "pending-procurement") return normalizedStatus === "pending approval";
+    if (filter === "rfq-created") {
+      return normalizedStatus === "converted to rfq" || normalizedStatus === "rfq created";
+    }
+    if (filter === "po-created") {
+      return normalizedStatus === "po created" || normalizedStatus === "purchase order created";
+    }
+    if (filter === "fulfilled") {
+      return normalizedStatus === "fulfilled" || normalizedStatus === "closed";
+    }
+    if (filter === "rejected") return normalizedStatus === "rejected";
+    return true;
+  };
+  const statusTabs = [
+    { id: "all", label: "All" },
+    { id: "pending-procurement", label: "Pending Procurement" },
+    { id: "rfq-created", label: "RFQ Created" },
+    { id: "po-created", label: "PO Created" },
+    { id: "fulfilled", label: "Fulfilled" },
+    { id: "rejected", label: "Rejected" },
+  ];
+  const getTabCount = (filter: string) =>
+    requests.filter((request) => matchesStatusFilter(request, filter)).length;
+  const activeTab = statusTabs.find((tab) => tab.id === statusFilter) || statusTabs[0];
+  const filteredRequests = requests.filter((request) => {
+    if (!matchesStatusFilter(request, statusFilter)) return false;
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return true;
+    const itemText = (request.items || [])
+      .map((item: any) =>
+        [
+          item.materialCode,
+          item.material_code,
+          item.materialName,
+          item.material_name,
+          item.variantCode,
+          item.variant_code,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .join(" ");
+    return [
+      request.requestNumber,
+      request.request_number,
+      request.warehouseId,
+      request.warehouse_id,
+      request.requestedBy,
+      request.requested_by,
+      itemText,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  });
+  const totalQuantity = (request: any) =>
+    (request.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+  const requestStatusLabel = (status: string) => {
+    if (status === "Pending Approval") return "Pending Procurement";
+    if (status === "Converted to RFQ") return "RFQ Created";
+    return status;
+  };
   const handleRequestClick = (req: any) => {
     setSelectedRequest(req);
     setIsModalOpen(true);
   };
+  const changeStatus = async (nextStatus: string, comments?: string) => {
+    if (!selectedRequest) return;
+    try {
+      const updated = await api.updateMaterialRequestStatus(
+        selectedRequest.id,
+        nextStatus,
+        comments,
+        "Procurement",
+      );
+      setSelectedRequest(updated);
+      setRequests((current) =>
+        current.map((req) => (req.id === selectedRequest.id ? updated : req)),
+      );
+      toast.success(`Material request moved to ${nextStatus}`);
+    } catch (error: any) {
+      toast.error(error.message || "Unable to update material request status");
+    }
+  };
   return (
     <AppShell
       title="Material Requests"
-      subtitle="View and process material requirements from the warehouse"
+      subtitle={
+        statusFilter === "pending-procurement"
+          ? "Pending Procurement requests from warehouses"
+          : "View and process material requirements from the warehouse"
+      }
     >
       <div className="mb-6 flex flex-wrap items-center gap-4">
         <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
-            placeholder="Search request no, material..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search request / material / warehouse"
             className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -90,83 +186,135 @@ function MaterialRequests() {
           <Filter className="mr-2 size-4" /> Filter
         </Button>
       </div>
+      <div className="mb-6 flex flex-wrap gap-2">
+        {statusTabs.map((tab) => (
+          <Button
+            key={tab.id}
+            variant={statusFilter === tab.id ? "default" : "outline"}
+            className="rounded-full"
+            onClick={() => setStatusFilter(tab.id)}
+          >
+            {tab.label}{" "}
+            <span className="ml-1 rounded-full bg-background/30 px-1.5 py-0.5 text-[10px]">
+              {getTabCount(tab.id)}
+            </span>
+          </Button>
+        ))}
+      </div>
 
       {loading ? (
         <div className="flex h-64 items-center justify-center">
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>
-      ) : requests.length === 0 ? (
+      ) : filteredRequests.length === 0 ? (
         <Card className="flex h-64 flex-col items-center justify-center p-6 text-center border-dashed border-border/50 bg-muted/20">
           <ClipboardList className="size-12 text-muted-foreground/30 mb-4" />
-          <h3 className="text-lg font-semibold text-muted-foreground">No pending requests</h3>
+          <h3 className="text-lg font-semibold text-muted-foreground">
+            {statusFilter === "pending-procurement"
+              ? `No ${activeTab.label.toLowerCase()} requests`
+              : "No pending requests"}
+          </h3>
           <p className="text-sm text-muted-foreground/70">
-            All warehouse requirements have been processed.
+            {statusFilter === "pending-procurement"
+              ? "No warehouse requests are waiting for procurement review."
+              : "No material requests match this workflow status."}
           </p>
         </Card>
       ) : (
-        <div className="grid gap-4">
-          {requests.map((req) => (
-            <Card
-              key={req.id}
-              className="overflow-hidden border-border/50 transition-all hover:border-primary/30 hover:shadow-soft cursor-pointer group"
-              onClick={() => handleRequestClick(req)}
-            >
-              <div className="flex flex-col p-5 md:flex-row md:items-center">
-                <div className="mb-4 flex flex-1 items-start gap-4 md:mb-0">
-                  <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-orange-soft/30 text-orange-600">
-                    <ClipboardList className="size-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-foreground tracking-tight">
-                        {req.requestNumber}
+        <Card className="overflow-hidden rounded-2xl border-border/70 p-0 shadow-soft">
+          <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-5 py-4">
+            <div>
+              <h2 className="text-sm font-bold tracking-tight">{activeTab.label}</h2>
+              <p className="text-xs text-muted-foreground">
+                {statusFilter === "pending-procurement"
+                  ? "Warehouse requests ready for sourcing"
+                  : "Material requests grouped by procurement workflow status"}
+              </p>
+            </div>
+            <span className="text-2xl font-bold tabular-nums">{getTabCount(statusFilter)}</span>
+          </div>
+          <div className="divide-y divide-border/70">
+            {filteredRequests.map((req) => (
+              <div key={req.id} className="p-5 transition-colors hover:bg-muted/20">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="min-w-0 flex-1 space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-mono text-base font-black tracking-tight text-foreground">
+                        {req.requestNumber || req.request_number}
                       </h3>
-                      <StatusBadge status={req.status} />
-                    </div>
-                    <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground font-medium">
-                      <span className="flex items-center gap-1">
-                        <Building2 className="size-3.5" /> {req.warehouseId}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="size-3.5" /> Requested by {req.requestedBy}
+                      <StatusBadge status={requestStatusLabel(req.status)} />
+                      <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
+                        Priority: {req.priority || "MEDIUM"}
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {req.items?.map((item: any, idx: number) => (
-                        <span
-                          key={idx}
-                          className="text-[10px] text-orange-700 bg-orange-soft/20 px-2 py-0.5 rounded-md border border-orange-200 uppercase font-bold"
-                        >
-                          {item.materialCode}: {Math.floor(item.quantity)} {item.uom}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between border-t border-border/40 pt-4 md:border-0 md:pt-0">
-                  <div className="mr-8 text-right hidden md:block">
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-bold">
-                        <Calendar className="size-3" /> Required By
+                    <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground">
+                          Warehouse
+                        </p>
+                        <p className="flex items-center gap-1.5 font-semibold">
+                          <Building2 className="size-3.5 text-primary" />
+                          {req.warehouseId || req.warehouse_id || "Warehouse"}
+                        </p>
                       </div>
-                      <p className="text-sm font-semibold">{formatDisplayDate(req.requiredDate)}</p>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground">
+                          Requested By
+                        </p>
+                        <p className="flex items-center gap-1.5 font-semibold">
+                          <Clock className="size-3.5 text-primary" />
+                          {req.requestedBy || req.requested_by || "Warehouse Manager"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground">
+                          Required Date
+                        </p>
+                        <p className="flex items-center gap-1.5 font-semibold">
+                          <Calendar className="size-3.5 text-primary" />
+                          {formatDisplayDate(req.requiredDate || req.required_date)}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground">
+                          Status
+                        </p>
+                        <p className="font-semibold">{requestStatusLabel(req.status)}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 rounded-xl border border-border/60 bg-background px-4 py-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Items: </span>
+                        <span className="font-bold">{req.items?.length || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Total Qty: </span>
+                        <span className="font-bold tabular-nums">{Math.floor(totalQuantity(req))}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="rounded-xl h-9 w-9 text-muted-foreground group-hover:text-primary transition-colors"
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => handleRequestClick(req)}
                     >
-                      <ArrowRight className="size-4" />
+                      <Eye className="size-4" /> View
+                    </Button>
+                    <Button className="rounded-xl shadow-glow" asChild>
+                      <Link to="/procurement/new-rfq" search={{ fromRequestId: req.id }}>
+                        <ArrowRight className="size-4" /> Create RFQ
+                      </Link>
                     </Button>
                   </div>
                 </div>
               </div>
-            </Card>
-          ))}
-        </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -214,6 +362,20 @@ function MaterialRequests() {
                       Warehouse
                     </Label>
                     <p className="font-bold text-sm">{selectedRequest.warehouseId}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                      Priority
+                    </Label>
+                    <p className="font-bold text-sm">{selectedRequest.priority || "MEDIUM"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                      Suggested Supplier
+                    </Label>
+                    <p className="font-bold text-sm">
+                      {selectedRequest.suggestedSupplier || "Not specified"}
+                    </p>
                   </div>
                 </div>
 
@@ -285,6 +447,32 @@ function MaterialRequests() {
                     {selectedRequest.remarks || "No remarks provided."}
                   </p>
                 </div>
+                <div className="space-y-3">
+                  <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                    Approval History
+                  </Label>
+                  <div className="rounded-2xl border border-border/40 bg-muted/20 p-4">
+                    {selectedRequest.approvalHistory?.length ? (
+                      <div className="space-y-3">
+                        {selectedRequest.approvalHistory.map((entry: any, idx: number) => (
+                          <div key={idx} className="flex items-start justify-between gap-4 text-sm">
+                            <div>
+                              <p className="font-bold">{entry.status}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.actor || "System"} {entry.comments ? `- ${entry.comments}` : ""}
+                              </p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {entry.timestamp ? formatDisplayDate(entry.timestamp) : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No approval history yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-between">
@@ -296,14 +484,50 @@ function MaterialRequests() {
                   Close
                 </Button>
                 <div className="flex items-center gap-3">
-                  <Button
-                    className="rounded-2xl h-11 px-8 shadow-glow font-bold text-xs uppercase"
-                    asChild
-                  >
-                    <Link to="/procurement/new-rfq" search={{ fromRequestId: selectedRequest.id }}>
-                      <ArrowRight className="mr-2 size-4" /> Create RFQ from Request
-                    </Link>
-                  </Button>
+                  {selectedRequest.status === "Submitted" && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                        onClick={() => changeStatus("Rejected", "Rejected during manager approval")}
+                      >
+                        <X className="mr-2 size-4" /> Reject
+                      </Button>
+                      <Button
+                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                        onClick={() => changeStatus("Pending Approval", "Manager approved")}
+                      >
+                        <Check className="mr-2 size-4" /> Manager Approve
+                      </Button>
+                    </>
+                  )}
+                  {selectedRequest.status === "Pending Approval" && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                        onClick={() => changeStatus("Rejected", "Rejected during procurement review")}
+                      >
+                        <X className="mr-2 size-4" /> Reject
+                      </Button>
+                      <Button
+                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                        onClick={() => changeStatus("Approved", "Procurement approved")}
+                      >
+                        <Check className="mr-2 size-4" /> Approve
+                      </Button>
+                    </>
+                  )}
+                  {selectedRequest.status === "Approved" && (
+                    <Button
+                      className="rounded-2xl h-11 px-8 shadow-glow font-bold text-xs uppercase"
+                      asChild
+                    >
+                      <Link to="/procurement/new-rfq" search={{ fromRequestId: selectedRequest.id }}>
+                        <ArrowRight className="mr-2 size-4" /> Create RFQ from Request
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

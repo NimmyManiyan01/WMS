@@ -275,8 +275,11 @@ function WarehouseMaterialRequests() {
     warehouse_id: "Main Warehouse",
     department: "Inventory",
     requested_by: "",
+    priority: "MEDIUM",
+    suggested_supplier: "",
     required_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     remarks: "",
+    attachments: [] as any[],
   });
   const [items, setItems] = useState<any[]>([
     {
@@ -527,7 +530,14 @@ function WarehouseMaterialRequests() {
           uom: "",
         },
       ]);
-      setFormData((prev) => ({ ...prev, request_number: "", warehouse_id: "Main Warehouse" }));
+      setFormData((prev) => ({
+        ...prev,
+        request_number: "",
+        warehouse_id: "Main Warehouse",
+        priority: "MEDIUM",
+        suggested_supplier: "",
+        attachments: [],
+      }));
       fetchData();
     } catch (error: any) {
       toast.error("Failed to submit request: " + (error.message || "Unknown error"));
@@ -623,6 +633,9 @@ function WarehouseMaterialRequests() {
         warehouse_id: selectedRequest.warehouseId || selectedRequest.warehouse_id,
         department: selectedRequest.department,
         requested_by: selectedRequest.requestedBy || selectedRequest.requested_by,
+        priority: selectedRequest.priority || "MEDIUM",
+        suggested_supplier: selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || "",
+        attachments: selectedRequest.attachments || [],
         required_date: new Date(selectedRequest.requiredDate || selectedRequest.required_date)
           .toISOString()
           .split("T")[0],
@@ -646,6 +659,26 @@ function WarehouseMaterialRequests() {
       toast.error("Update failed: " + (error.message || "Unknown error"));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const changeStatus = async (nextStatus: string, comments?: string) => {
+    if (!selectedRequest) return;
+    try {
+      const updated = await api.updateMaterialRequestStatus(
+        selectedRequest.id,
+        nextStatus,
+        comments,
+        getUserInfo()?.username || "Warehouse Manager",
+      );
+      setSelectedRequest(updated);
+      setRequests((current) =>
+        current.map((req) => (req.id === selectedRequest.id ? updated : req)),
+      );
+      toast.success(`Material request moved to ${nextStatus}`);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.message || "Unable to update material request status");
     }
   };
 
@@ -712,6 +745,35 @@ function WarehouseMaterialRequests() {
                     value={formData.required_date}
                     onChange={(e) => setFormData({ ...formData, required_date: e.target.value })}
                     className="h-10 rounded-xl text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Priority</Label>
+                  <Select
+                    value={formData.priority}
+                    onValueChange={(value) => setFormData({ ...formData, priority: value })}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl text-sm">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => (
+                        <SelectItem key={priority} value={priority}>
+                          {priority}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Suggested Supplier</Label>
+                  <Input
+                    value={formData.suggested_supplier}
+                    onChange={(e) =>
+                      setFormData({ ...formData, suggested_supplier: e.target.value })
+                    }
+                    className="h-10 rounded-xl text-sm"
+                    placeholder="Optional"
                   />
                 </div>
               </div>
@@ -926,6 +988,9 @@ function WarehouseMaterialRequests() {
                         {req.requestNumber}
                       </h3>
                       <StatusBadge status={req.status} />
+                      <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
+                        {req.priority || "MEDIUM"}
+                      </span>
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground font-medium">
                       <span className="flex items-center gap-1">
@@ -1032,6 +1097,51 @@ function WarehouseMaterialRequests() {
                       Warehouse
                     </Label>
                     <p className="font-bold text-sm truncate">{selectedRequest.warehouseId || selectedRequest.warehouse_id || "Main Warehouse"}</p>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                      Priority
+                    </Label>
+                    {isEditing ? (
+                      <Select
+                        value={selectedRequest.priority || "MEDIUM"}
+                        onValueChange={(value) =>
+                          setSelectedRequest({ ...selectedRequest, priority: value })
+                        }
+                      >
+                        <SelectTrigger className="h-9 rounded-xl text-sm bg-background">
+                          <SelectValue placeholder="Priority" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => (
+                            <SelectItem key={priority} value={priority}>
+                              {priority}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-bold text-sm truncate">{selectedRequest.priority || "MEDIUM"}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1 min-w-0 sm:col-span-3">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                      Suggested Supplier
+                    </Label>
+                    {isEditing ? (
+                      <Input
+                        value={selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || ""}
+                        onChange={(e) =>
+                          setSelectedRequest({ ...selectedRequest, suggestedSupplier: e.target.value })
+                        }
+                        className="h-9 rounded-xl text-sm bg-background w-full min-w-0"
+                        placeholder="Optional"
+                      />
+                    ) : (
+                      <p className="font-bold text-sm truncate">
+                        {selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || "Not specified"}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1261,9 +1371,43 @@ function WarehouseMaterialRequests() {
                     </p>
                   )}
                 </div>
+
+                <div className="space-y-3">
+                  <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                    Approval History
+                  </Label>
+                  <div className="rounded-2xl border border-border/40 bg-muted/20 p-4">
+                    {(selectedRequest.approvalHistory || selectedRequest.approval_history)?.length ? (
+                      <div className="space-y-3">
+                        {(selectedRequest.approvalHistory || selectedRequest.approval_history).map((entry: any, idx: number) => (
+                          <div key={idx} className="flex items-start justify-between gap-4 text-sm">
+                            <div>
+                              <p className="font-bold text-foreground">{entry.status}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.actor || "System"} {entry.comments ? `- ${entry.comments}` : ""}
+                              </p>
+                            </div>
+                            <span className="text-xs font-mono text-muted-foreground">
+                              {entry.timestamp ? formatDisplayDate(entry.timestamp) : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">No approval history recorded yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-end">
+              <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                  onClick={() => setIsRequestModalOpen(false)}
+                >
+                  Close
+                </Button>
                 <div className="flex items-center gap-3">
                   {isEditing ? (
                     <>
@@ -1289,27 +1433,54 @@ function WarehouseMaterialRequests() {
                     </>
                   ) : (
                     <>
-                      <Button
-                        variant="ghost"
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => setIsRequestModalOpen(false)}
-                      >
-                        Close
-                      </Button>
-                      {selectedRequest.status?.toUpperCase() === "PENDING" ? (
+                      {selectedRequest.status === "Draft" && (
+                        <Button
+                          className="rounded-full h-11 px-6 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
+                          onClick={() => changeStatus("Submitted", "Submitted for approval")}
+                        >
+                          Submit Request
+                        </Button>
+                      )}
+                      {selectedRequest.status === "Submitted" && (
+                        <>
+                          <Button
+                            variant="outline"
+                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
+                            onClick={() => changeStatus("Rejected", "Rejected during manager review")}
+                          >
+                            <X className="mr-2 size-4" /> Reject
+                          </Button>
+                          <Button
+                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
+                            onClick={() => changeStatus("Pending Approval", "Manager approved; sent to Procurement")}
+                          >
+                            <Check className="mr-2 size-4" /> Manager Approve
+                          </Button>
+                        </>
+                      )}
+                      {selectedRequest.status === "Pending Approval" && (
+                        <>
+                          <Button
+                            variant="outline"
+                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
+                            onClick={() => changeStatus("Rejected", "Rejected during procurement review")}
+                          >
+                            <X className="mr-2 size-4" /> Reject
+                          </Button>
+                          <Button
+                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
+                            onClick={() => changeStatus("Approved", "Procurement approved")}
+                          >
+                            <Check className="mr-2 size-4" /> Approve
+                          </Button>
+                        </>
+                      )}
+                      {["Draft", "Submitted", "Rejected"].includes(selectedRequest.status) && (
                         <Button
                           className="rounded-full h-11 px-8 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
                           onClick={() => setIsEditing(true)}
                         >
                           Edit Request
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          disabled
-                          className="rounded-full h-11 px-6 font-bold text-xs uppercase opacity-60 cursor-not-allowed"
-                        >
-                          {selectedRequest.status}
                         </Button>
                       )}
                     </>
