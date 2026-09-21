@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Building2, ClipboardList, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, ArrowRight, Building2, ClipboardList, Loader2, Plus, RefreshCw, Search } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard, StatCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
@@ -80,10 +80,10 @@ function MasterData() {
         <StatCard
           label="Pending Requests"
           value={loading ? "…" : String(pendingRequests)}
-          delta="From Warehouse"
+          delta={pendingRequests > 0 ? "View Requests →" : "From Warehouse"}
           icon={ClipboardList}
           tone="warning"
-          to="/procurement/material-requests"
+          to="/procurement/material-requests?status=pending-procurement"
           showArrow
         />
         <StatCard
@@ -120,6 +120,90 @@ function MasterData() {
           tone="danger"
           to="/master-data"
         />
+      </div>
+
+      {/* ACTION REQUIRED OPERATIONAL SECTION */}
+      <div className="mb-6">
+        <SectionCard
+          title="Action Required"
+          description="High-priority procurement tasks requiring immediate review or authorization"
+          icon={AlertCircle}
+          actions={
+            <Button variant="ghost" size="sm" className="rounded-xl text-xs font-bold text-primary hover:text-primary" asChild>
+              <Link to="/procurement/material-requests">
+                View All <ArrowRight className="ml-1 size-3.5" />
+              </Link>
+            </Button>
+          }
+        >
+          <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+            {/* Task 1: Pending Material Requests */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 font-bold">
+                  🟠
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {loading ? "..." : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting procurement review`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    From Pune DC and Plant 1200
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" asChild>
+                <Link to="/procurement/material-requests?status=pending-procurement">
+                  Review <ArrowRight className="ml-1.5 size-3.5" />
+                </Link>
+              </Button>
+            </div>
+
+            {/* Task 2: Pending Supplier Registrations */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-yellow-500/10 text-yellow-600 font-bold">
+                  🟡
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {loading
+                      ? "..."
+                      : `${suppliers.filter((s) => (s.status || "").toLowerCase().includes("pending")).length} supplier registration${suppliers.filter((s) => (s.status || "").toLowerCase().includes("pending")).length === 1 ? "" : "s"} awaiting approval`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Supplier master
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" onClick={() => setStatusFilter("pending approval")}>
+                Review <ArrowRight className="ml-1.5 size-3.5" />
+              </Button>
+            </div>
+
+            {/* Task 3: Expiring Supplier Documents */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-rose-500/10 text-rose-600 font-bold">
+                  🔴
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    2 supplier documents are expiring
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Check supplier documents
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" asChild>
+                <Link to="/procurement/quality-issues">
+                  Review <ArrowRight className="ml-1.5 size-3.5" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </SectionCard>
       </div>
 
       <div className="mt-4">
