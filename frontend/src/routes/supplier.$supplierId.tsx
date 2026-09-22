@@ -106,7 +106,10 @@ function SupplierProfile() {
 
   const title = supplier?.supplierName || "Supplier profile";
   const openEditor = () => {
-    setForm(JSON.parse(JSON.stringify(supplier)));
+    const copy = JSON.parse(JSON.stringify(supplier || {}));
+    copy.paymentTerms = copy.paymentTerms || copy.payment_terms || "Net 30";
+    copy.creditPeriodDays = copy.creditPeriodDays ?? copy.credit_period_days ?? 30;
+    setForm(copy);
     setEditing(true);
   };
   const updateForm = (section: string, field: string, value: any) => {
@@ -271,7 +274,10 @@ function SupplierProfile() {
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
+        paymentTerms: form.paymentTerms,
+        payment_terms: form.paymentTerms,
         creditPeriodDays: form.creditPeriodDays ? Number(form.creditPeriodDays) : undefined,
+        credit_period_days: form.creditPeriodDays ? Number(form.creditPeriodDays) : undefined,
       };
       const updated = await api.updateSupplier(supplierId, finalForm);
       setSupplier(updated);
@@ -917,13 +923,16 @@ function SupplierProfile() {
                   />
                   <Field label="GSTIN" value={supplier.gstin || "—"} mono />
                   <Field label="Status" value={supplier.status || "Pending Approval"} />
-                  <Field label="Payment Terms" value={supplier.paymentTerms || "—"} />
+                  <Field
+                    label="Payment Terms"
+                    value={supplier.paymentTerms || supplier.payment_terms || "Net 30"}
+                  />
                   <Field
                     label="Credit Period"
                     value={
-                      supplier.creditPeriodDays || supplier.creditPeriodDays === 0
-                        ? `${supplier.creditPeriodDays} days`
-                        : "—"
+                      (supplier.creditPeriodDays ?? supplier.credit_period_days) != null
+                        ? `${supplier.creditPeriodDays ?? supplier.credit_period_days} days`
+                        : "30 days"
                     }
                   />
                 </div>
@@ -1062,13 +1071,16 @@ function SupplierProfile() {
                   <Field label="Branch" value={supplier.bankInfo.branch || "—"} />
                   <Field label="SWIFT / BIC" value={supplier.bankInfo.swiftBic || "—"} mono />
                   <Field label="TDS Section" value={supplier.bankInfo.tdsSection || "—"} />
-                  <Field label="Payment Terms" value={supplier.paymentTerms || "—"} />
+                  <Field
+                    label="Payment Terms"
+                    value={supplier.paymentTerms || supplier.payment_terms || "Net 30"}
+                  />
                   <Field
                     label="Credit Period"
                     value={
-                      supplier.creditPeriodDays || supplier.creditPeriodDays === 0
-                        ? `${supplier.creditPeriodDays} days`
-                        : "—"
+                      (supplier.creditPeriodDays ?? supplier.credit_period_days) != null
+                        ? `${supplier.creditPeriodDays ?? supplier.credit_period_days} days`
+                        : "30 days"
                     }
                   />
                 </div>
