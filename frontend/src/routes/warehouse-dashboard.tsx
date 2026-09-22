@@ -13,6 +13,13 @@ import {
   ArrowRight,
   Activity,
   Plus,
+  Database,
+  Store,
+  ClipboardList,
+  ListOrdered,
+  LogOut,
+  BarChart3,
+  LayoutDashboard,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -36,6 +43,87 @@ export const Route = createFileRoute("/warehouse-dashboard")({
   }),
   component: WarehouseDashboard,
 });
+
+const warehouseShortcutCards = [
+  {
+    label: "Dashboard",
+    to: "/warehouse-dashboard",
+    icon: LayoutDashboard,
+    detail: "Control center overview",
+  },
+  {
+    label: "Material Master",
+    to: "/warehouse/materials",
+    icon: Database,
+    detail: "Material codes and specifications",
+  },
+  {
+    label: "Store Management",
+    to: "/my-store",
+    icon: Store,
+    detail: "Store operations workspace",
+  },
+  {
+    label: "Stores Master",
+    to: "/warehouse/stores",
+    icon: Building2,
+    detail: "Stores, zones, and bins",
+  },
+  {
+    label: "Inventory",
+    to: "/inventory",
+    icon: Boxes,
+    detail: "Stock matrix and ledger",
+  },
+  {
+    label: "Putaway Tasks",
+    to: "/putaway-tasks",
+    icon: PackageCheck,
+    detail: "Inbound storage execution",
+  },
+  {
+    label: "Material Requests",
+    to: "/warehouse/material-requests",
+    icon: ClipboardList,
+    detail: "Warehouse demand requests",
+  },
+  {
+    label: "Assembly Requisitions",
+    to: "/warehouse/assembly-requisitions",
+    icon: ClipboardList,
+    detail: "Assembly store pickups",
+  },
+  {
+    label: "Inbound Arrivals",
+    to: "/vehicle-queue?module=warehouse",
+    icon: ListOrdered,
+    detail: "Arrivals awaiting handling",
+  },
+  {
+    label: "Vehicle Exit",
+    to: "/vehicle-exit",
+    icon: LogOut,
+    detail: "Exit approvals and release",
+  },
+  {
+    label: "Dock Management",
+    to: "/dock-management",
+    icon: Warehouse,
+    detail: "Dock allocation and status",
+  },
+  {
+    label: "Damage & Quarantine",
+    to: "/warehouse/quarantine",
+    icon: ShieldAlert,
+    detail: "Segregated stock review",
+  },
+  {
+    label: "Reports",
+    to: "/reports",
+    icon: BarChart3,
+    detail: "Warehouse analytics",
+  },
+];
 
 function WarehouseDashboard() {
   const [data, setData] = useState<any>(null);
@@ -175,6 +263,57 @@ function WarehouseDashboard() {
       }
     >
       <div className="space-y-6">
+        {/* ============================================================ */}
+        {/* WAREHOUSE SIDEBAR SHORTCUT CARDS                            */}
+        {/* ============================================================ */}
+        <Card className="rounded-2xl border border-border/60 bg-card/60 shadow-subtle p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                <LayoutDashboard className="size-4 text-primary" /> Warehouse Operations
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Dashboard cards mirror every Warehouse sidebar module for quick access
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              className="text-[10px] font-mono py-0.5 px-2 self-start sm:self-auto"
+            >
+              {warehouseShortcutCards.length} Modules
+            </Badge>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {warehouseShortcutCards.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link key={item.to} to={item.to} className="group">
+                  <div className="rounded-xl border border-border/40 bg-muted/20 p-3 transition-all hover:shadow-subtle hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-foreground truncate">{item.label}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                          {item.detail}
+                        </p>
+                      </div>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary border border-primary/15">
+                        <Icon className="size-3.5" />
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        Open
+                      </span>
+                      <ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </Card>
+
         {/* ============================================================ */}
         {/* SECTION 1: ACTION REQUIRED (OPERATIONAL COMMAND CENTER)     */}
         {/* ============================================================ */}
