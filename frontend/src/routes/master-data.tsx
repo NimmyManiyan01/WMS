@@ -84,6 +84,7 @@ function MasterData() {
           icon={ClipboardList}
           tone="warning"
           to="/procurement/material-requests?status=pending-procurement"
+          infoTooltip="Material requests from the warehouse that are waiting for procurement review."
           showArrow
         />
         <StatCard
@@ -107,6 +108,7 @@ function MasterData() {
           icon={Building2}
           tone="success"
           to="/master-data"
+          infoTooltip="Approved suppliers currently available for procurement operations."
         />
         <StatCard
           label="Blocked Suppliers"
@@ -119,6 +121,7 @@ function MasterData() {
           icon={Building2}
           tone="danger"
           to="/master-data"
+          infoTooltip="Suppliers currently unavailable for procurement operations."
         />
       </div>
 

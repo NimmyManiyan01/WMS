@@ -20,6 +20,12 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 
@@ -170,20 +176,22 @@ function MaterialRequests() {
       title={
         <div className="flex items-center gap-2">
           <span>Material Requests</span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Material Requests Info"
-                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Info className="size-4" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
-              Requests raised by warehouse or departments for required materials.
-            </PopoverContent>
-          </Popover>
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Material Requests Info"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                >
+                  <Info className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                View and process material requirements submitted by warehouse users for procurement.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       }
       subtitle={

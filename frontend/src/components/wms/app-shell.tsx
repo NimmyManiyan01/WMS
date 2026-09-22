@@ -83,7 +83,7 @@ const procurementNav = [
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
-  { label: "Reports", to: "/reports", icon: BarChart3 },
+  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const supplierNav = [
@@ -97,12 +97,14 @@ const financeNav = [
   { label: "Pending Approvals", to: "/finance/approvals", icon: FileCheck2 },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
+
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
 ];
+
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
   Building2,
@@ -145,7 +147,7 @@ export function AppShell({
   actions,
 }: {
   children: ReactNode;
-  title: string;
+  title: ReactNode;
   subtitle?: string;
   actions?: ReactNode;
 }) {
@@ -611,12 +613,12 @@ export function AppShell({
                         : user?.roles?.includes("GATE_SECURITY")
                           ? "Security Officer"
                           : user?.roles?.includes("GRN") ||
-                              user?.roles?.includes("GRN_MANAGER") ||
-                              user?.roles?.includes("OPERATIONS_MANAGER") ||
-                              user?.roles?.includes("OPERATIONS") ||
-                              user?.roles?.includes("RECEIVING") ||
-                              user?.username?.toLowerCase() === "grn" ||
-                              user?.username?.toLowerCase()?.includes("grn")
+                            user?.roles?.includes("GRN_MANAGER") ||
+                            user?.roles?.includes("OPERATIONS_MANAGER") ||
+                            user?.roles?.includes("OPERATIONS") ||
+                            user?.roles?.includes("RECEIVING") ||
+                            user?.username?.toLowerCase() === "grn" ||
+                            user?.username?.toLowerCase()?.includes("grn")
                             ? "GRN / Operations Manager"
                             : "Operations Manager"}
                   </p>
@@ -844,7 +846,7 @@ export function DockAllocationNotificationCard({ notification }: { notification:
   return (
     <div className="relative overflow-hidden rounded-2xl border border-teal-500/30 bg-teal-500/5 p-5 shadow-sm space-y-4 font-sans text-foreground">
       <div className="absolute left-0 top-0 h-full w-1 bg-teal-600 dark:bg-teal-400" />
-      
+
       {/* Header */}
       <div className="flex items-center justify-between border-b border-teal-500/20 pb-3">
         <div className="flex items-center gap-2.5">

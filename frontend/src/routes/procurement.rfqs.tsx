@@ -19,6 +19,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -104,20 +110,23 @@ function Rfqs() {
       title={
         <div className="flex items-center gap-2">
           <span>Request for Quotations</span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="RFQs Info"
-                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Info className="size-4" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
-              Request quotations from selected suppliers based on material requirements.
-            </PopoverContent>
-          </Popover>
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="RFQs Info"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                >
+                  <Info className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-semibold">Request for Quotation (RFQ)</p>
+                <p className="mt-0.5">A request sent to one or more suppliers asking them to provide pricing and commercial terms for required materials.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       }
       subtitle="Manage and track RFQs sent to various suppliers"

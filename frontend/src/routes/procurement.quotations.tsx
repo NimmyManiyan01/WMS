@@ -33,6 +33,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -302,20 +308,23 @@ function Quotations() {
       title={
         <div className="flex items-center gap-2">
           <span>Quotations</span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Quotations Info"
-                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Info className="size-4" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
-              Supplier quotations received against RFQs. Compare prices, delivery, taxes and terms.
-            </PopoverContent>
-          </Popover>
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Quotations Info"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                >
+                  <Info className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-semibold">Quotations</p>
+                <p className="mt-0.5">Supplier price and commercial offers received in response to an RFQ. Use this section to compare supplier quotations before proceeding with purchase order creation.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       }
       subtitle={

@@ -60,6 +60,7 @@ const procurementModules = [
     icon: Building2,
     countKey: "suppliers",
     tone: "success",
+    infoTooltip: "Total number of suppliers registered in the system.",
   },
   {
     label: "Material Requests",
@@ -67,6 +68,7 @@ const procurementModules = [
     icon: ClipboardList,
     countKey: "requests",
     tone: "teal",
+    infoTooltip: "Total material requests created by warehouse or authorized users.",
   },
   {
     label: "RFQs",
@@ -74,6 +76,7 @@ const procurementModules = [
     icon: FileQuestion,
     countKey: "rfqs",
     tone: "warning",
+    infoTooltip: "Total Requests for Quotation created for supplier pricing.",
   },
   {
     label: "Quotes",
@@ -81,6 +84,7 @@ const procurementModules = [
     icon: FileBadge,
     countKey: "quotes",
     tone: "primary",
+    infoTooltip: "Total supplier quotations received against RFQs.",
   },
   {
     label: "POs",
@@ -88,6 +92,7 @@ const procurementModules = [
     icon: FileText,
     countKey: "pos",
     tone: "teal",
+    infoTooltip: "Total purchase orders created from approved quotations.",
   },
   {
     label: "ASNs",
@@ -95,10 +100,18 @@ const procurementModules = [
     icon: Truck,
     countKey: "asns",
     tone: "success",
+    infoTooltip: "Total Advance Shipping Notices received from suppliers.",
   },
 ] as const;
 
-const procurementKpis = [
+const procurementKpis: readonly {
+  readonly label: string;
+  readonly to: string;
+  readonly icon: any;
+  readonly valueKey: string;
+  readonly tone: "warning" | "primary" | "danger" | "teal" | "success";
+  readonly currency?: boolean;
+}[] = [
   {
     label: "Pending Approvals",
     to: "/finance/approvals",
@@ -142,7 +155,7 @@ const procurementKpis = [
     tone: "success",
     currency: true,
   },
-] as const;
+];
 
 function formatInrCompact(value: number): string {
   if (!Number.isFinite(value)) return "₹0";
@@ -376,6 +389,7 @@ function ProcurementDashboard() {
             label={module.label}
             icon={module.icon}
             tone={module.tone}
+            infoTooltip={module.infoTooltip}
             compact
           />
         ))}
@@ -437,6 +451,7 @@ function ProcurementDashboard() {
           title="PO Issuance Trend"
           description="Purchase orders created per month"
           icon={BarChart3}
+          infoTooltip="Monthly count of purchase orders created."
           className="xl:col-span-2"
         >
           <div className="h-[300px] w-full">

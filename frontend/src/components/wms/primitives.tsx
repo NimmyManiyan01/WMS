@@ -2,7 +2,13 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { ArrowRight, type LucideIcon } from "lucide-react";
+import { ArrowRight, Info, type LucideIcon } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function StatCard({
   label,
@@ -13,6 +19,7 @@ export function StatCard({
   to,
   showArrow = false,
   compact = false,
+  infoTooltip,
 }: {
   label: string;
   value: string;
@@ -22,6 +29,7 @@ export function StatCard({
   to?: string;
   showArrow?: boolean;
   compact?: boolean;
+  infoTooltip?: string;
 }) {
   const tones: Record<string, string> = {
     primary: "bg-primary-soft text-primary",
@@ -46,7 +54,31 @@ export function StatCard({
         )}
       </div>
       <p className={cn("font-bold tracking-tight tabular-nums", compact ? "mt-2 text-xl" : "mt-3 text-2xl")}>{value}</p>
-      <p className="mt-0.5 text-xs font-medium text-muted-foreground line-clamp-1">{label}</p>
+      <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+        <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
+        {infoTooltip && (
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Info: ${label}`}
+                  className="inline-flex items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring p-0.5 cursor-help transition-colors shrink-0"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <Info className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs">
+                {infoTooltip}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       {!compact && (
         <p
           className={cn(
@@ -96,6 +128,7 @@ export function Field({
     </div>
   );
 }
+
 export function SectionCard({
   title,
   description,
@@ -103,6 +136,7 @@ export function SectionCard({
   actions,
   children,
   className,
+  infoTooltip,
 }: {
   title: string;
   description?: string;
@@ -110,6 +144,7 @@ export function SectionCard({
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  infoTooltip?: string;
 }) {
   return (
     <Card className={cn("gap-0 rounded-2xl border-border/70 p-0 shadow-soft", className)}>
@@ -120,7 +155,31 @@ export function SectionCard({
           </span>
         )}
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+            {infoTooltip && (
+              <TooltipProvider>
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Info: ${title}`}
+                      className="inline-flex items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring p-0.5 cursor-help transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    {infoTooltip}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           {description && <p className="text-xs text-muted-foreground">{description}</p>}
         </div>
         {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
@@ -162,6 +221,7 @@ export function Timeline({
     </ol>
   );
 }
+
 export function StepRail({ current }: { current: number }) {
   const steps = [
     { n: 1, label: "Gate Entry", to: "/gate-entry" },

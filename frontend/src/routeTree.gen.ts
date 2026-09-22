@@ -61,6 +61,7 @@ import { Route as ProcurementNewRfqRouteImport } from './routes/procurement.new-
 import { Route as ProcurementPurchaseOrdersRouteImport } from './routes/procurement.purchase-orders'
 import { Route as ProcurementQualityIssuesRouteImport } from './routes/procurement.quality-issues'
 import { Route as ProcurementQuotationsRouteImport } from './routes/procurement.quotations'
+import { Route as ProcurementReportsRouteImport } from './routes/procurement.reports'
 import { Route as ProcurementRfqsRouteImport } from './routes/procurement.rfqs'
 import { Route as SupplierSupplierIdRouteImport } from './routes/supplier.$supplierId'
 import { Route as SupplierQualityIssuesRouteImport } from './routes/supplier.quality-issues'
@@ -345,6 +346,11 @@ const ProcurementQuotationsRoute = ProcurementQuotationsRouteImport.update({
   path: '/procurement/quotations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProcurementReportsRoute = ProcurementReportsRouteImport.update({
+  id: '/procurement/reports',
+  path: '/procurement/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProcurementRfqsRoute = ProcurementRfqsRouteImport.update({
   id: '/procurement/rfqs',
   path: '/procurement/rfqs',
@@ -473,6 +479,7 @@ export interface FileRoutesByFullPath {
   '/procurement/purchase-orders': typeof ProcurementPurchaseOrdersRoute
   '/procurement/quality-issues': typeof ProcurementQualityIssuesRoute
   '/procurement/quotations': typeof ProcurementQuotationsRoute
+  '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
@@ -539,6 +546,7 @@ export interface FileRoutesByTo {
   '/procurement/purchase-orders': typeof ProcurementPurchaseOrdersRoute
   '/procurement/quality-issues': typeof ProcurementQualityIssuesRoute
   '/procurement/quotations': typeof ProcurementQuotationsRoute
+  '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
@@ -608,6 +616,7 @@ export interface FileRoutesById {
   '/procurement/purchase-orders': typeof ProcurementPurchaseOrdersRoute
   '/procurement/quality-issues': typeof ProcurementQualityIssuesRoute
   '/procurement/quotations': typeof ProcurementQuotationsRoute
+  '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
@@ -678,6 +687,7 @@ export interface FileRouteTypes {
     | '/procurement/purchase-orders'
     | '/procurement/quality-issues'
     | '/procurement/quotations'
+    | '/procurement/reports'
     | '/procurement/rfqs'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
@@ -744,6 +754,7 @@ export interface FileRouteTypes {
     | '/procurement/purchase-orders'
     | '/procurement/quality-issues'
     | '/procurement/quotations'
+    | '/procurement/reports'
     | '/procurement/rfqs'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
@@ -812,6 +823,7 @@ export interface FileRouteTypes {
     | '/procurement/purchase-orders'
     | '/procurement/quality-issues'
     | '/procurement/quotations'
+    | '/procurement/reports'
     | '/procurement/rfqs'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
@@ -881,6 +893,7 @@ export interface RootRouteChildren {
   ProcurementPurchaseOrdersRoute: typeof ProcurementPurchaseOrdersRoute
   ProcurementQualityIssuesRoute: typeof ProcurementQualityIssuesRoute
   ProcurementQuotationsRoute: typeof ProcurementQuotationsRoute
+  ProcurementReportsRoute: typeof ProcurementReportsRoute
   ProcurementRfqsRoute: typeof ProcurementRfqsRoute
   SupplierSupplierIdRoute: typeof SupplierSupplierIdRoute
   SupplierQualityIssuesRoute: typeof SupplierQualityIssuesRoute
@@ -1258,6 +1271,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProcurementQuotationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/procurement/reports': {
+      id: '/procurement/reports'
+      path: '/procurement/reports'
+      fullPath: '/procurement/reports'
+      preLoaderRoute: typeof ProcurementReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/procurement/rfqs': {
       id: '/procurement/rfqs'
       path: '/procurement/rfqs'
@@ -1441,6 +1461,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProcurementPurchaseOrdersRoute: ProcurementPurchaseOrdersRoute,
   ProcurementQualityIssuesRoute: ProcurementQualityIssuesRoute,
   ProcurementQuotationsRoute: ProcurementQuotationsRoute,
+  ProcurementReportsRoute: ProcurementReportsRoute,
   ProcurementRfqsRoute: ProcurementRfqsRoute,
   SupplierSupplierIdRoute: SupplierSupplierIdRoute,
   SupplierQualityIssuesRoute: SupplierQualityIssuesRoute,
