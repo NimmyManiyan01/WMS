@@ -1216,10 +1216,20 @@ export const api = {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/quotations/${id}`);
   },
 
-  async getPurchaseOrders(search?: string, signal?: AbortSignal): Promise<any[]> {
-    const url = search
-      ? `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders?search=${encodeURIComponent(search)}`
-      : `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders`;
+  async getPurchaseOrders(
+    searchOrParams?: string | { search?: string; supplierId?: string },
+    signal?: AbortSignal,
+  ): Promise<any[]> {
+    let url = `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders`;
+    const params = new URLSearchParams();
+    if (typeof searchOrParams === "string" && searchOrParams) {
+      params.append("search", searchOrParams);
+    } else if (typeof searchOrParams === "object" && searchOrParams) {
+      if (searchOrParams.search) params.append("search", searchOrParams.search);
+      if (searchOrParams.supplierId) params.append("supplier_id", searchOrParams.supplierId);
+    }
+    const qStr = params.toString();
+    if (qStr) url += `?${qStr}`;
     return request<any[]>(url, { cache: "no-store", signal });
   },
 

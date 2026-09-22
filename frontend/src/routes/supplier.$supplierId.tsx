@@ -76,23 +76,25 @@ function SupplierProfile() {
   useEffect(() => {
     api
       .getSupplier(supplierId)
-      .then(setSupplier)
+      .then((data) => {
+        setSupplier(data);
+        if (data) {
+          api
+            .getPurchaseOrders({ supplierId: supplierId })
+            .then((pos) => {
+              if (Array.isArray(pos)) setPurchaseOrders(pos);
+            })
+            .catch(() => {});
+        }
+      })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Unable to load supplier profile."),
       );
 
     api
-      .getPurchaseOrders()
+      .getPurchaseOrders({ supplierId: supplierId })
       .then((pos) => {
-        if (Array.isArray(pos)) {
-          setPurchaseOrders(
-            pos.filter(
-              (p) =>
-                String(p.supplierId || p.supplier_id) === String(supplierId) ||
-                (supplier?.supplierName && p.supplierName === supplier.supplierName),
-            ),
-          );
-        }
+        if (Array.isArray(pos)) setPurchaseOrders(pos);
       })
       .catch(() => {});
 
@@ -102,7 +104,7 @@ function SupplierProfile() {
         if (cats.length > 0) setCategories(cats.map((c: any) => c.name));
       })
       .catch((err) => console.warn("Failed to fetch categories", err));
-  }, [supplierId, supplier?.supplierName]);
+  }, [supplierId]);
 
   const title = supplier?.supplierName || "Supplier profile";
   const openEditor = () => {

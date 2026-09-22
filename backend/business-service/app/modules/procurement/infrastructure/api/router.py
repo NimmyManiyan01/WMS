@@ -2001,11 +2001,10 @@ async def _get_purchase_order_quotation(
 @router.get("/purchase-orders", response_model=List[PurchaseOrderResponse])
 async def list_purchase_orders(
     search: Optional[str] = Query(None),
+    supplier_id: Optional[str] = Query(None),
     uow: UnitOfWork = Depends(get_uow)
 ):
     try:
-        repo = SqlAlchemyPurchaseOrderRepository(uow.session)
-
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
@@ -2014,6 +2013,16 @@ async def list_purchase_orders(
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
             selectinload(PurchaseOrderModel.rfq),
         )
+
+        if supplier_id:
+            try:
+                supp_uuid = uuid.UUID(supplier_id)
+                stmt = stmt.where(or_(
+                    PurchaseOrderModel.supplier_id == supp_uuid,
+                    cast(PurchaseOrderModel.supplier_id, String) == supplier_id,
+                ))
+            except ValueError:
+                stmt = stmt.where(PurchaseOrderModel.supplier_name.ilike(f"%{supplier_id}%"))
 
         if search:
             search_term = f"%{search}%"
