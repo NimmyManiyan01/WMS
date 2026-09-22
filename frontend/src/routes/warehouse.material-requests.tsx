@@ -1478,32 +1478,7 @@ function WarehouseMaterialRequests() {
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <Label className="text-[10px] uppercase font-black text-muted-foreground">
-                    Approval History
-                  </Label>
-                  <div className="rounded-2xl border border-border/40 bg-muted/20 p-4">
-                    {(selectedRequest.approvalHistory || selectedRequest.approval_history)?.length ? (
-                      <div className="space-y-3">
-                        {(selectedRequest.approvalHistory || selectedRequest.approval_history).map((entry: any, idx: number) => (
-                          <div key={idx} className="flex items-start justify-between gap-4 text-sm">
-                            <div>
-                              <p className="font-bold text-foreground">{entry.status}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {entry.actor || "System"} {entry.comments ? `- ${entry.comments}` : ""}
-                              </p>
-                            </div>
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {entry.timestamp ? formatDisplayDate(entry.timestamp) : "—"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">No approval history recorded yet.</p>
-                    )}
-                  </div>
-                </div>
+
               </div>
 
               <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-between">
