@@ -11,10 +11,12 @@ import {
   FileText,
   RefreshCw,
   Download,
+  Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -330,7 +332,25 @@ function Asns() {
 
   return (
     <AppShell
-      title="Advanced Shipping Notices"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Advanced Shipping Notices</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="ASNs Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Advance Shipment Notices sent by suppliers before material arrives at the warehouse.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle="Track incoming supplier shipments and vehicle arrivals"
       actions={
         <Button

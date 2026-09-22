@@ -10,10 +10,12 @@ import {
   Loader2,
   Package,
   Search,
+  Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { requireRole } from "@/lib/auth-utils";
@@ -119,7 +121,25 @@ function PurchaseOrders() {
 
   return (
     <AppShell
-      title="Purchase Orders"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Purchase Orders</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Purchase Orders Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Approved purchase orders issued to suppliers.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle="All supplier purchase orders, finance decisions, and downloadable PO PDFs"
     >
       <div className="space-y-6">

@@ -18,6 +18,7 @@ import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -100,7 +101,25 @@ function Rfqs() {
 
   return (
     <AppShell
-      title="Request for Quotations"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Request for Quotations</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="RFQs Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Request quotations from selected suppliers based on material requirements.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle="Manage and track RFQs sent to various suppliers"
     >
       <div className="mb-6 flex flex-wrap items-center gap-4">

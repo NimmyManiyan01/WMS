@@ -24,12 +24,14 @@ import {
   TrendingDown,
   AlertCircle,
   Truck,
+  Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -297,7 +299,25 @@ function Quotations() {
 
   return (
     <AppShell
-      title="Quotation Comparison Matrix"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Quotations</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Quotations Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Supplier quotations received against RFQs. Compare prices, delivery, taxes and terms.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle={
         rfqId
           ? `Comparing bids for RFQ: ${rfq?.rfqNumber || rfqId}`

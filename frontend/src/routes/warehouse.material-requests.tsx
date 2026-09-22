@@ -14,6 +14,7 @@ import {
   Save,
   X,
   Check,
+  Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -684,7 +685,25 @@ function WarehouseMaterialRequests() {
 
   return (
     <AppShell
-      title="Warehouse Material Requests"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Warehouse Material Requests</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Material Requests Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Requests raised by warehouse or departments for required materials.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle="Request stocks and consumables from the procurement team"
       actions={
         <Button className="rounded-xl shadow-glow" onClick={startCreating}>
