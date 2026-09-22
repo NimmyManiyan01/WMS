@@ -46,7 +46,7 @@ const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
   { label: "Create GRN", to: "/grn?tab=wizard", icon: PlusCircle },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=grn", icon: Truck },
-  { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList }
+  { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
 
 const storeManagerNav = [
@@ -61,16 +61,16 @@ const storeManagerNav = [
 
 const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
+  { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
+  { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Store Management", to: "/my-store", icon: Store },
   { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
-  { label: "Material Master", to: "/warehouse/materials", icon: Database },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
-  { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
-  { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
@@ -213,7 +213,8 @@ export function AppShell({
                 api.getNotifications("GRN").catch(() => []),
               ]);
               const unreadArrivals = Array.isArray(arrivals)
-                ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED").length
+                ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED")
+                    .length
                 : 0;
               const unreadGeneral = Array.isArray(general)
                 ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
@@ -222,9 +223,7 @@ export function AppShell({
             } else {
               const data = await api.getNotifications(role);
               setUnreadNotifications(
-                Array.isArray(data)
-                  ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length
-                  : 0,
+                Array.isArray(data) ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length : 0,
               );
             }
           } catch {
@@ -248,7 +247,10 @@ export function AppShell({
       if (cleanup) cleanup();
     };
   }, [dark]);
-  const currentQueryModule = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("module") : null;
+  const currentQueryModule =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("module")
+      : null;
   const isGrnUser =
     mounted &&
     (user?.roles?.includes("GRN") ||
@@ -258,7 +260,10 @@ export function AppShell({
       user?.roles?.includes("RECEIVING") ||
       user?.username?.toLowerCase() === "grn" ||
       user?.username?.toLowerCase()?.includes("grn"));
-  const isGrnRoute = path === "/grn" || path.startsWith("/grn") || (path === "/vehicle-queue" && currentQueryModule === "grn");
+  const isGrnRoute =
+    path === "/grn" ||
+    path.startsWith("/grn") ||
+    (path === "/vehicle-queue" && currentQueryModule === "grn");
   const isProcurementRoute =
     path === "/procurement-dashboard" ||
     path.startsWith("/procurement/") ||
@@ -298,27 +303,28 @@ export function AppShell({
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
     (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
-  const resolvedNav = (isGrnUser || isGrnRoute)
-    ? grnNav
-    : isSupplierRoute
-      ? supplierNav
-      : isFinanceRoute
-        ? financeNav
-        : isProcurementRoute
-          ? procurementNav
-          : isGateSecurityRoute
-            ? gateSecurityNav
-            : isWarehouseRoute
-              ? warehouseNav
-              : mounted && user?.roles?.includes("SUPPLIER")
-                ? supplierNav
-                : mounted && user?.roles?.includes("FINANCE")
-                  ? financeNav
-                  : mounted && user?.roles?.includes("PROCUREMENT")
-                    ? procurementNav
-                    : isGateSecurityUser
-                      ? gateSecurityNav
-                      : warehouseNav;
+  const resolvedNav =
+    isGrnUser || isGrnRoute
+      ? grnNav
+      : isSupplierRoute
+        ? supplierNav
+        : isFinanceRoute
+          ? financeNav
+          : isProcurementRoute
+            ? procurementNav
+            : isGateSecurityRoute
+              ? gateSecurityNav
+              : isWarehouseRoute
+                ? warehouseNav
+                : mounted && user?.roles?.includes("SUPPLIER")
+                  ? supplierNav
+                  : mounted && user?.roles?.includes("FINANCE")
+                    ? financeNav
+                    : mounted && user?.roles?.includes("PROCUREMENT")
+                      ? procurementNav
+                      : isGateSecurityUser
+                        ? gateSecurityNav
+                        : warehouseNav;
   const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
   const nav = navigationPending ? [] : resolvedNav;
   useEffect(() => {
@@ -344,10 +350,17 @@ export function AppShell({
         return path === targetPath && targetTab === currentTab && targetPage === currentPage;
       }
       if (targetTab) {
-        return path === targetPath && targetTab === currentTab && (!targetPage || !currentPage || targetTab !== "wizard");
+        return (
+          path === targetPath &&
+          targetTab === currentTab &&
+          (!targetPage || !currentPage || targetTab !== "wizard")
+        );
       }
       if (targetModule) {
-        return path === targetPath && (targetModule === currentModule || (!currentModule && targetModule === "warehouse"));
+        return (
+          path === targetPath &&
+          (targetModule === currentModule || (!currentModule && targetModule === "warehouse"))
+        );
       }
       return fullHref === to || (searchStr ? fullHref.startsWith(to) : to === "/grn?tab=dashboard");
     }
@@ -613,12 +626,12 @@ export function AppShell({
                         : user?.roles?.includes("GATE_SECURITY")
                           ? "Security Officer"
                           : user?.roles?.includes("GRN") ||
-                            user?.roles?.includes("GRN_MANAGER") ||
-                            user?.roles?.includes("OPERATIONS_MANAGER") ||
-                            user?.roles?.includes("OPERATIONS") ||
-                            user?.roles?.includes("RECEIVING") ||
-                            user?.username?.toLowerCase() === "grn" ||
-                            user?.username?.toLowerCase()?.includes("grn")
+                              user?.roles?.includes("GRN_MANAGER") ||
+                              user?.roles?.includes("OPERATIONS_MANAGER") ||
+                              user?.roles?.includes("OPERATIONS") ||
+                              user?.roles?.includes("RECEIVING") ||
+                              user?.username?.toLowerCase() === "grn" ||
+                              user?.username?.toLowerCase()?.includes("grn")
                             ? "GRN / Operations Manager"
                             : "Operations Manager"}
                   </p>
@@ -755,22 +768,14 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Vehicle:\s*([^\n]+)/i)?.[1]?.trim() ||
     "N/A";
   const driverName =
-    n?.driver_name ||
-    n?.driverName ||
-    msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
+    n?.driver_name || n?.driverName || msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
   const driverPhone =
     n?.driver_phone ||
     n?.driverPhone ||
     msg.match(/Driver Phone:\s*([^\n]+)/i)?.[1]?.trim() ||
     msg.match(/Phone:\s*([^\n]+)/i)?.[1]?.trim();
-  const asnNumber =
-    n?.asn_number ||
-    n?.asnNumber ||
-    msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
-  const poNumber =
-    n?.po_number ||
-    n?.poNumber ||
-    msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
+  const asnNumber = n?.asn_number || n?.asnNumber || msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
+  const poNumber = n?.po_number || n?.poNumber || msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
 
   const dockCode =
     n?.dock_code ||
@@ -789,10 +794,7 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Location:\s*([^\n]+)/i)?.[1]?.trim() ||
     "Receiving Bay - A";
   const dockType =
-    n?.dock_type ||
-    n?.dockType ||
-    msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() ||
-    "Inbound";
+    n?.dock_type || n?.dockType || msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() || "Inbound";
   const warehouseName =
     n?.warehouse_name ||
     n?.warehouseName ||
@@ -860,7 +862,10 @@ export function DockAllocationNotificationCard({ notification }: { notification:
             <p className="text-xs text-muted-foreground">Vehicle assigned & dock allocated</p>
           </div>
         </div>
-        <Badge variant="outline" className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full">
+        <Badge
+          variant="outline"
+          className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full"
+        >
           Dock Allocated
         </Badge>
       </div>
@@ -916,7 +921,9 @@ export function DockAllocationNotificationCard({ notification }: { notification:
           <div className="space-y-1.5 pt-1 font-medium">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Code:</span>
-              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{details.dockCode}</span>
+              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
+                {details.dockCode}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Name:</span>
