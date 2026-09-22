@@ -1547,41 +1547,7 @@ function WarehouseMaterialRequests() {
                           Submit Request
                         </Button>
                       )}
-                      {selectedRequest.status === "Submitted" && (
-                        <>
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
-                            onClick={() => changeStatus("Rejected", "Rejected during manager review")}
-                          >
-                            <X className="mr-2 size-4" /> Reject
-                          </Button>
-                          <Button
-                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
-                            onClick={() => changeStatus("Pending Approval", "Manager approved; sent to Procurement")}
-                          >
-                            <Check className="mr-2 size-4" /> Manager Approve
-                          </Button>
-                        </>
-                      )}
-                      {selectedRequest.status === "Pending Approval" && (
-                        <>
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
-                            onClick={() => changeStatus("Rejected", "Rejected during procurement review")}
-                          >
-                            <X className="mr-2 size-4" /> Reject
-                          </Button>
-                          <Button
-                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
-                            onClick={() => changeStatus("Approved", "Procurement approved")}
-                          >
-                            <Check className="mr-2 size-4" /> Approve
-                          </Button>
-                        </>
-                      )}
-                      {["Draft", "Submitted", "Rejected"].includes(selectedRequest.status) && (
+                      {["Draft", "Submitted", "Rejected", "Pending Approval"].includes(selectedRequest.status) && (
                         <Button
                           className="rounded-full h-11 px-8 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
                           onClick={() => setIsEditing(true)}
