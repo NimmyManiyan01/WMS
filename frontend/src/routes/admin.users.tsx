@@ -424,14 +424,17 @@ function AddUserDialog({
   const [stores, setStores] = useState<any[]>([]);
   const [existingUsers, setExistingUsers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   useEffect(() => {
     if (open) {
       void api.getStores({ status: "ACTIVE" }).then(setStores);
       void api.getStoreManagers().then(setExistingUsers);
     }
   }, [open]);
-  const update = (key: keyof typeof form, value: string | boolean) =>
+  const update = (key: keyof typeof form, value: string | boolean) => {
+    setErrorMessage("");
     setForm((current) => ({ ...current, [key]: value }));
+  };
   const updateName = (name: string) => {
     const prefix = name
       .trim()
@@ -463,8 +466,21 @@ function AddUserDialog({
     form.password.length >= 4 &&
     form.store_id,
   );
+  const normalizedEmail = (
+    form.email.trim() || `${form.username.trim().toLowerCase()}@nexuswms.local`
+  ).toLowerCase();
+  const duplicateField = existingUsers.find(
+    (user) =>
+      String(user.employee_id || "").toUpperCase() === form.employee_id.trim().toUpperCase() ||
+      String(user.username || "").toLowerCase() === form.username.trim().toLowerCase() ||
+      String(user.email || "").toLowerCase() === normalizedEmail,
+  );
   const save = async () => {
     if (!canSave) return;
+    if (duplicateField) {
+      setErrorMessage("A user with this Employee ID, username, or email already exists.");
+      return;
+    }
     setSaving(true);
     try {
       await api.createStoreManager({
@@ -479,6 +495,9 @@ function AddUserDialog({
       await onCreated();
       onOpenChange(false);
       setForm(emptyUserForm);
+      setErrorMessage("");
+    } catch (error: any) {
+      setErrorMessage(error?.message || "Unable to create user. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -490,6 +509,11 @@ function AddUserDialog({
           <DialogTitle>Add New User</DialogTitle>
         </DialogHeader>
         <div className="max-h-[72vh] space-y-5 overflow-y-auto pr-1">
+          {errorMessage && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {errorMessage}
+            </div>
+          )}
           <FormSection
             title="User Information"
             description="Basic identity and contact details for the user."
