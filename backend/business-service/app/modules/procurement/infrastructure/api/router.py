@@ -4298,7 +4298,15 @@ async def dev_login(
         account.auth_token_hash = hashlib.sha256(session_token.encode()).hexdigest()
         account.last_login = datetime.utcnow()
         await uow.commit()
-        role = account.role.strip().upper().replace(" ", "_")
+        role_key = account.role.strip().upper().replace(" ", "_")
+        role = {
+            "SUPER_ADMIN": "ADMIN",
+            "ADMIN_OFFICER": "ADMIN",
+            "PROCUREMENT_MANAGER": "PROCUREMENT",
+            "PROCUREMENT_OFFICER": "PROCUREMENT",
+            "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
+            "STORE_OPERATOR": "STORE_KEEPER",
+        }.get(role_key, role_key)
         return {
             "token": f"mock-jwt-db-user-{session_token}",
             "username": account.username,
