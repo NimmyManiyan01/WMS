@@ -121,6 +121,15 @@ function NewRfq() {
           uom: item.uom || "PCS",
         })),
       );
+
+      const mrCats = [...new Set(mr.items.map((it: any) => it.category).filter(Boolean))];
+      if (mrCats.length > 0) {
+        const primaryCat = mrCats[0];
+        setFilters((prev) => ({
+          ...prev,
+          category: primaryCat,
+        }));
+      }
     }
   };
   useEffect(() => {
@@ -128,14 +137,16 @@ function NewRfq() {
       try {
         setLoadingSuppliers(true);
         const data = await api.getSuppliers({ ...filters, status: "Active" });
-        setSuppliers(
-          data.filter(
-            (supplier: any) =>
-              String(supplier.status ?? "")
-                .trim()
-                .toLowerCase() === "active",
-          ),
+        const activeSuppliers = data.filter(
+          (supplier: any) =>
+            String(supplier.status ?? "")
+              .trim()
+              .toLowerCase() === "active",
         );
+        setSuppliers(activeSuppliers);
+        if (selectedSuppliers.length === 0 && activeSuppliers.length > 0) {
+          setSelectedSuppliers(activeSuppliers.map((s: any) => s.supplierId || s.id));
+        }
       } catch (err) {
         toast.error("Failed to load suppliers");
       } finally {
