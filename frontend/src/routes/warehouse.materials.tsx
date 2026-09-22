@@ -100,6 +100,9 @@ const DEFAULT_UOMS = [
   "DRUM",
 ];
 
+const DESCRIPTION_MAX_LENGTH = 500;
+const SPECIFICATION_NOTE_MAX_LENGTH = 250;
+
 function TermInfo({ label, tooltip }: { label: string; tooltip: string }) {
   return (
     <span className="inline-flex items-center gap-1">
@@ -358,6 +361,7 @@ function WarehouseMaterials() {
       const specCode = formatSpecCode(suggested_variant_code) || `${code}-S001`;
       setMaterialCode(code);
       setMaterialName("");
+      setCategory("");
       setDescription("");
       setBaseUom(uoms[0] || "NOS");
       setMaterialStatus("Active");
@@ -377,6 +381,12 @@ function WarehouseMaterials() {
       setIsAddModalOpen(true);
     } catch (e) {
       setMaterialCode("MAT-001");
+      setMaterialName("");
+      setCategory("");
+      setDescription("");
+      setBaseUom(uoms[0] || "NOS");
+      setMaterialStatus("Active");
+      setCustomCategory("");
       setVariantsList([
         {
           variant_code: "MAT-001-S001",
@@ -424,6 +434,11 @@ function WarehouseMaterials() {
       toast.info("A material must have at least one specification.");
       return;
     }
+    const target = variantsList[idx];
+    const specCode = formatSpecCode(target?.variant_code) || `#${idx + 1}`;
+    if (!window.confirm(`Remove specification "${specCode}" from this material?`)) {
+      return;
+    }
     setVariantsList(variantsList.filter((_, i) => i !== idx));
   };
 
@@ -437,38 +452,17 @@ function WarehouseMaterials() {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!materialCode.trim()) {
-      toast.error("Material Code is required");
-      return;
-    }
-    if (!materialName.trim()) {
-      toast.error("Material Name is required");
-      return;
-    }
-
-    const trimmedName = materialName.trim().toLowerCase();
-    const existingMat = materials.find(
-      (m) => m.material_name?.trim().toLowerCase() === trimmedName,
-    );
-    if (existingMat) {
-      toast.error(
-        `Material "${existingMat.material_name}" already exists (${existingMat.material_code}). Please use a unique Material Name.`,
-      );
-      return;
-    }
-
-    const finalCategory = category === "OTHER" ? customCategory.trim() : category;
-    if (!finalCategory) {
-      toast.error("Please specify a category");
+    if (!canSaveMaterial) {
+      toast.error(createValidationErrors[0] || "Please complete the required fields.");
       return;
     }
 
     setSubmitting(true);
     try {
       const payload = {
-        material_code: materialCode.trim().toUpperCase(),
-        material_name: materialName.trim(),
-        category: finalCategory,
+        material_code: trimmedCreateCode,
+        material_name: trimmedCreateName,
+        category: finalCreateCategory,
         description: description.trim() || undefined,
         base_uom: baseUom,
         status: materialStatus,
@@ -767,6 +761,36 @@ function WarehouseMaterials() {
   );
   const activeCount = materials.filter((m) => m.status === "Active").length;
   const distinctCategories = Array.from(new Set(materials.map((m) => m.category))).length;
+  const finalCreateCategory = category === "OTHER" ? customCategory.trim() : category;
+  const trimmedCreateCode = materialCode.trim().toUpperCase();
+  const trimmedCreateName = materialName.trim();
+  const duplicateMaterialCode = materials.find(
+    (m) => m.material_code?.trim().toUpperCase() === trimmedCreateCode,
+  );
+  const duplicateMaterialName = materials.find(
+    (m) => m.material_name?.trim().toLowerCase() === trimmedCreateName.toLowerCase(),
+  );
+  const hasDuplicateSpecCode =
+    new Set(
+      variantsList.map((variant) => variant.variant_code.trim().toUpperCase()).filter(Boolean),
+    ).size !== variantsList.filter((variant) => variant.variant_code.trim()).length;
+  const hasMissingSpecUom = variantsList.some((variant) => !(variant.uom || baseUom).trim());
+  const createValidationErrors = [
+    !trimmedCreateCode ? "Material Code is required." : "",
+    duplicateMaterialCode
+      ? `Material Code already exists as ${duplicateMaterialCode.material_name}.`
+      : "",
+    !trimmedCreateName ? "Material Name is required." : "",
+    duplicateMaterialName
+      ? `Material Name already exists as ${duplicateMaterialName.material_code}.`
+      : "",
+    !finalCreateCategory ? "Category is required." : "",
+    !baseUom ? "Base UOM is required." : "",
+    variantsList.length === 0 ? "At least one specification is required." : "",
+    hasDuplicateSpecCode ? "Specification Codes must be unique." : "",
+    hasMissingSpecUom ? "Every specification needs a Packaging UOM." : "",
+  ].filter(Boolean);
+  const canSaveMaterial = createValidationErrors.length === 0 && !submitting;
   const visibleMaterials = materials.filter((m) => {
     const specCount = m.variant_count || m.variants?.length || 0;
     if (showOnlyWithSpecs && specCount === 0) return false;
@@ -1606,17 +1630,38 @@ function WarehouseMaterials() {
                   <Label className="text-xs font-bold">
                     Material Code <span className="text-destructive">*</span>
                   </Label>
-                  <Input
-                    placeholder="e.g. MAT-001"
-                    value={materialCode}
-                    readOnly
-                    disabled
-                    className="font-mono text-sm rounded-xl font-bold bg-muted/60 text-foreground cursor-not-allowed border-dashed"
-                    required
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. MAT-001"
+                      value={materialCode}
+                      readOnly
+                      className="font-mono text-sm rounded-xl font-bold bg-muted/60 text-foreground cursor-default border-dashed"
+                      required
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-10 rounded-xl px-3"
+                      onClick={() => handleCopyCode(materialCode, "Material Code")}
+                      disabled={!materialCode}
+                      title="Copy Material Code"
+                    >
+                      {copiedCode === materialCode ? (
+                        <Check className="size-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="size-3.5" />
+                      )}
+                    </Button>
+                  </div>
                   <p className="text-[10px] text-muted-foreground">
                     System-generated sequential identifier
                   </p>
+                  {duplicateMaterialCode && (
+                    <p className="text-[10px] font-semibold text-destructive">
+                      Already used by {duplicateMaterialCode.material_name}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5 sm:col-span-2">
@@ -1630,6 +1675,11 @@ function WarehouseMaterials() {
                     className="text-sm rounded-xl bg-background"
                     required
                   />
+                  {duplicateMaterialName && (
+                    <p className="text-[10px] font-semibold text-destructive">
+                      Already exists as {duplicateMaterialName.material_code}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1667,6 +1717,11 @@ function WarehouseMaterials() {
                       required
                     />
                   )}
+                  {category === "OTHER" && !customCategory.trim() && (
+                    <p className="text-[10px] font-semibold text-destructive">
+                      Custom category is required.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1700,8 +1755,12 @@ function WarehouseMaterials() {
                   placeholder="Optional material description, standard packaging or usage notes..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  maxLength={DESCRIPTION_MAX_LENGTH}
                   className="rounded-xl text-xs min-h-[60px] bg-background"
                 />
+                <p className="text-[10px] text-muted-foreground text-right">
+                  {description.length}/{DESCRIPTION_MAX_LENGTH}
+                </p>
               </div>
             </div>
 
@@ -1744,6 +1803,9 @@ function WarehouseMaterials() {
                         </span>
                         <span className="font-mono text-xs font-bold text-primary bg-primary/10 px-2.5 py-0.5 rounded-lg border border-primary/20">
                           {formatSpecCode(variant.variant_code)}
+                        </span>
+                        <span className="text-[10px] font-semibold text-muted-foreground">
+                          System-generated
                         </span>
                       </div>
                       <Button
@@ -1827,16 +1889,26 @@ function WarehouseMaterials() {
                       <Input
                         value={variant.specification}
                         onChange={(e) => updateVariantRow(idx, "specification", e.target.value)}
+                        maxLength={SPECIFICATION_NOTE_MAX_LENGTH}
                         placeholder="e.g. IS 1786 High Ductility TMT Reinforcement (Bundle of 10 Rods)"
                         className="h-8.5 text-xs rounded-xl"
                       />
+                      <p className="text-[10px] text-muted-foreground text-right">
+                        {variant.specification.length}/{SPECIFICATION_NOTE_MAX_LENGTH}
+                      </p>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <DialogFooter className="border-t pt-4 flex items-center justify-end gap-3">
+            {createValidationErrors.length > 0 && (
+              <div className="rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-[11px] font-semibold text-destructive">
+                {createValidationErrors[0]}
+              </div>
+            )}
+
+            <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background/95 px-6 py-4 backdrop-blur-md flex items-center justify-end gap-3">
               <Button
                 type="button"
                 variant="ghost"
@@ -1848,7 +1920,7 @@ function WarehouseMaterials() {
               <Button
                 type="submit"
                 className="rounded-xl shadow-glow bg-primary hover:bg-primary/90 px-6 font-bold text-xs"
-                disabled={submitting}
+                disabled={!canSaveMaterial}
               >
                 {submitting ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
