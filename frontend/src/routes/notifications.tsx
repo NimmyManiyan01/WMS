@@ -367,6 +367,13 @@ function Notifications() {
   };
 
   const handleOpenNotificationDetails = (n: any) => {
+    // Some older notification records contain the shared warehouse dashboard
+    // as their target. Keep procurement users in their own dashboard context.
+    const notificationLink =
+      userRole === "PROCUREMENT" &&
+      ["/warehouse-dashboard", "/receiving"].includes(String(n.link || ""))
+        ? "/procurement-dashboard"
+        : n.link;
     const isGrnLinked = String(n.link || "").startsWith("/grn");
     const isDockAllocation =
       userRole !== "GRN" &&
@@ -396,8 +403,11 @@ function Notifications() {
       setShowGrnModal(true);
     } else if (isDockAllocation) {
       // Dock allocation card is rendered directly on page
-    } else if (n.link && !["/warehouse-dashboard", "/receiving"].includes(n.link)) {
-      window.location.href = n.link;
+    } else if (
+      notificationLink &&
+      (userRole === "PROCUREMENT" || !["/warehouse-dashboard", "/receiving"].includes(notificationLink))
+    ) {
+      window.location.href = notificationLink;
     } else {
       setSelectedGrnNotif(n);
       setShowGrnModal(true);
