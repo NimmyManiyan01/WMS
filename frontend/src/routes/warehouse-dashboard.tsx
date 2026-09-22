@@ -46,13 +46,6 @@ export const Route = createFileRoute("/warehouse-dashboard")({
 
 const warehouseShortcutCards = [
   {
-    label: "Dashboard",
-    to: "/warehouse-dashboard",
-    icon: LayoutDashboard,
-    detail: "Control center overview",
-    tone: "primary",
-  },
-  {
     label: "Material Master",
     to: "/warehouse/materials",
     icon: Database,
@@ -276,28 +269,8 @@ function WarehouseDashboard() {
       }
     >
       <div className="space-y-6">
-        {/* ============================================================ */}
-        {/* WAREHOUSE SIDEBAR SHORTCUT CARDS                            */}
-        {/* ============================================================ */}
         <div>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
-                <LayoutDashboard className="size-4 text-primary" /> Warehouse Operations
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Dashboard cards mirror every Warehouse sidebar module for quick access
-              </p>
-            </div>
-            <Badge
-              variant="outline"
-              className="text-[10px] font-mono py-0.5 px-2 self-start sm:self-auto"
-            >
-              {warehouseShortcutCards.length} Modules
-            </Badge>
-          </div>
-
-          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-6">
             {warehouseShortcutCards.map((item, index) => {
               const Icon = item.icon;
               const toneClass =
