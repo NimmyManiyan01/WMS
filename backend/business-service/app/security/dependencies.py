@@ -5,6 +5,7 @@ Supports local dev mock user fallback when running in environment=local.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -97,6 +98,34 @@ async def get_current_user(
                 permissions=[],
                 raw_claims={"supplier_id": supplier_id} if supplier_id else {},
             )
+        if token.startswith("mock-jwt-db-user-"):
+            session_token = token.removeprefix("mock-jwt-db-user-")
+            from sqlalchemy import select
+            from app.database.session import AsyncSessionFactory
+            from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
+
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    select(StoreManagerUserModel).where(
+                        StoreManagerUserModel.auth_token_hash == hashlib.sha256(session_token.encode()).hexdigest(),
+                        StoreManagerUserModel.status == "ACTIVE",
+                    )
+                )
+                account = result.scalar_one_or_none()
+            if account:
+                role = account.role.strip().upper().replace(" ", "_")
+                return CurrentUser(
+                    subject=account.employee_id,
+                    username=account.username,
+                    roles=[role],
+                    permissions=[],
+                    raw_claims={
+                        "employee_id": account.employee_id,
+                        "applications": account.applications or [],
+                        "store_id": str(account.store_id),
+                    },
+                )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or invalid")
         if token == "mock-jwt-admin-token" or token == "local_dev_mock_token":
             return CurrentUser(
                 subject="admin",

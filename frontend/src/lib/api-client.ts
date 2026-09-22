@@ -169,6 +169,7 @@ export const api = {
     roles: string[];
     supplierId?: string;
     mustChangePassword?: boolean;
+    applications?: string[];
   }> {
     if (username.startsWith("supplier_")) {
       const response = await request<any>(
@@ -203,6 +204,7 @@ export const api = {
         full_name: response.full_name,
         store_id: response.store_id,
         store_code: response.store_code,
+        applications: response.applications || [],
       };
       storeAuthSession(devUser, rememberMe);
       return devUser;

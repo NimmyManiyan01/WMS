@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import asyncio
 import uuid
+import hashlib
+import secrets
 from io import BytesIO
 from datetime import date, datetime
 from decimal import Decimal
@@ -149,6 +151,7 @@ from app.modules.procurement.infrastructure.persistence.repository_impl import (
 )
 from app.common.email_utils import render_premium_email, send_email
 from app.security.dependencies import CurrentUser, get_current_user
+from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
 
 logger = get_logger(__name__)
 
@@ -4278,9 +4281,32 @@ async def change_password(
 @router.post("/auth/dev-login")
 async def dev_login(
     request: DevLoginRequest,
+    uow: UnitOfWork = Depends(get_uow),
 ) -> dict:
     from app.config.settings import get_settings
     settings = get_settings()
+
+    account_result = await uow.session.execute(
+        select(StoreManagerUserModel).where(
+            func.lower(StoreManagerUserModel.username) == request.username.strip().lower(),
+            StoreManagerUserModel.status == "ACTIVE",
+        )
+    )
+    account = account_result.scalar_one_or_none()
+    if account and account.password_hash == hashlib.sha256(request.password.encode()).hexdigest():
+        session_token = secrets.token_urlsafe(48)
+        account.auth_token_hash = hashlib.sha256(session_token.encode()).hexdigest()
+        account.last_login = datetime.utcnow()
+        await uow.commit()
+        role = account.role.strip().upper().replace(" ", "_")
+        return {
+            "token": f"mock-jwt-db-user-{session_token}",
+            "username": account.username,
+            "full_name": account.full_name,
+            "employee_id": account.employee_id,
+            "roles": [role],
+            "applications": account.applications or [],
+        }
 
     if request.username == settings.admin_username and request.password == settings.admin_password:
         return {
