@@ -1282,8 +1282,12 @@ export const api = {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+    setTimeout(() => {
+      try {
+        window.URL.revokeObjectURL(url);
+        if (a.parentNode) document.body.removeChild(a);
+      } catch {}
+    }, 2000);
   },
 
   async getFinanceApprovals(): Promise<any[]> {
