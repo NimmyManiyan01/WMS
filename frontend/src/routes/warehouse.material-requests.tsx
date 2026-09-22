@@ -15,6 +15,8 @@ import {
   X,
   Check,
   Info,
+  Send,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -22,19 +24,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip,
@@ -497,7 +501,7 @@ function WarehouseMaterialRequests() {
     const newItems = selectedRequest.items.filter((_: any, i: number) => i !== idx);
     setSelectedRequest({ ...selectedRequest, items: newItems });
   };
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
     const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     if (!requester) {
@@ -520,10 +524,16 @@ function WarehouseMaterialRequests() {
       toast.error("Quantity must be strictly greater than 0 for all items");
       return;
     }
+    setShowConfirmModal(true);
+  };
+
+  const executeSubmitRequest = async () => {
+    const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     setSubmitting(true);
     try {
       const itemsToSubmit = items.map((it) => ({
         ...it,
+        category: it.category || "Raw Materials",
         variant_code: formatSpecCode(it.variant_code),
       }));
       await api.createMaterialRequest({
@@ -533,6 +543,7 @@ function WarehouseMaterialRequests() {
         items: itemsToSubmit,
       });
       toast.success("Material request submitted to Procurement");
+      setShowConfirmModal(false);
       setIsCreating(false);
       setItems([
         {
@@ -745,7 +756,7 @@ function WarehouseMaterialRequests() {
             </div>
           </CardHeader>
           <CardContent className="p-5 sm:p-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleOpenPreSubmitModal} className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Request Number</Label>
@@ -1578,6 +1589,149 @@ function WarehouseMaterialRequests() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* PRE-SUBMISSION MATERIAL REQUEST CONFIRMATION POPUP MODAL */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white">
+                  Confirm Material Request Submission
+                </DialogTitle>
+                <Badge className="bg-white/20 text-white border-white/30 text-[10px] uppercase font-black">
+                  Pre-Submission Review
+                </Badge>
+              </div>
+              <DialogDescription className="text-blue-100 text-xs">
+                Review request details and category supplier availability before sending to Procurement
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Request Summary Metadata */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Request Number</p>
+                <p className="font-mono font-bold text-primary text-sm mt-0.5">
+                  {formData.request_number || "MR-PENDING"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.warehouse_id || "Main Warehouse"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Inventory"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Priority</p>
+                <Badge className="mt-0.5 bg-amber-500/10 text-amber-700 border-amber-500/30 text-[10px] font-bold">
+                  {formData.priority || "MEDIUM"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Material Items List */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase font-black text-muted-foreground">
+                Requested Materials ({items.length} item{items.length === 1 ? "" : "s"})
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-border/60 bg-card overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-muted/40 font-bold uppercase text-[10px] text-muted-foreground border-b border-border/60">
+                    <tr>
+                      <th className="p-2.5">Material</th>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5 text-right">Qty</th>
+                      <th className="p-2.5">UOM</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {items.map((it, i) => (
+                      <tr key={i} className="hover:bg-muted/10">
+                        <td className="p-2.5">
+                          <p className="font-mono font-bold text-primary">{it.material_code || "CUSTOM"}</p>
+                          <p className="text-foreground font-medium truncate max-w-[220px]">{it.material_name}</p>
+                        </td>
+                        <td className="p-2.5 font-semibold text-muted-foreground uppercase text-[10px]">
+                          {it.category || "Raw Materials"}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-foreground tabular-nums">
+                          {it.quantity}
+                        </td>
+                        <td className="p-2.5 font-medium text-muted-foreground uppercase text-[10px]">
+                          {it.uom || "PCS"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Categorized Suppliers Availability Banner */}
+            {(() => {
+              const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+              const primaryCategory = itemCategories[0] || "Raw Materials";
+              const matchingSuppliers = activeSuppliers.filter((s: any) =>
+                Array.isArray(s.category)
+                  ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+                  : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+              );
+
+              return (
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-950 dark:text-emerald-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="size-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 font-bold shadow-sm">
+                      <Building2 className="size-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                        Procurement Supplier Master
+                      </p>
+                      <p className="text-sm font-bold text-foreground mt-0.5">
+                        {matchingSuppliers.length > 0
+                          ? `${matchingSuppliers.length} Active Supplier(s) Registered for Category '${primaryCategory}'`
+                          : `Active Suppliers Available for '${primaryCategory}'`}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="font-bold text-xs bg-card border-emerald-500/30 shrink-0">
+                    Ready for RFQ
+                  </Badge>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl font-bold text-xs uppercase"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              onClick={executeSubmitRequest}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 size-4" />
+              )}
+              Confirm &amp; Submit Request
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppShell>
