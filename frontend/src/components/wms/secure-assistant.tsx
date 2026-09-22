@@ -69,19 +69,27 @@ export function SecureAssistant() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const module = useMemo(getModule, [location.pathname]);
 
   useEffect(() => {
     if (!open || query.trim().length < 2) {
       setResults([]);
+      setSearchError("");
       return;
     }
     const timer = window.setTimeout(() => {
       setLoading(true);
       void api
         .globalSearch(query.trim())
-        .then((data) => setResults(data.results || []))
-        .catch(() => setResults([]))
+        .then((data) => {
+          setSearchError("");
+          setResults(data.results || []);
+        })
+        .catch((error: Error) => {
+          setResults([]);
+          setSearchError(error.message || "Search is unavailable");
+        })
         .finally(() => setLoading(false));
     }, 250);
     return () => window.clearTimeout(timer);
@@ -159,6 +167,8 @@ export function SecureAssistant() {
                   </p>
                   {loading ? (
                     <p className="text-sm text-muted-foreground">Searching authorized records...</p>
+                  ) : searchError ? (
+                    <p className="text-sm text-destructive">{searchError}</p>
                   ) : results.length ? (
                     <div className="space-y-2">
                       {results.map((result) => (
@@ -183,7 +193,21 @@ export function SecureAssistant() {
             </div>
             <form
               className="border-t border-border/60 p-3"
-              onSubmit={(event) => event.preventDefault()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (query.trim().length >= 2) {
+                  setSearchError("");
+                  setResults([]);
+                  setLoading(true);
+                  void api
+                    .globalSearch(query.trim())
+                    .then((data) => setResults(data.results || []))
+                    .catch((error: Error) =>
+                      setSearchError(error.message || "Search is unavailable"),
+                    )
+                    .finally(() => setLoading(false));
+                }
+              }}
             >
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -194,7 +218,13 @@ export function SecureAssistant() {
                   placeholder="Ask or search records..."
                   className="h-10 w-full rounded-xl border border-border bg-muted/40 pl-9 pr-10 text-sm outline-none focus:ring-2 focus:ring-ring/40"
                 />
-                <Send className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <button
+                  type="submit"
+                  aria-label="Search records"
+                  className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Send className="size-4" />
+                </button>
               </div>
             </form>
           </section>
