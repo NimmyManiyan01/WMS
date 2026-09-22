@@ -35,6 +35,7 @@ import { api } from "@/lib/api-client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -69,6 +70,8 @@ function UserManagementPage() {
   const [users, setUsers] = useState<LiveUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<LiveUser | null>(null);
+  const [selectedAction, setSelectedAction] = useState<"view" | "access" | "activity" | null>(null);
 
   const loadUsers = async () => {
     setIsLoading(true);
@@ -112,6 +115,16 @@ function UserManagementPage() {
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [roleFilter, search, statusFilter, users]);
+
+  const changeUserStatus = async (user: LiveUser, nextStatus: string) => {
+    try {
+      await api.updateStoreManagerStatus(user.id, nextStatus);
+      await loadUsers();
+      toast.success(`User ${nextStatus.toLowerCase()} successfully`);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to update user status");
+    }
+  };
 
   return (
     <AppShell
@@ -242,23 +255,55 @@ function UserManagementPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(user);
+                                setSelectedAction("view");
+                              }}
+                            >
                               <Users className="mr-2 size-4" /> View User
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setIsAddOpen(true)}>
                               <UserCog className="mr-2 size-4" /> Edit User
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(user);
+                                setSelectedAction("access");
+                              }}
+                            >
                               <SlidersHorizontal className="mr-2 size-4" /> Manage Access
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                toast.info(
+                                  "Password reset API is not available for this user type yet",
+                                )
+                              }
+                            >
                               <KeyRound className="mr-2 size-4" /> Reset Password
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-rose-600 focus:text-rose-600">
-                              <UserMinus className="mr-2 size-4" /> Deactivate
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            {user.status === "Active" ? (
+                              <DropdownMenuItem
+                                className="text-rose-600 focus:text-rose-600"
+                                onClick={() => void changeUserStatus(user, "INACTIVE")}
+                              >
+                                <UserMinus className="mr-2 size-4" /> Deactivate
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onClick={() => void changeUserStatus(user, "ACTIVE")}
+                              >
+                                <UserCog className="mr-2 size-4" /> Activate
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(user);
+                                setSelectedAction("activity");
+                              }}
+                            >
                               <Activity className="mr-2 size-4" /> View Activity
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -278,7 +323,76 @@ function UserManagementPage() {
         </div>
       </div>
       <AddUserDialog open={isAddOpen} onOpenChange={setIsAddOpen} onCreated={loadUsers} />
+      <UserActionDialog
+        user={selectedUser}
+        action={selectedAction}
+        onClose={() => {
+          setSelectedUser(null);
+          setSelectedAction(null);
+        }}
+      />
     </AppShell>
+  );
+}
+
+function UserActionDialog({
+  user,
+  action,
+  onClose,
+}: {
+  user: LiveUser | null;
+  action: "view" | "access" | "activity" | null;
+  onClose: () => void;
+}) {
+  if (!user || !action) return null;
+  const title =
+    action === "view" ? "User Details" : action === "access" ? "Manage Access" : "User Activity";
+  return (
+    <Dialog open={Boolean(user && action)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {action === "view" && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["Name", user.name],
+                ["Employee ID", user.employeeId],
+                ["Email", user.email],
+                ["Role", user.role],
+                ["Status", user.status],
+                ["Last Activity", user.lastActivity],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="mt-1 text-sm font-semibold">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {action === "access" && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                <p className="font-semibold">{user.role}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Access is inherited from the assigned role. Advanced permission overrides require
+                  the admin permissions API.
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Current live account: {user.name} ({user.employeeId})
+              </p>
+            </div>
+          )}
+          {action === "activity" && (
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+              Activity history API is not available for this user type yet.
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
