@@ -16,6 +16,10 @@ import {
   Package,
   Sparkles,
   ClipboardList,
+  Send,
+  Check,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -23,6 +27,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/procurement/new-rfq")({
@@ -32,6 +44,7 @@ const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background";
 function NewRfq() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(true);
@@ -222,16 +235,20 @@ function NewRfq() {
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     );
   };
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedSuppliers.length === 0) {
-      toast.error("Please select at least one supplier");
+      toast.error("Please select at least one supplier for the RFQ invitation");
       return;
     }
     if (items.some((item) => !item.material_code.trim() || !item.material_name.trim())) {
       toast.error("Please fill in Material Code and Name for all items");
       return;
     }
+    setShowConfirmModal(true);
+  };
+
+  const executeSubmitRfq = async () => {
     setSubmitting(true);
     try {
       const payload = {
@@ -244,10 +261,11 @@ function NewRfq() {
         required_delivery_date: formData.required_delivery_date || null,
       };
       await api.createRfq(payload);
-      toast.success("RFQ Draft created successfully");
+      toast.success("RFQ created and supplier invitations dispatched!");
+      setShowConfirmModal(false);
       navigate({ to: "/procurement/rfqs" });
     } catch (error: any) {
-      toast.error("Failed to create RFQ", { description: error.message });
+      toast.error("Failed to create RFQ: " + (error.message || "Unknown error"));
     } finally {
       setSubmitting(false);
     }
@@ -266,7 +284,7 @@ function NewRfq() {
         </Button>
       }
     >
-      <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6">
+      <form onSubmit={handleOpenPreSubmitModal} className="mx-auto max-w-4xl space-y-6">
         <SectionCard
           title="RFQ Metadata"
           description="Core identification and scheduling for this request"
@@ -580,6 +598,140 @@ function NewRfq() {
           </Button>
         </div>
       </form>
+
+      {/* PRE-SUBMISSION CATEGORIZED SUPPLIER REVIEW POPUP MODAL */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white">
+                  Pre-Submission Supplier Review
+                </DialogTitle>
+                <Badge className="bg-white/20 text-white border-white/30 text-[10px] uppercase font-black">
+                  Category Match
+                </Badge>
+              </div>
+              <DialogDescription className="text-blue-100 text-xs">
+                Review Material Request requirements and category-matched suppliers before publishing
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Selected Material Request Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Material Request</p>
+                <p className="font-mono font-bold text-primary text-sm mt-0.5">
+                  {formData.material_request_number || "Direct RFQ"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Procurement"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.warehouse}</p>
+              </div>
+            </div>
+
+            {/* Category & Matching Suppliers Count Banner */}
+            {(() => {
+              const primaryCategory = items[0]?.category || filters.category || "Raw Materials";
+
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-950 dark:text-blue-200">
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 font-bold shadow-sm">
+                        <Building2 className="size-5" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          Category: {primaryCategory}
+                        </p>
+                        <p className="text-sm font-bold text-foreground mt-0.5">
+                          {suppliers.length} Active Supplier(s) Found for Category
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="font-bold text-xs bg-card border-blue-500/30">
+                      {selectedSuppliers.length} Selected
+                    </Badge>
+                  </div>
+
+                  {/* List of Category Suppliers */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase font-black text-muted-foreground">
+                      Categorized Suppliers To Be Invited ({selectedSuppliers.length} of {suppliers.length})
+                    </p>
+                    <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+                      {suppliers.map((sup: any) => {
+                        const isChecked = selectedSuppliers.includes(sup.supplierId || sup.id);
+                        return (
+                          <div
+                            key={sup.supplierId || sup.id}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-xl border text-xs transition-colors",
+                              isChecked
+                                ? "border-primary/50 bg-primary/5 text-foreground"
+                                : "border-border/50 bg-muted/20 opacity-60",
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <CheckCircle2
+                                className={cn(
+                                  "size-4 shrink-0",
+                                  isChecked ? "text-primary" : "text-muted-foreground/40",
+                                )}
+                              />
+                              <div>
+                                <p className="font-bold text-foreground">{sup.supplierName}</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">
+                                  {sup.gstin || sup.supplierCode || "Active Vendor"}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border/40">
+                              {Array.isArray(sup.category) ? sup.category.join(", ") : sup.category || primaryCategory}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl font-bold text-xs uppercase"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              onClick={executeSubmitRfq}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 size-4" />
+              )}
+              Confirm &amp; Send RFQ
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
