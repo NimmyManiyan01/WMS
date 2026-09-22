@@ -66,8 +66,68 @@ export function getUserInfo(): UserInfo | null {
 export function hasRole(roles: string[] | string): boolean {
   const user = getUserInfo();
   if (!user) return false;
+  if (user.roles.includes("ADMIN") || user.roles.includes("SUPERUSER")) return true;
   const requiredRoles = Array.isArray(roles) ? roles : [roles];
   return requiredRoles.some((role) => user.roles.includes(role));
+}
+
+export function getRequiredRolesForPath(pathname: string): string[] | null {
+  if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/procurement") ||
+    pathname === "/master-data" ||
+    pathname === "/new-supplier"
+  )
+    return ["PROCUREMENT", "ADMIN", "SUPERUSER"];
+  if (pathname.startsWith("/finance")) return ["FINANCE", "ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/supplier") ||
+    pathname === "/supplier-dashboard" ||
+    pathname === "/submit-quotation"
+  )
+    return ["SUPPLIER", "ADMIN", "SUPERUSER"];
+  if (pathname.startsWith("/assembly"))
+    return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
+  if (
+    pathname === "/gate-dashboard" ||
+    pathname === "/gate-entry" ||
+    pathname === "/vehicle-queue" ||
+    pathname === "/vehicle-exit" ||
+    pathname === "/unscheduled-arrivals"
+  )
+    return ["GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"];
+  if (pathname === "/grn" || pathname === "/receiving")
+    return ["GRN", "GRN_MANAGER", "RECEIVING", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/warehouse") ||
+    pathname === "/warehouse-dashboard" ||
+    pathname === "/dock-management" ||
+    pathname === "/dock-master" ||
+    pathname === "/inventory" ||
+    pathname === "/putaway-tasks" ||
+    pathname === "/pick-tasks" ||
+    pathname === "/reports" ||
+    pathname === "/damage-claims"
+  )
+    return [
+      "WAREHOUSE",
+      "WAREHOUSE_MANAGER",
+      "STORE_MANAGER",
+      "STORE_KEEPER",
+      "ADMIN",
+      "SUPERUSER",
+    ];
+  if (pathname === "/my-store")
+    return ["STORE_MANAGER", "STORE_KEEPER", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  return null;
+}
+
+export function requireRouteAccess(pathname: string): void {
+  requireAuth();
+  const requiredRoles = getRequiredRolesForPath(pathname);
+  if (requiredRoles && !hasRole(requiredRoles)) {
+    throw redirect({ to: getDefaultRouteForUser(getUserInfo()) as any });
+  }
 }
 
 export function isAuthenticated(): boolean {
