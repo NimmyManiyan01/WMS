@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import type { KeyboardEvent } from "react";
 import { useEffect, useState, useMemo } from "react";
 import {
   Building2,
@@ -366,6 +367,7 @@ function MyStorePage() {
     }
   }, [searchParams.tab]);
   const [store, setStore] = useState<Store | null>(null);
+  const isStoreActive = store?.status?.toUpperCase() === "ACTIVE";
   const [storeMetrics, setStoreMetrics] = useState<StoreDashboardMetricsResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [overviewSearch, setOverviewSearch] = useState("");
@@ -413,6 +415,13 @@ function MyStorePage() {
   const [putawayStatusFilter, setPutawayStatusFilter] = useState("ALL");
   const [pickupSearch, setPickupSearch] = useState("");
   const [pickupStatusFilter, setPickupStatusFilter] = useState("ALL");
+
+  const activateCardOnKey = (event: KeyboardEvent<HTMLDivElement>, action: () => void) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  };
 
   // Create Zone Modal
   const [createZoneOpen, setCreateZoneOpen] = useState(false);
@@ -1382,9 +1391,7 @@ function MyStorePage() {
                       <span className="font-mono text-xs px-2.5 py-1 rounded-lg bg-primary/15 text-primary font-bold border border-primary/20">
                         {store.store_code}
                       </span>
-                      <StatusBadge
-                        status={store.status?.toUpperCase() === "ACTIVE" ? "PASS" : "REJECTED"}
-                      />
+                      <StatusBadge status={isStoreActive ? "OPERATIONAL" : store.status || "Inactive"} />
                     </div>
                     <p className="text-xs text-muted-foreground mt-2 max-w-2xl leading-relaxed">
                       {store.description ||
@@ -1598,6 +1605,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1621,6 +1634,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1644,6 +1663,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-emerald-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1667,6 +1692,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-amber-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1690,6 +1721,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-rose-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1713,6 +1750,12 @@ function MyStorePage() {
                     setActiveTab("inventory");
                     setOverviewSearch("");
                   }}
+                  onKeyDown={(event) =>
+                    activateCardOnKey(event, () => {
+                      setActiveTab("inventory");
+                      setOverviewSearch("");
+                    })
+                  }
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-orange-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1728,7 +1771,7 @@ function MyStorePage() {
                     <p className="text-[10px] text-muted-foreground">
                       {(storeMetrics?.kpis?.low_stock_count ?? 0) > 0
                         ? "SKUs alert"
-                        : "All SKUs healthy"}
+                        : "No low-stock SKUs"}
                     </p>
                   </CardContent>
                 </Card>
@@ -1737,6 +1780,7 @@ function MyStorePage() {
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveTab("zones")}
+                  onKeyDown={(event) => activateCardOnKey(event, () => setActiveTab("zones"))}
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-indigo-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1757,6 +1801,7 @@ function MyStorePage() {
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveTab("zones")}
+                  onKeyDown={(event) => activateCardOnKey(event, () => setActiveTab("zones"))}
                   className="border-border/40 bg-card/70 shadow-2xs hover:border-cyan-500/40 transition-colors cursor-pointer"
                 >
                   <CardContent className="p-3.5 space-y-1">
@@ -1920,7 +1965,8 @@ function MyStorePage() {
                           onClick={() => setActiveTab("putaway")}
                           className="mt-2 rounded-xl text-xs"
                         >
-                          <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks
+                          <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks{" "}
+                          <ArrowRight className="size-3.5 ml-1" />
                         </Button>
                       </div>
                     ) : (
@@ -2558,7 +2604,8 @@ function MyStorePage() {
                       onClick={() => setActiveTab("putaway")}
                       className="mt-2 rounded-xl text-xs"
                     >
-                      <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks
+                      <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks{" "}
+                      <ArrowRight className="size-3.5 ml-1" />
                     </Button>
                   </div>
                 ) : (
