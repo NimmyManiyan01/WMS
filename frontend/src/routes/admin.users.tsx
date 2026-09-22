@@ -59,6 +59,7 @@ type LiveUser = {
   email: string;
   employeeId: string;
   role: string;
+  applications: string[];
   status: string;
   lastActivity: string;
 };
@@ -83,7 +84,8 @@ function UserManagementPage() {
           name: user.full_name,
           email: user.email,
           employeeId: user.employee_id,
-          role: "Store Manager",
+          role: user.role || "Store Manager",
+          applications: user.applications || ["WMS"],
           status: user.status === "ACTIVE" ? "Active" : "Inactive",
           lastActivity: user.updated_at ? new Date(user.updated_at).toLocaleString() : "Never",
         })),
@@ -491,6 +493,8 @@ function AddUserDialog({
         password: form.password,
         store_id: form.store_id,
         status: form.status,
+        role: form.role,
+        applications: form.application === "WMS + AMS" ? ["WMS", "AMS"] : [form.application],
       });
       await onCreated();
       onOpenChange(false);

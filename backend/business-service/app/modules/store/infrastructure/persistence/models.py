@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, GUID
@@ -153,6 +153,8 @@ class StoreManagerUserModel(Base):
     full_name: Mapped[str] = mapped_column(String(128), nullable=False)
     email: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="Store Manager")
+    applications: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=lambda: ["WMS"])
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -132,6 +132,8 @@ def _to_manager_response(mgr: StoreManagerUserModel, store: Optional[StoreModel]
         username=mgr.username,
         full_name=mgr.full_name,
         email=mgr.email,
+        role=mgr.role,
+        applications=mgr.applications or [],
         store_id=str(mgr.store_id),
         store_code=store.store_code if store else getattr(mgr.store, "store_code", None),
         store_name=store.store_name if store else getattr(mgr.store, "store_name", None),
@@ -479,6 +481,8 @@ async def create_store_manager(
         username=clean_user,
         full_name=payload.full_name.strip(),
         email=clean_email,
+        role=payload.role.strip(),
+        applications=payload.applications,
         password_hash=hashed_pwd,
         status=payload.status.strip().upper() if payload.status else "ACTIVE",
         created_at=now,
@@ -548,6 +552,10 @@ async def update_store_manager(
         mgr.password_hash = hashlib.sha256(payload.password.encode()).hexdigest()
     if payload.status:
         mgr.status = payload.status.strip().upper()
+    if payload.role is not None:
+        mgr.role = payload.role.strip()
+    if payload.applications is not None:
+        mgr.applications = payload.applications
 
     mgr.updated_at = datetime.now(timezone.utc)
     await uow.session.flush()
