@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   Eye,
   Sliders,
+  MoreHorizontal,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { StatCard } from "@/components/wms/primitives";
@@ -54,6 +55,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
@@ -143,6 +150,9 @@ function WarehouseMaterials() {
   // UI state: Table vs Cards view & clipboard copy tracking
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [showOnlyWithSpecs, setShowOnlyWithSpecs] = useState(false);
+  const [showOnlyCategorized, setShowOnlyCategorized] = useState(false);
+  const [expandedSkuRows, setExpandedSkuRows] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Modals & Dialog states
@@ -757,6 +767,63 @@ function WarehouseMaterials() {
   );
   const activeCount = materials.filter((m) => m.status === "Active").length;
   const distinctCategories = Array.from(new Set(materials.map((m) => m.category))).length;
+  const visibleMaterials = materials.filter((m) => {
+    const specCount = m.variant_count || m.variants?.length || 0;
+    if (showOnlyWithSpecs && specCount === 0) return false;
+    if (showOnlyCategorized && !m.category) return false;
+    return true;
+  });
+  const hasActiveClientFilter = showOnlyWithSpecs || showOnlyCategorized;
+
+  const clearClientFilters = () => {
+    setShowOnlyWithSpecs(false);
+    setShowOnlyCategorized(false);
+    setExpandedSkuRows(new Set());
+  };
+
+  const applyKpiFilter = (filter: "all" | "specs" | "active" | "categories") => {
+    setSearchTerm("");
+    setExpandedSkuRows(new Set());
+
+    if (filter === "all") {
+      setSelectedCategory("ALL");
+      setSelectedStatus("ALL");
+      clearClientFilters();
+      return;
+    }
+
+    if (filter === "specs") {
+      setSelectedCategory("ALL");
+      setSelectedStatus("ALL");
+      setShowOnlyWithSpecs(true);
+      setShowOnlyCategorized(false);
+      return;
+    }
+
+    if (filter === "active") {
+      setSelectedCategory("ALL");
+      setSelectedStatus("Active");
+      clearClientFilters();
+      return;
+    }
+
+    setSelectedCategory("ALL");
+    setSelectedStatus("ALL");
+    setShowOnlyWithSpecs(false);
+    setShowOnlyCategorized(true);
+  };
+
+  const toggleSkuRow = (materialId: string) => {
+    setExpandedSkuRows((current) => {
+      const next = new Set(current);
+      if (next.has(materialId)) {
+        next.delete(materialId);
+      } else {
+        next.add(materialId);
+      }
+      return next;
+    });
+  };
 
   return (
     <AppShell
@@ -801,7 +868,15 @@ function WarehouseMaterials() {
       {/* Executive Metric Cards (Industry-Standard Bento Grid) */}
       <div className="mb-6 grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Card 1: Material Masters */}
-        <Card className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-primary/40 hover:shadow-soft">
+        <Card
+          role="button"
+          tabIndex={0}
+          className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-primary/40 hover:shadow-soft cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          onClick={() => applyKpiFilter("all")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") applyKpiFilter("all");
+          }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               <TermInfo
@@ -821,7 +896,15 @@ function WarehouseMaterials() {
         </Card>
 
         {/* Card 2: Total Specifications */}
-        <Card className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-teal-500/40 hover:shadow-soft">
+        <Card
+          role="button"
+          tabIndex={0}
+          className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-teal-500/40 hover:shadow-soft cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/20"
+          onClick={() => applyKpiFilter("specs")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") applyKpiFilter("specs");
+          }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               <TermInfo
@@ -841,7 +924,15 @@ function WarehouseMaterials() {
         </Card>
 
         {/* Card 3: Active Materials */}
-        <Card className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-emerald-500/40 hover:shadow-soft">
+        <Card
+          role="button"
+          tabIndex={0}
+          className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-emerald-500/40 hover:shadow-soft cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+          onClick={() => applyKpiFilter("active")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") applyKpiFilter("active");
+          }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               <TermInfo
@@ -869,7 +960,15 @@ function WarehouseMaterials() {
         </Card>
 
         {/* Card 4: Categories */}
-        <Card className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-amber-500/40 hover:shadow-soft">
+        <Card
+          role="button"
+          tabIndex={0}
+          className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-amber-500/40 hover:shadow-soft cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/20"
+          onClick={() => applyKpiFilter("categories")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") applyKpiFilter("categories");
+          }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               <TermInfo
@@ -957,7 +1056,10 @@ function WarehouseMaterials() {
             </Select>
 
             {/* Reset Filters Shortcut */}
-            {(searchTerm || selectedCategory !== "ALL" || selectedStatus !== "ALL") && (
+            {(searchTerm ||
+              selectedCategory !== "ALL" ||
+              selectedStatus !== "ALL" ||
+              hasActiveClientFilter) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -966,6 +1068,7 @@ function WarehouseMaterials() {
                   setSearchTerm("");
                   setSelectedCategory("ALL");
                   setSelectedStatus("ALL");
+                  clearClientFilters();
                 }}
               >
                 <X className="mr-1 size-3.5" /> Reset Filters
@@ -976,7 +1079,7 @@ function WarehouseMaterials() {
           {/* Right Toolbar: View Mode Switcher & Count Indicator */}
           <div className="flex items-center justify-between lg:justify-end gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/50">
             <span className="text-xs text-muted-foreground font-medium">
-              Showing <strong className="text-foreground">{materials.length}</strong> of{" "}
+              Showing <strong className="text-foreground">{visibleMaterials.length}</strong> of{" "}
               <strong className="text-foreground">{totalMaterials}</strong> materials
             </span>
 
@@ -1023,23 +1126,44 @@ function WarehouseMaterials() {
             Loading Material Master registry...
           </p>
         </div>
-      ) : materials.length === 0 ? (
+      ) : visibleMaterials.length === 0 ? (
         <Card className="flex h-72 flex-col items-center justify-center p-8 text-center border-dashed border-border/80 bg-card/60 rounded-3xl shadow-2xs">
           <div className="grid size-14 place-items-center rounded-2xl bg-muted text-muted-foreground mb-3">
             <Boxes className="size-7 opacity-60" />
           </div>
           <h3 className="text-lg font-bold text-foreground">No Materials Found</h3>
           <p className="mt-1 text-xs text-muted-foreground max-w-md">
-            {searchTerm || selectedCategory !== "ALL" || selectedStatus !== "ALL"
+            {searchTerm ||
+            selectedCategory !== "ALL" ||
+            selectedStatus !== "ALL" ||
+            hasActiveClientFilter
               ? "No materials match your active search or filter criteria. Try clearing filters."
               : "Start by registering your canonical Material Code with specifications for wire, steel, fasteners, or consumables."}
           </p>
-          <Button
-            className="mt-5 rounded-xl shadow-glow bg-primary font-bold text-xs"
-            onClick={openCreateModal}
-          >
-            <Plus className="mr-1.5 size-4" /> Add Material Master
-          </Button>
+          {searchTerm ||
+          selectedCategory !== "ALL" ||
+          selectedStatus !== "ALL" ||
+          hasActiveClientFilter ? (
+            <Button
+              variant="outline"
+              className="mt-5 rounded-xl font-bold text-xs"
+              onClick={() => {
+                setSearchTerm("");
+                setSelectedCategory("ALL");
+                setSelectedStatus("ALL");
+                clearClientFilters();
+              }}
+            >
+              <X className="mr-1.5 size-4" /> Clear Filters
+            </Button>
+          ) : (
+            <Button
+              className="mt-5 rounded-xl shadow-glow bg-primary font-bold text-xs"
+              onClick={openCreateModal}
+            >
+              <Plus className="mr-1.5 size-4" /> Add Material Master
+            </Button>
+          )}
         </Card>
       ) : viewMode === "table" ? (
         /* HIGH-DENSITY ENTERPRISE TABLE VIEW */
@@ -1064,14 +1188,18 @@ function WarehouseMaterials() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60 font-medium">
-                {materials.map((mat) => {
+                {visibleMaterials.map((mat) => {
                   const specCount = mat.variant_count || mat.variants?.length || 0;
                   const isCopied = copiedCode === mat.material_code;
+                  const isSkuExpanded = expandedSkuRows.has(mat.id);
+                  const visibleVariants = isSkuExpanded
+                    ? mat.variants || []
+                    : (mat.variants || []).slice(0, 2);
 
                   return (
                     <tr
                       key={mat.id}
-                      className="group hover:bg-muted/25 transition-colors cursor-pointer"
+                      className="group hover:bg-muted/25 hover:shadow-2xs transition-all cursor-pointer"
                       onClick={() => openMaterialDetail(mat)}
                     >
                       {/* Code with 1-click copy */}
@@ -1090,7 +1218,7 @@ function WarehouseMaterials() {
                             {isCopied ? (
                               <Check className="size-3 text-emerald-600 shrink-0" />
                             ) : (
-                              <Copy className="size-3 text-primary/60 group-hover/code:text-primary shrink-0 opacity-0 group-hover/code:opacity-100 transition-opacity" />
+                              <Copy className="size-3 text-primary/60 group-hover/code:text-primary shrink-0 transition-colors" />
                             )}
                           </button>
                         </div>
@@ -1136,7 +1264,7 @@ function WarehouseMaterials() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           {mat.variants && mat.variants.length > 0 ? (
                             <>
-                              {mat.variants.slice(0, 2).map((v: any) => {
+                              {visibleVariants.map((v: any) => {
                                 const specDesc = [v.size, v.color, v.grade]
                                   .filter(Boolean)
                                   .join(" · ");
@@ -1177,16 +1305,27 @@ function WarehouseMaterials() {
                                 );
                               })}
                               {specCount > 2 && (
-                                <span
+                                <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openMaterialDetail(mat);
+                                    toggleSkuRow(mat.id);
                                   }}
-                                  className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded-md whitespace-nowrap hover:bg-teal-500/20 cursor-pointer transition-colors"
-                                  title={`+${specCount - 2} more specifications (click to view)`}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded-md whitespace-nowrap hover:bg-teal-500/20 cursor-pointer transition-colors"
+                                  title={
+                                    isSkuExpanded
+                                      ? "Collapse specifications"
+                                      : `Show ${specCount - 2} more specifications`
+                                  }
                                 >
-                                  +{specCount - 2} more
-                                </span>
+                                  {isSkuExpanded ? "Show less" : `+${specCount - 2} more`}
+                                  <ChevronRight
+                                    className={cn(
+                                      "size-3 transition-transform",
+                                      isSkuExpanded && "rotate-90",
+                                    )}
+                                  />
+                                </button>
                               )}
                             </>
                           ) : (
@@ -1231,32 +1370,42 @@ function WarehouseMaterials() {
                             <Edit className="size-3 mr-1" /> Edit
                           </Button>
 
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7.5 rounded-lg px-2 text-xs font-semibold text-teal-600 hover:bg-teal-500/10 transition-colors"
-                            onClick={() => openAddVariantForExisting(mat)}
-                            title="Quick add specification to this material"
-                          >
-                            <Plus className="size-3 mr-1" /> Spec
-                          </Button>
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                              "h-7.5 rounded-lg px-2 text-xs font-medium transition-colors",
-                              mat.status === "Active"
-                                ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                : "text-emerald-600 hover:bg-emerald-500/10",
-                            )}
-                            onClick={() => handleToggleMaterialStatus(mat)}
-                            title={
-                              mat.status === "Active" ? "Deactivate Material" : "Activate Material"
-                            }
-                          >
-                            {mat.status === "Active" ? "Deactivate" : "Activate"}
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7.5 w-7.5 rounded-lg p-0 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                                title="More actions"
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="rounded-xl min-w-[170px]">
+                              <DropdownMenuItem
+                                className="text-xs font-semibold"
+                                onClick={() => openAddVariantForExisting(mat)}
+                              >
+                                <Plus className="mr-2 size-3.5 text-teal-600" /> Add Spec
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className={cn(
+                                  "text-xs font-semibold",
+                                  mat.status === "Active"
+                                    ? "text-destructive focus:text-destructive"
+                                    : "text-emerald-600 focus:text-emerald-600",
+                                )}
+                                onClick={() => handleToggleMaterialStatus(mat)}
+                              >
+                                {mat.status === "Active" ? (
+                                  <XCircle className="mr-2 size-3.5" />
+                                ) : (
+                                  <CheckCircle2 className="mr-2 size-3.5" />
+                                )}
+                                {mat.status === "Active" ? "Deactivate" : "Activate"}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </td>
                     </tr>
@@ -1269,7 +1418,7 @@ function WarehouseMaterials() {
       ) : (
         /* VISUAL BENTO CARD GRID VIEW */
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {materials.map((mat) => {
+          {visibleMaterials.map((mat) => {
             const specCount = mat.variant_count || mat.variants?.length || 0;
             const isCopied = copiedCode === mat.material_code;
 
@@ -1296,7 +1445,7 @@ function WarehouseMaterials() {
                         {isCopied ? (
                           <Check className="size-3 text-emerald-600 shrink-0" />
                         ) : (
-                          <Copy className="size-3 text-primary/60 group-hover/code:text-primary shrink-0 opacity-0 group-hover/code:opacity-100 transition-opacity" />
+                          <Copy className="size-3 text-primary/60 group-hover/code:text-primary shrink-0 transition-colors" />
                         )}
                       </button>
                       <Badge
