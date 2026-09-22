@@ -113,8 +113,12 @@ function WarehouseDashboard() {
   const totalActionsCount =
     actionReq.pending_putaway_count +
     actionReq.pending_pickup_count +
+    actionReq.pending_requisition_count +
+    actionReq.pending_material_request_count +
     actionReq.active_quarantine_count +
-    actionReq.low_stock_count;
+    actionReq.low_stock_count +
+    actionReq.out_of_stock_count +
+    actionReq.unassigned_locations_count;
 
   // Compute physical stock distribution percentages
   const onHandTotal =
@@ -127,6 +131,14 @@ function WarehouseDashboard() {
 
   const binOccupancyPct =
     storage.total_bins > 0 ? Math.round((storage.occupied_bins / storage.total_bins) * 100) : 0;
+  const totalBinCapacity =
+    storage.occupied_bins + storage.available_bins || storage.total_bins || 1;
+  const occupiedBinPct = Math.round(((storage.occupied_bins || 0) / totalBinCapacity) * 100);
+  const availableBinPct = Math.max(0, 100 - occupiedBinPct);
+
+  const openDashboardTarget = (target: string) => {
+    window.location.href = target;
+  };
 
   return (
     <AppShell
@@ -169,7 +181,12 @@ function WarehouseDashboard() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="size-2 rounded-full bg-amber-500 animate-pulse" />
+              <div
+                className={cn(
+                  "size-2 rounded-full",
+                  totalActionsCount > 0 ? "bg-amber-500 animate-pulse" : "bg-emerald-500",
+                )}
+              />
               <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">
                 Action Required
               </h2>
@@ -216,12 +233,20 @@ function WarehouseDashboard() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {/* Card 1: Pending Putaway */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.pending_putaway_count > 0
                   ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/putaway-tasks?status=PENDING")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/putaway-tasks?status=PENDING");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -262,12 +287,20 @@ function WarehouseDashboard() {
 
             {/* Card 2: Store Pickups */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.pending_pickup_count > 0
                   ? "bg-purple-50/50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/warehouse/assembly-requisitions")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/assembly-requisitions");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -304,12 +337,20 @@ function WarehouseDashboard() {
 
             {/* Card 3: Active Quarantine */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.active_quarantine_count > 0
                   ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/warehouse/quarantine")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/quarantine");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -348,12 +389,20 @@ function WarehouseDashboard() {
 
             {/* Card 4: Low Stock Alerts */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.low_stock_count > 0
                   ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/inventory");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -415,7 +464,15 @@ function WarehouseDashboard() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-border/40 bg-muted/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+            >
               <p className="text-[11px] font-medium text-muted-foreground uppercase">
                 Total On Hand
               </p>
@@ -425,7 +482,15 @@ function WarehouseDashboard() {
               <p className="text-[10px] text-muted-foreground mt-0.5">Physical warehouse units</p>
             </div>
 
-            <div className="rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+            >
               <p className="text-[11px] font-medium text-emerald-800 dark:text-emerald-300 uppercase">
                 Available Stock
               </p>
@@ -437,7 +502,15 @@ function WarehouseDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+            >
               <p className="text-[11px] font-medium text-blue-800 dark:text-blue-300 uppercase">
                 Allocated Stock
               </p>
@@ -449,7 +522,17 @@ function WarehouseDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-rose-200/60 dark:border-rose-800/40 bg-rose-50/40 dark:bg-rose-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/warehouse/quarantine")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/quarantine");
+                }
+              }}
+              className="rounded-xl border border-rose-200/60 dark:border-rose-800/40 bg-rose-50/40 dark:bg-rose-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/20"
+            >
               <p className="text-[11px] font-medium text-rose-800 dark:text-rose-300 uppercase">
                 Quarantined Stock
               </p>
@@ -515,7 +598,17 @@ function WarehouseDashboard() {
 
               {/* Status breakdown pills */}
               <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=PENDING")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=PENDING");
+                    }
+                  }}
+                  className="rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-300">
                     Pending
                   </p>
@@ -523,7 +616,17 @@ function WarehouseDashboard() {
                     {putaway.pending_count}
                   </p>
                 </div>
-                <div className="rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=IN_PROGRESS")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=IN_PROGRESS");
+                    }
+                  }}
+                  className="rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-blue-800 dark:text-blue-300">
                     In Progress
                   </p>
@@ -531,7 +634,17 @@ function WarehouseDashboard() {
                     {putaway.in_progress_count}
                   </p>
                 </div>
-                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=COMPLETED")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=COMPLETED");
+                    }
+                  }}
+                  className="rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
                     Completed
                   </p>
@@ -634,6 +747,18 @@ function WarehouseDashboard() {
                   </span>
                 </div>
                 <Progress value={binOccupancyPct} className="h-2 rounded-full" />
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                  <div
+                    style={{ width: `${occupiedBinPct}%` }}
+                    className="bg-primary transition-all"
+                    title={`Occupied bins: ${storage.occupied_bins}`}
+                  />
+                  <div
+                    style={{ width: `${availableBinPct}%` }}
+                    className="bg-emerald-500 transition-all"
+                    title={`Available bins: ${storage.available_bins}`}
+                  />
+                </div>
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
                   <span>
                     Occupied: <strong className="text-foreground">{storage.occupied_bins}</strong>
@@ -688,9 +813,16 @@ function WarehouseDashboard() {
                 stock movements
               </p>
             </div>
-            <Badge variant="outline" className="text-[10px] font-mono py-0.5 px-2">
-              Authoritative Stock Ledger
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px] font-mono py-0.5 px-2">
+                Authoritative Stock Ledger
+              </Badge>
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" asChild>
+                <Link to="/reports">
+                  View All <ArrowRight className="size-3.5 ml-1" />
+                </Link>
+              </Button>
+            </div>
           </div>
 
           {activity.length === 0 ? (
