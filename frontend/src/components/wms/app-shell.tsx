@@ -41,6 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { getUserInfo } from "@/lib/auth-utils";
+import { SecureAssistant } from "@/components/wms/secure-assistant";
 
 const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
@@ -674,6 +675,7 @@ export function AppShell({
           </div>
         </main>
       </div>
+      <SecureAssistant />
     </div>
   );
 }
