@@ -276,6 +276,8 @@ function WarehouseMaterialRequests() {
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [activeSuppliers, setActiveSuppliers] = useState<any[]>([]);
   const [nextRequestNumber, setNextRequestNumber] = useState("");
   const [baseMaterialSequence, setBaseMaterialSequence] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
@@ -312,6 +314,10 @@ function WarehouseMaterialRequests() {
         api.getStorageLocations().catch(() => []),
         api.getMaterialUoms().catch(() => []),
       ]);
+
+      api.getSuppliers({ status: "Active" })
+        .then((sups) => setActiveSuppliers(sups || []))
+        .catch(() => {});
       setRequests(reqData);
       setMasterMaterials(matData);
       const warehouseIds = [...new Set(locationData.map((row: any) => row.warehouse_id).filter(Boolean))] as string[];
