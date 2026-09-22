@@ -308,12 +308,40 @@ function AddUserDialog({
 }) {
   const [form, setForm] = useState(emptyUserForm);
   const [stores, setStores] = useState<any[]>([]);
+  const [existingUsers, setExistingUsers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) void api.getStores({ status: "ACTIVE" }).then(setStores);
+    if (open) {
+      void api.getStores({ status: "ACTIVE" }).then(setStores);
+      void api.getStoreManagers().then(setExistingUsers);
+    }
   }, [open]);
   const update = (key: keyof typeof form, value: string | boolean) =>
     setForm((current) => ({ ...current, [key]: value }));
+  const updateName = (name: string) => {
+    const prefix = name
+      .trim()
+      .split(/\s+/)[0]
+      ?.replace(/[^a-z]/gi, "")
+      .slice(0, 3)
+      .toUpperCase();
+    if (!prefix) {
+      update("full_name", name);
+      update("employee_id", "");
+      return;
+    }
+    const usedIds = new Set(
+      existingUsers.map((user) => String(user.employee_id || "").toUpperCase()),
+    );
+    let sequence = 1;
+    let employeeId = `EMP-${prefix}-${String(sequence).padStart(3, "0")}`;
+    while (usedIds.has(employeeId)) {
+      sequence += 1;
+      employeeId = `EMP-${prefix}-${String(sequence).padStart(3, "0")}`;
+    }
+    update("full_name", name);
+    update("employee_id", employeeId);
+  };
   const canSave = Boolean(
     form.full_name.trim() &&
     form.employee_id.trim() &&
@@ -367,7 +395,14 @@ function AddUserDialog({
                 <Input
                   type={key === "password" ? "password" : "text"}
                   value={form[key]}
-                  onChange={(event) => update(key, event.target.value)}
+                  readOnly={key === "employee_id"}
+                  onChange={(event) =>
+                    key === "full_name"
+                      ? updateName(event.target.value)
+                      : update(key, event.target.value)
+                  }
+                  placeholder={key === "employee_id" ? "Generated from full name" : undefined}
+                  className={key === "employee_id" ? "bg-muted/40 font-mono" : undefined}
                 />
               </div>
             ))}
