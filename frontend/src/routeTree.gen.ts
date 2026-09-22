@@ -52,6 +52,7 @@ import { Route as VehicleExitRouteImport } from './routes/vehicle-exit'
 import { Route as VehicleQueueRouteImport } from './routes/vehicle-queue'
 import { Route as WarehouseDashboardRouteImport } from './routes/warehouse-dashboard'
 import { Route as WarehouseStorageRouteImport } from './routes/warehouse-storage'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AssemblyRequestsRouteImport } from './routes/assembly.requests'
 import { Route as FinanceApprovalsRouteImport } from './routes/finance.approvals'
 import { Route as ProcurementAsnsRouteImport } from './routes/procurement.asns'
@@ -297,6 +298,11 @@ const WarehouseStorageRoute = WarehouseStorageRouteImport.update({
   path: '/warehouse-storage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AssemblyRequestsRoute = AssemblyRequestsRouteImport.update({
   id: '/assembly/requests',
   path: '/assembly/requests',
@@ -470,6 +476,7 @@ export interface FileRoutesByFullPath {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
@@ -539,6 +546,7 @@ export interface FileRoutesByTo {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -607,6 +615,7 @@ export interface FileRoutesById {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
@@ -678,6 +687,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/finance/approvals'
     | '/procurement/asns'
@@ -747,6 +757,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -814,6 +825,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/finance/approvals'
     | '/procurement/asns'
@@ -884,6 +896,7 @@ export interface RootRouteChildren {
   VehicleQueueRoute: typeof VehicleQueueRoute
   WarehouseDashboardRoute: typeof WarehouseDashboardRoute
   WarehouseStorageRoute: typeof WarehouseStorageRoute
+  AdminUsersRoute: typeof AdminUsersRoute
   AssemblyRequestsRoute: typeof AssemblyRequestsRoute
   FinanceApprovalsRoute: typeof FinanceApprovalsRouteWithChildren
   ProcurementAsnsRoute: typeof ProcurementAsnsRouteWithChildren
@@ -1208,6 +1221,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WarehouseStorageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/assembly/requests': {
       id: '/assembly/requests'
       path: '/assembly/requests'
@@ -1452,6 +1472,7 @@ const rootRouteChildren: RootRouteChildren = {
   VehicleQueueRoute: VehicleQueueRoute,
   WarehouseDashboardRoute: WarehouseDashboardRoute,
   WarehouseStorageRoute: WarehouseStorageRoute,
+  AdminUsersRoute: AdminUsersRoute,
   AssemblyRequestsRoute: AssemblyRequestsRoute,
   FinanceApprovalsRoute: FinanceApprovalsRouteWithChildren,
   ProcurementAsnsRoute: ProcurementAsnsRouteWithChildren,

@@ -105,6 +105,14 @@ const gateSecurityNav = [
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
 ];
 
+const adminNav = [
+  { label: "User Management", to: "/admin/users", icon: Users },
+  { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
+  { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
+  { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
+];
+
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
   Building2,
@@ -278,7 +286,9 @@ export function AppShell({
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
   const isGateSecurityUser = mounted && user?.roles?.includes("GATE_SECURITY");
+  const isAdminUser = mounted && user?.roles?.includes("ADMIN");
   const isNotificationsRoute = path.startsWith("/notifications");
+  const isAdminRoute = path.startsWith("/admin/");
   const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-queue", "/vehicle-exit"].some(
     (route) => path.startsWith(route),
   );
@@ -304,27 +314,29 @@ export function AppShell({
     ].some((route) => path.startsWith(route)) ||
     (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
   const resolvedNav =
-    isGrnUser || isGrnRoute
-      ? grnNav
-      : isSupplierRoute
-        ? supplierNav
-        : isFinanceRoute
-          ? financeNav
-          : isProcurementRoute
-            ? procurementNav
-            : isGateSecurityRoute
-              ? gateSecurityNav
-              : isWarehouseRoute
-                ? warehouseNav
-                : mounted && user?.roles?.includes("SUPPLIER")
-                  ? supplierNav
-                  : mounted && user?.roles?.includes("FINANCE")
-                    ? financeNav
-                    : mounted && user?.roles?.includes("PROCUREMENT")
-                      ? procurementNav
-                      : isGateSecurityUser
-                        ? gateSecurityNav
-                        : warehouseNav;
+    isAdminRoute || isAdminUser
+      ? adminNav
+      : isGrnUser || isGrnRoute
+        ? grnNav
+        : isSupplierRoute
+          ? supplierNav
+          : isFinanceRoute
+            ? financeNav
+            : isProcurementRoute
+              ? procurementNav
+              : isGateSecurityRoute
+                ? gateSecurityNav
+                : isWarehouseRoute
+                  ? warehouseNav
+                  : mounted && user?.roles?.includes("SUPPLIER")
+                    ? supplierNav
+                    : mounted && user?.roles?.includes("FINANCE")
+                      ? financeNav
+                      : mounted && user?.roles?.includes("PROCUREMENT")
+                        ? procurementNav
+                        : isGateSecurityUser
+                          ? gateSecurityNav
+                          : warehouseNav;
   const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
   const nav = navigationPending ? [] : resolvedNav;
   useEffect(() => {
