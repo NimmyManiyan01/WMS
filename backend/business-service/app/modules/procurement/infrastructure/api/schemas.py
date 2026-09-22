@@ -639,6 +639,10 @@ class ProcurementStatsResponse(ApiModel):
     active_suppliers: int
     total_suppliers: int
     open_pos: int
+    pending_material_requests: int = 0
+    pending_material_request_sources: List[str] = []
+    pending_supplier_registrations: int = 0
+    expiring_supplier_documents: int = 0
     pending_approvals: int = 0
     pending_quotations: int = 0
     awaiting_supplier_confirmation: int = 0

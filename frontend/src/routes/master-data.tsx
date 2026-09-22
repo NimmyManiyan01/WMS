@@ -1,6 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowRight, Building2, ClipboardList, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Building2,
+  ClipboardList,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard, StatCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
@@ -25,6 +34,7 @@ export const Route = createFileRoute("/master-data")({
 function MasterData() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [procurementStats, setProcurementStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -33,14 +43,17 @@ function MasterData() {
     setLoading(true);
     setError(null);
     try {
-      const [supplierData, requestData] = await Promise.all([
+      const [supplierData, requestData, statsData] = await Promise.all([
         api.getSuppliers(),
         api.getMaterialRequests().catch(() => []),
+        api.getProcurementStats().catch(() => null),
       ]);
+      const fallbackPendingRequests = requestData.filter(
+        (request) => request.status === "Pending Approval",
+      ).length;
       setSuppliers(supplierData);
-      setPendingRequests(
-        requestData.filter((request) => request.status === "Pending Approval").length,
-      );
+      setProcurementStats(statsData);
+      setPendingRequests(Number(statsData?.pendingMaterialRequests ?? fallbackPendingRequests));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load suppliers.");
     } finally {
@@ -64,6 +77,27 @@ function MasterData() {
       return matchesStatus && matchesQuery;
     });
   }, [query, statusFilter, suppliers]);
+  const pendingSupplierRegistrations = Number(
+    procurementStats?.pendingSupplierRegistrations ??
+      suppliers.filter((supplier) => (supplier.status || "").toLowerCase().includes("pending"))
+        .length,
+  );
+  const expiringSupplierDocuments = Number(procurementStats?.expiringSupplierDocuments ?? 0);
+  const pendingRequestSources = Array.isArray(procurementStats?.pendingMaterialRequestSources)
+    ? procurementStats.pendingMaterialRequestSources
+    : [];
+  const pendingRequestSourceText =
+    pendingRequestSources.length > 0
+      ? `From ${pendingRequestSources.join(", ")}`
+      : pendingRequests > 0
+        ? "Source details unavailable"
+        : "No pending warehouse requests";
+  const pendingSupplierRegistrationText = `${pendingSupplierRegistrations} supplier registration${
+    pendingSupplierRegistrations === 1 ? "" : "s"
+  } awaiting approval`;
+  const expiringSupplierDocumentText = `${expiringSupplierDocuments} supplier document${
+    expiringSupplierDocuments === 1 ? "" : "s"
+  } expiring`;
   return (
     <AppShell
       title="Supplier Management"
@@ -101,7 +135,9 @@ function MasterData() {
             loading
               ? "…"
               : String(
-                  suppliers.filter((supplier) => (supplier.status || "Pending Approval") === "Active").length,
+                  suppliers.filter(
+                    (supplier) => (supplier.status || "Pending Approval") === "Active",
+                  ).length,
                 )
           }
           delta="Available for operations"
@@ -132,7 +168,12 @@ function MasterData() {
           description="High-priority procurement tasks requiring immediate review or authorization"
           icon={AlertCircle}
           actions={
-            <Button variant="ghost" size="sm" className="rounded-xl text-xs font-bold text-primary hover:text-primary" asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl text-xs font-bold text-primary hover:text-primary"
+              asChild
+            >
               <Link to="/procurement/material-requests">
                 View All <ArrowRight className="ml-1 size-3.5" />
               </Link>
@@ -143,19 +184,26 @@ function MasterData() {
             {/* Task 1: Pending Material Requests */}
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
               <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 font-bold">
-                  🟠
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/10">
+                  <span className="size-2.5 rounded-full bg-amber-500" />
                 </span>
                 <div>
                   <p className="text-sm font-bold text-foreground">
-                    {loading ? "..." : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting procurement review`}
+                    {loading
+                      ? "..."
+                      : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting procurement review`}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    From Pune DC and Plant 1200
+                    {loading ? "Loading sources..." : pendingRequestSourceText}
                   </p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                asChild
+              >
                 <Link to="/procurement/material-requests?status=pending-procurement">
                   Review <ArrowRight className="ml-1.5 size-3.5" />
                 </Link>
@@ -165,21 +213,24 @@ function MasterData() {
             {/* Task 2: Pending Supplier Registrations */}
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
               <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-yellow-500/10 text-yellow-600 font-bold">
-                  🟡
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-yellow-500/10">
+                  <span className="size-2.5 rounded-full bg-yellow-500" />
                 </span>
                 <div>
                   <p className="text-sm font-bold text-foreground">
-                    {loading
-                      ? "..."
-                      : `${suppliers.filter((s) => (s.status || "").toLowerCase().includes("pending")).length} supplier registration${suppliers.filter((s) => (s.status || "").toLowerCase().includes("pending")).length === 1 ? "" : "s"} awaiting approval`}
+                    {loading ? "..." : pendingSupplierRegistrationText}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Supplier master
+                    {loading ? "Loading supplier approvals..." : "Supplier approval queue"}
                   </p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" onClick={() => setStatusFilter("pending approval")}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                onClick={() => setStatusFilter("pending approval")}
+              >
                 Review <ArrowRight className="ml-1.5 size-3.5" />
               </Button>
             </div>
@@ -187,19 +238,24 @@ function MasterData() {
             {/* Task 3: Expiring Supplier Documents */}
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
               <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-rose-500/10 text-rose-600 font-bold">
-                  🔴
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-rose-500/10">
+                  <span className="size-2.5 rounded-full bg-rose-500" />
                 </span>
                 <div>
                   <p className="text-sm font-bold text-foreground">
-                    2 supplier documents are expiring
+                    {loading ? "..." : expiringSupplierDocumentText}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Check supplier documents
+                    {loading ? "Loading document compliance..." : "Supplier document compliance"}
                   </p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" className="rounded-xl h-8 px-4 text-xs font-bold shrink-0" asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                asChild
+              >
                 <Link to="/procurement/quality-issues">
                   Review <ArrowRight className="ml-1.5 size-3.5" />
                 </Link>
@@ -238,15 +294,33 @@ function MasterData() {
           <div className="mb-4 flex flex-wrap gap-2" aria-label="Supplier status navigation">
             {[
               { id: "all", label: "All suppliers", count: suppliers.length },
-              { id: "draft", label: "Draft", count: suppliers.filter((supplier) => supplier.status === "Draft").length },
+              {
+                id: "draft",
+                label: "Draft",
+                count: suppliers.filter((supplier) => supplier.status === "Draft").length,
+              },
               {
                 id: "pending approval",
                 label: "Pending Approval",
-                count: suppliers.filter((supplier) => (supplier.status || "Pending Approval") === "Pending Approval").length,
+                count: suppliers.filter(
+                  (supplier) => (supplier.status || "Pending Approval") === "Pending Approval",
+                ).length,
               },
-              { id: "active", label: "Active", count: suppliers.filter((supplier) => supplier.status === "Active").length },
-              { id: "suspended", label: "Suspended", count: suppliers.filter((supplier) => supplier.status === "Suspended").length },
-              { id: "blocked", label: "Blocked", count: suppliers.filter((supplier) => supplier.status === "Blocked").length },
+              {
+                id: "active",
+                label: "Active",
+                count: suppliers.filter((supplier) => supplier.status === "Active").length,
+              },
+              {
+                id: "suspended",
+                label: "Suspended",
+                count: suppliers.filter((supplier) => supplier.status === "Suspended").length,
+              },
+              {
+                id: "blocked",
+                label: "Blocked",
+                count: suppliers.filter((supplier) => supplier.status === "Blocked").length,
+              },
             ].map((item) => (
               <Button
                 key={item.id}
@@ -326,10 +400,7 @@ function MasterData() {
                 <tbody className="divide-y divide-border/60">
                   {filteredSuppliers.map((supplier) => {
                     const phone =
-                      supplier.contact?.phone ||
-                      supplier.phone ||
-                      supplier.contactPhone ||
-                      "—";
+                      supplier.contact?.phone || supplier.phone || supplier.contactPhone || "—";
                     const lastPo =
                       supplier.lastPoNumber ||
                       supplier.last_po_number ||
@@ -361,9 +432,7 @@ function MasterData() {
                             : supplier.category || "—"}
                         </td>
                         <td className="py-3 font-mono text-xs">{supplier.gstin || "—"}</td>
-                        <td className="py-3 text-xs font-mono text-muted-foreground">
-                          {phone}
-                        </td>
+                        <td className="py-3 text-xs font-mono text-muted-foreground">{phone}</td>
                         <td className="py-3 font-mono text-xs font-bold text-foreground">
                           {lastPo}
                         </td>

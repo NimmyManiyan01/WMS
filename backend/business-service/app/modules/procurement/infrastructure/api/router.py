@@ -172,6 +172,33 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         total_suppliers_res = await uow.session.execute(total_suppliers_stmt)
         total_suppliers = total_suppliers_res.scalar() or 0
 
+        pending_supplier_registrations_stmt = select(func.count(SupplierModel.id)).where(
+            func.lower(SupplierModel.status).like("%pending%")
+        )
+        pending_supplier_registrations_res = await uow.session.execute(pending_supplier_registrations_stmt)
+        pending_supplier_registrations = pending_supplier_registrations_res.scalar() or 0
+
+        pending_material_requests_stmt = select(func.count(MaterialRequestModel.id)).where(
+            MaterialRequestModel.status == "Pending Approval"
+        )
+        pending_material_requests_res = await uow.session.execute(pending_material_requests_stmt)
+        pending_material_requests = pending_material_requests_res.scalar() or 0
+
+        pending_request_sources_stmt = (
+            select(MaterialRequestModel.warehouse_id, MaterialRequestModel.department)
+            .where(MaterialRequestModel.status == "Pending Approval")
+            .order_by(MaterialRequestModel.created_at.desc())
+            .limit(3)
+        )
+        pending_request_sources_res = await uow.session.execute(pending_request_sources_stmt)
+        pending_material_request_sources = []
+        for warehouse_id, department in pending_request_sources_res.all():
+            source_parts = [part for part in (warehouse_id, department) if part]
+            if source_parts:
+                pending_material_request_sources.append(" / ".join(source_parts))
+
+        expiring_supplier_documents = 0
+
 
         open_pos_stmt = select(func.count(PurchaseOrderModel.id)).where(
             PurchaseOrderModel.status.in_(["APPROVED", "SENT", "DISPATCHED", "SHIPPED"])
@@ -287,6 +314,10 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
             active_suppliers=active_suppliers,
             total_suppliers=total_suppliers,
             open_pos=open_pos,
+            pending_material_requests=pending_material_requests,
+            pending_material_request_sources=pending_material_request_sources,
+            pending_supplier_registrations=pending_supplier_registrations,
+            expiring_supplier_documents=expiring_supplier_documents,
             pending_approvals=pending_approvals,
             pending_quotations=pending_quotations,
             awaiting_supplier_confirmation=awaiting_supplier_confirmation,

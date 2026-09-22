@@ -315,7 +315,8 @@ function SupplierProfile() {
   const handleDownloadRealtimePdf = (doc: any) => {
     try {
       const docType = doc.documentType || doc.document_type || "Compliance Document";
-      const fileName = doc.fileName || doc.file_name || `${supplier?.supplierName || "Supplier"}_${docType}.pdf`;
+      const fileName =
+        doc.fileName || doc.file_name || `${supplier?.supplierName || "Supplier"}_${docType}.pdf`;
       const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -373,6 +374,33 @@ function SupplierProfile() {
       toast.error("Failed to generate real-time PDF", { description: e.message });
     }
   };
+
+  const handleDownloadDocument = async (doc: any, downloadUrl: string) => {
+    const fileName = doc.fileName || doc.file_name || "supplier-document.pdf";
+
+    try {
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`File not found (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      toast.error("Stored document file is missing", {
+        description: "Generating the supplier compliance PDF instead.",
+      });
+      handleDownloadRealtimePdf(doc);
+    }
+  };
+
   const blockSupplier = async () => {
     await changeSupplierStatus("Blocked", "Supplier blocked");
     setShowBlockConfirm(false);
@@ -415,7 +443,9 @@ function SupplierProfile() {
                         variant="ghost"
                         className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
                         disabled={blocking}
-                        onClick={() => changeSupplierStatus("Active", "Supplier approved and active")}
+                        onClick={() =>
+                          changeSupplierStatus("Active", "Supplier approved and active")
+                        }
                       >
                         <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Approve
                       </Button>
@@ -899,11 +929,13 @@ function SupplierProfile() {
                           <SelectValue placeholder="Select payment terms" />
                         </SelectTrigger>
                         <SelectContent>
-                          {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map((term) => (
-                            <SelectItem key={term} value={term}>
-                              {term}
-                            </SelectItem>
-                          ))}
+                          {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map(
+                            (term) => (
+                              <SelectItem key={term} value={term}>
+                                {term}
+                              </SelectItem>
+                            ),
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -912,7 +944,11 @@ function SupplierProfile() {
                       value={form.creditPeriodDays ? String(form.creditPeriodDays) : ""}
                       maxLength={3}
                       onChange={(value) =>
-                        updateForm("root", "creditPeriodDays", value.replace(/\D/g, "").substring(0, 3))
+                        updateForm(
+                          "root",
+                          "creditPeriodDays",
+                          value.replace(/\D/g, "").substring(0, 3),
+                        )
                       }
                     />
                   </>
@@ -947,7 +983,10 @@ function SupplierProfile() {
                   key={tab.id}
                   variant={isActive ? "default" : "outline"}
                   size="sm"
-                  className={cn("rounded-xl font-bold text-xs transition-all", isActive && "shadow-soft")}
+                  className={cn(
+                    "rounded-xl font-bold text-xs transition-all",
+                    isActive && "shadow-soft",
+                  )}
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon className="mr-1.5 size-3.5" />
@@ -1074,7 +1113,10 @@ function SupplierProfile() {
             >
               {supplier.contact ? (
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  <Field label="Contact Person" value={supplier.contact.primaryContactName || "—"} />
+                  <Field
+                    label="Contact Person"
+                    value={supplier.contact.primaryContactName || "—"}
+                  />
                   <Field label="Designation" value={supplier.contact.designation || "—"} />
                   <Field label="Phone" value={supplier.contact.phone || "—"} mono />
                   <Field label="Primary Email" value={supplier.contact.primaryEmail || "—"} />
@@ -1164,30 +1206,44 @@ function SupplierProfile() {
               {supplier.documents?.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                   {supplier.documents.map((document: any) => {
-                    const rawUrl = document.fileUrl || document.file_url || document.storagePath || document.storage_path;
-                    const downloadUrl = rawUrl && rawUrl !== "#"
-                      ? (rawUrl.startsWith("http") ? rawUrl : `${api.BUSINESS_API_URL}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`)
-                      : null;
+                    const rawUrl =
+                      document.fileUrl ||
+                      document.file_url ||
+                      document.storagePath ||
+                      document.storage_path;
+                    const downloadUrl =
+                      rawUrl && rawUrl !== "#" ? api.resolveMediaUrl(rawUrl) : null;
 
                     return (
                       <div
-                        key={document.uploadId || document.upload_id || document.fileName || document.file_name}
+                        key={
+                          document.uploadId ||
+                          document.upload_id ||
+                          document.fileName ||
+                          document.file_name
+                        }
                         className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft hover:border-primary/40 transition-colors"
                       >
                         <div className="min-w-0 pr-2">
-                          <p className="text-sm font-semibold truncate text-foreground">{document.fileName || document.file_name || "Compliance Doc"}</p>
-                          <p className="text-xs text-muted-foreground">{document.documentType || document.document_type || "Compliance Document"}</p>
+                          <p className="text-sm font-semibold truncate text-foreground">
+                            {document.fileName || document.file_name || "Compliance Doc"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {document.documentType ||
+                              document.document_type ||
+                              "Compliance Document"}
+                          </p>
                         </div>
                         {downloadUrl ? (
-                          <a
-                            href={downloadUrl}
-                            download={document.fileName || document.file_name || "supplier-document.pdf"}
-                            target="_blank"
-                            rel="noreferrer"
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDownloadDocument(document, downloadUrl)}
                             className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-all"
                           >
                             <Download className="size-3.5" /> PDF
-                          </a>
+                          </Button>
                         ) : (
                           <Button
                             size="sm"
@@ -1230,7 +1286,9 @@ function SupplierProfile() {
                     <tbody className="divide-y divide-border/60">
                       {purchaseOrders.map((po) => (
                         <tr key={po.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3 font-mono font-bold text-primary">{po.poNumber}</td>
+                          <td className="px-4 py-3 font-mono font-bold text-primary">
+                            {po.poNumber}
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground">{po.poDate || "—"}</td>
                           <td className="px-4 py-3">
                             <StatusBadge status={po.status} />
@@ -1239,7 +1297,12 @@ function SupplierProfile() {
                             ₹{Number(po.totalAmount || 0).toLocaleString("en-IN")}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Button size="sm" variant="outline" className="rounded-xl h-7 text-[10px] font-bold" asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-xl h-7 text-[10px] font-bold"
+                              asChild
+                            >
                               <Link to="/purchase-order" search={{ poId: po.id }}>
                                 View PO <ChevronRight className="ml-1 size-3" />
                               </Link>
@@ -1282,7 +1345,13 @@ function SupplierProfile() {
                 />
                 <Field
                   label="Purchase Orders Executed"
-                  value={purchaseOrders.length ? String(purchaseOrders.length) : (supplier.purchaseOrderCount ? String(supplier.purchaseOrderCount) : "0")}
+                  value={
+                    purchaseOrders.length
+                      ? String(purchaseOrders.length)
+                      : supplier.purchaseOrderCount
+                        ? String(supplier.purchaseOrderCount)
+                        : "0"
+                  }
                 />
                 <Field
                   label="Total Purchase Value"
