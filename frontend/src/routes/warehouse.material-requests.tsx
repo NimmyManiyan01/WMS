@@ -1701,9 +1701,7 @@ function WarehouseMaterialRequests() {
                         Procurement Supplier Master
                       </p>
                       <p className="text-sm font-bold text-foreground mt-0.5">
-                        {matchingSuppliers.length > 0
-                          ? `${matchingSuppliers.length} Active Supplier(s) Registered for Category '${primaryCategory}'`
-                          : `Active Suppliers Available for '${primaryCategory}'`}
+                        {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
                       </p>
                     </div>
                   </div>
