@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   KeyRound,
@@ -31,6 +31,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api-client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -46,47 +49,58 @@ export const Route = createFileRoute("/admin/users")({
   component: UserManagementPage,
 });
 
-const seededUsers = [
-  {
-    id: "USR-001",
-    name: "Harsha Dev",
-    email: "harsha.dev@nexuswms.local",
-    employeeId: "EMP-001",
-    role: "Admin Officer",
-    status: "Active",
-    lastActivity: "Today, 09:45",
-  },
-  {
-    id: "USR-002",
-    name: "Rahul Kumar",
-    email: "rahul.kumar@nexuswms.local",
-    employeeId: "EMP-002",
-    role: "Warehouse Manager",
-    status: "Active",
-    lastActivity: "Today, 08:20",
-  },
-  {
-    id: "USR-003",
-    name: "Priya Sharma",
-    email: "priya.sharma@nexuswms.local",
-    employeeId: "EMP-003",
-    role: "Procurement",
-    status: "Active",
-    lastActivity: "Yesterday, 17:10",
-  },
-];
-
-const roleOptions = ["All Roles", "Admin Officer", "Warehouse Manager", "Procurement"];
 const statusOptions = ["All Status", "Active", "Inactive"];
+
+type LiveUser = {
+  id: string;
+  name: string;
+  email: string;
+  employeeId: string;
+  role: string;
+  status: string;
+  lastActivity: string;
+};
 
 function UserManagementPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All Roles");
   const [statusFilter, setStatusFilter] = useState("All Status");
+  const [users, setUsers] = useState<LiveUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const managers = await api.getStoreManagers();
+      setUsers(
+        managers.map((user) => ({
+          id: user.id,
+          name: user.full_name,
+          email: user.email,
+          employeeId: user.employee_id,
+          role: "Store Manager",
+          status: user.status === "ACTIVE" ? "Active" : "Inactive",
+          lastActivity: user.updated_at ? new Date(user.updated_at).toLocaleString() : "Never",
+        })),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadUsers();
+  }, []);
+
+  const roleOptions = useMemo(
+    () => ["All Roles", ...Array.from(new Set(users.map((user) => user.role)))],
+    [users],
+  );
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return seededUsers.filter((user) => {
+    return users.filter((user) => {
       const matchesSearch =
         !query ||
         user.name.toLowerCase().includes(query) ||
@@ -96,14 +110,18 @@ function UserManagementPage() {
       const matchesStatus = statusFilter === "All Status" || user.status === statusFilter;
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [roleFilter, search, statusFilter]);
+  }, [roleFilter, search, statusFilter, users]);
 
   return (
     <AppShell
       title="User Management"
       subtitle="Create users, assign roles, manage access, and review admin activity."
       actions={
-        <Button size="sm" className="rounded-xl text-xs font-semibold shadow-glow">
+        <Button
+          size="sm"
+          className="rounded-xl text-xs font-semibold shadow-glow"
+          onClick={() => setIsAddOpen(true)}
+        >
           <Plus className="mr-1.5 size-3.5" /> Add User
         </Button>
       }
@@ -146,6 +164,11 @@ function UserManagementPage() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft">
+          {isLoading && (
+            <div className="border-b border-border/40 px-4 py-3 text-xs text-muted-foreground">
+              Loading users...
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-b border-border/60 bg-muted/30 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -250,9 +273,108 @@ function UserManagementPage() {
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="size-3.5 text-primary" />
-          <span>Seeded admin users are available for local role and access testing.</span>
+          <span>User accounts are loaded from the live user service.</span>
         </div>
       </div>
+      <AddUserDialog open={isAddOpen} onOpenChange={setIsAddOpen} onCreated={loadUsers} />
     </AppShell>
+  );
+}
+
+function AddUserDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    full_name: "",
+    employee_id: "",
+    username: "",
+    email: "",
+    password: "",
+    store_id: "",
+  });
+  const [stores, setStores] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open) void api.getStores({ status: "ACTIVE" }).then(setStores);
+  }, [open]);
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+  const canSave = Object.values(form).every(Boolean);
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await api.createStoreManager(form);
+      await onCreated();
+      onOpenChange(false);
+      setForm({
+        full_name: "",
+        employee_id: "",
+        username: "",
+        email: "",
+        password: "",
+        store_id: "",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Add New User</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(
+            [
+              ["full_name", "Full Name *"],
+              ["employee_id", "Employee ID *"],
+              ["username", "Username *"],
+              ["email", "Email Address *"],
+              ["password", "Temporary Password *"],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="space-y-1.5">
+              <Label>{label}</Label>
+              <Input
+                type={key === "password" ? "password" : "text"}
+                value={form[key]}
+                onChange={(event) => update(key, event.target.value)}
+              />
+            </div>
+          ))}
+          <div className="space-y-1.5">
+            <Label>Assigned Store *</Label>
+            <Select value={form.store_id} onValueChange={(value) => update("store_id", value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select store" />
+              </SelectTrigger>
+              <SelectContent>
+                {stores.map((store) => (
+                  <SelectItem key={store.id} value={store.id}>
+                    {store.store_name || store.store_code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 sm:col-span-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button disabled={!canSave || saving} onClick={() => void save()}>
+              {saving ? "Saving..." : "Save User"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
