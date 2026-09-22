@@ -835,63 +835,63 @@ function WarehouseMaterialRequests() {
                     return (
                       <div
                         key={idx}
-                        className="grid gap-x-3 gap-y-4 rounded-xl border border-border/70 bg-muted/10 p-4 md:grid-cols-2 xl:grid-cols-12 xl:items-start"
+                        className="grid gap-3 rounded-2xl border border-border/70 bg-muted/10 p-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-12 items-end transition-all shadow-xs"
                       >
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-3">
-                            <Label className="flex h-4 items-center text-xs font-medium">Material Master</Label>
-                            <MaterialMasterSearchCombobox
-                              value={item.material_id || "CUSTOM"}
-                              onSelect={(val) => {
-                                if (val === "CUSTOM") {
-                                  setItems(
-                                    items.map((it, i) =>
-                                      i === idx
-                                        ? {
-                                            ...it,
-                                            material_id: "",
-                                            material_variant_id: "",
-                                            variant_code: "",
-                                          }
-                                        : it,
-                                    ),
-                                  );
-                                } else {
-                                  handleSelectMasterMaterial(idx, val);
-                                }
-                              }}
-                              masterMaterials={masterMaterials}
-                              className="h-10"
-                            />
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Material Master</Label>
+                          <MaterialMasterSearchCombobox
+                            value={item.material_id || "CUSTOM"}
+                            onSelect={(val) => {
+                              if (val === "CUSTOM") {
+                                setItems(
+                                  items.map((it, i) =>
+                                    i === idx
+                                      ? {
+                                          ...it,
+                                          material_id: "",
+                                          material_variant_id: "",
+                                          variant_code: "",
+                                        }
+                                      : it,
+                                  ),
+                                );
+                              } else {
+                                handleSelectMasterMaterial(idx, val);
+                              }
+                            }}
+                            masterMaterials={masterMaterials}
+                            className="h-10"
+                          />
+                        </div>
 
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-2">
-                            <Label className="flex h-4 items-center text-xs font-medium">Specification</Label>
-                            <Select
-                              value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
-                              onValueChange={(val) => handleSelectVariant(idx, val)}
-                              disabled={!selectedMat?.variants?.length}
-                            >
-                              <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                                <SelectValue placeholder="No specification" />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-xl">
-                                {selectedMat?.variants?.map((v: any) => {
-                                  const spec = [v.size, v.color, v.grade]
-                                    .filter(Boolean)
-                                    .join(" · ");
-                                  return (
-                                    <SelectItem key={v.id} value={v.id} className="text-xs">
-                                      <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
-                                      {spec && `(${spec})`}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Specification</Label>
+                          <Select
+                            value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
+                            onValueChange={(val) => handleSelectVariant(idx, val)}
+                            disabled={!selectedMat?.variants?.length}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
+                              <SelectValue placeholder="No specification" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              {selectedMat?.variants?.map((v: any) => {
+                                const spec = [v.size, v.color, v.grade]
+                                  .filter(Boolean)
+                                  .join(" · ");
+                                return (
+                                  <SelectItem key={v.id} value={v.id} className="text-xs">
+                                    <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
+                                    {spec && `(${spec})`}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-3">
-                          <Label className="flex h-4 items-center text-xs font-medium">Material Description</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-3">
+                          <Label className="text-xs font-semibold text-foreground">Material Description</Label>
                           <Input
                             placeholder="e.g. Wire 1.5mm Red PVC..."
                             className={cn(
@@ -906,8 +906,8 @@ function WarehouseMaterialRequests() {
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-2">
-                          <Label className="flex h-4 items-center text-xs font-medium">Category</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Category</Label>
                           <Input
                             placeholder="Category..."
                             className={cn(
@@ -922,8 +922,8 @@ function WarehouseMaterialRequests() {
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">Quantity</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">Quantity</Label>
                           <Input
                             type="number"
                             min="1"
@@ -933,8 +933,8 @@ function WarehouseMaterialRequests() {
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">UOM</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">UOM</Label>
                           <Select
                             value={item.uom}
                             onValueChange={(value) => handleItemChange(idx, "uom", value)}
@@ -952,12 +952,12 @@ function WarehouseMaterialRequests() {
                           </Select>
                         </div>
 
-                        <div className="flex h-[64px] items-end justify-end md:col-span-2 xl:col-span-1">
+                        <div className="flex items-center justify-center h-10 xl:col-span-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-10 rounded-xl text-destructive disabled:pointer-events-none disabled:opacity-30"
+                            className="size-10 rounded-xl text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-30"
                             onClick={() => removeItem(idx)}
                             disabled={items.length === 1}
                             aria-label={`Remove material item ${idx + 1}`}
