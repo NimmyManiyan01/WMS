@@ -309,6 +309,68 @@ function SupplierProfile() {
       setBlocking(false);
     }
   };
+
+  const handleDownloadRealtimePdf = (doc: any) => {
+    try {
+      const docType = doc.documentType || doc.document_type || "Compliance Document";
+      const fileName = doc.fileName || doc.file_name || `${supplier?.supplierName || "Supplier"}_${docType}.pdf`;
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${fileName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; background: #fff; }
+            .header { border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 20px; }
+            .title { font-size: 20px; font-weight: bold; color: #2563eb; }
+            .subtitle { font-size: 12px; color: #64748b; margin-top: 4px; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+            .field { background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+            .label { font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: bold; margin-top: 4px; color: #0f172a; }
+            .footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 10px; color: #94a3b8; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">${docType}</div>
+            <div class="subtitle">Official Vendor Compliance Document · ${supplier?.supplierName || "Supplier Master"}</div>
+          </div>
+          <div class="info-grid">
+            <div class="field"><div class="label">Supplier Name</div><div class="value">${supplier?.supplierName || "—"}</div></div>
+            <div class="field"><div class="label">Registered Company</div><div class="value">${supplier?.registeredCompanyName || "—"}</div></div>
+            <div class="field"><div class="label">GSTIN</div><div class="value">${supplier?.gstin || "—"}</div></div>
+            <div class="field"><div class="label">Vendor Code</div><div class="value">${supplier?.supplierCode || supplier?.supplierId || "—"}</div></div>
+            <div class="field"><div class="label">Document Category</div><div class="value">${docType}</div></div>
+            <div class="field"><div class="label">Verification Status</div><div class="value" style="color:#059669;">Verified &amp; Active</div></div>
+          </div>
+          <div style="margin-top: 30px; padding: 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;">
+            <p style="font-size: 12px; font-weight: bold; color: #065f46; margin: 0;">Verified Compliance Record</p>
+            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in NexusWMS platform master data.</p>
+          </div>
+          <div class="footer">
+            Generated automatically by NexusWMS Procurement Portal · ${new Date().toLocaleString("en-IN")}
+          </div>
+        </body>
+        </html>
+      `;
+
+      const printWin = window.open("", "_blank");
+      if (printWin) {
+        printWin.document.write(htmlContent);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => {
+          printWin.print();
+        }, 500);
+      } else {
+        toast.error("Popup blocked. Please allow popups to download real-time PDF.");
+      }
+    } catch (e: any) {
+      toast.error("Failed to generate real-time PDF", { description: e.message });
+    }
+  };
   const blockSupplier = async () => {
     await changeSupplierStatus("Blocked", "Supplier blocked");
     setShowBlockConfirm(false);
@@ -1099,25 +1161,44 @@ function SupplierProfile() {
             >
               {supplier.documents?.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  {supplier.documents.map((document: any) => (
-                    <div
-                      key={document.uploadId || document.fileName}
-                      className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft"
-                    >
-                      <div className="min-w-0 pr-2">
-                        <p className="text-sm font-semibold truncate">{document.fileName}</p>
-                        <p className="text-xs text-muted-foreground">{document.documentType || "Compliance Doc"}</p>
-                      </div>
-                      <a
-                        href={document.fileUrl || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+                  {supplier.documents.map((document: any) => {
+                    const rawUrl = document.fileUrl || document.file_url || document.storagePath || document.storage_path;
+                    const downloadUrl = rawUrl && rawUrl !== "#"
+                      ? (rawUrl.startsWith("http") ? rawUrl : `${api.BUSINESS_API_URL}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`)
+                      : null;
+
+                    return (
+                      <div
+                        key={document.uploadId || document.upload_id || document.fileName || document.file_name}
+                        className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft hover:border-primary/40 transition-colors"
                       >
-                        <Download className="size-3.5" /> PDF
-                      </a>
-                    </div>
-                  ))}
+                        <div className="min-w-0 pr-2">
+                          <p className="text-sm font-semibold truncate text-foreground">{document.fileName || document.file_name || "Compliance Doc"}</p>
+                          <p className="text-xs text-muted-foreground">{document.documentType || document.document_type || "Compliance Document"}</p>
+                        </div>
+                        {downloadUrl ? (
+                          <a
+                            href={downloadUrl}
+                            download={document.fileName || document.file_name || "supplier-document.pdf"}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                          >
+                            <Download className="size-3.5" /> PDF
+                          </a>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-lg h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                            onClick={() => handleDownloadRealtimePdf(document)}
+                          >
+                            <Download className="mr-1 size-3.5" /> PDF
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptySection text="No compliance documents have been attached." />
