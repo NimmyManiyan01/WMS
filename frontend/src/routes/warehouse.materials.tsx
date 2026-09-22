@@ -53,6 +53,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
@@ -91,6 +92,27 @@ const DEFAULT_UOMS = [
   "NOS",
   "DRUM",
 ];
+
+function TermInfo({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info
+              className="size-3 cursor-help text-muted-foreground/80"
+              aria-label={`${label} info`}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs font-normal normal-case">
+            {tooltip}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </span>
+  );
+}
 
 // Helper to format specification codes to use "S" for user display
 export const formatSpecCode = (code?: string): string => {
@@ -276,7 +298,9 @@ function WarehouseMaterials() {
         "Technical Specification",
         "Specification UOM",
         "Specification Status",
-      ].map((h) => `"${h}"`).join(",")
+      ]
+        .map((h) => `"${h}"`)
+        .join(","),
     );
 
     materials.forEach((mat) => {
@@ -298,7 +322,7 @@ function WarehouseMaterials() {
             v?.status || "",
           ]
             .map((field) => `"${String(field).replace(/"/g, '""')}"`)
-            .join(",")
+            .join(","),
         );
       });
     });
@@ -309,7 +333,7 @@ function WarehouseMaterials() {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `NexusWMS_Material_Master_${new Date().toISOString().slice(0, 10)}.csv`
+      `NexusWMS_Material_Master_${new Date().toISOString().slice(0, 10)}.csv`,
     );
     document.body.appendChild(link);
     link.click();
@@ -470,7 +494,7 @@ function WarehouseMaterials() {
     setEditMatName(mat.material_name || "");
     const isStandardCat = categories.includes(mat.category);
     setEditMatCategory(isStandardCat ? mat.category : "OTHER");
-    setEditMatCustomCat(isStandardCat ? "" : (mat.category || ""));
+    setEditMatCustomCat(isStandardCat ? "" : mat.category || "");
     setEditMatBaseUom(mat.base_uom || "");
     setEditMatDescription(mat.description || "");
     setEditMatStatus(mat.status || "Active");
@@ -610,10 +634,16 @@ function WarehouseMaterials() {
   const handleRemoveVariant = async (variant: any) => {
     if (!selectedMaterial) return;
     if ((selectedMaterial.variants?.length || 0) <= 1) {
-      toast.error("Cannot remove the only specification of a material. A material must retain at least one specification.");
+      toast.error(
+        "Cannot remove the only specification of a material. A material must retain at least one specification.",
+      );
       return;
     }
-    if (!window.confirm(`Are you sure you want to remove specification "${formatSpecCode(variant.variant_code)}"?`)) {
+    if (
+      !window.confirm(
+        `Are you sure you want to remove specification "${formatSpecCode(variant.variant_code)}"?`,
+      )
+    ) {
       return;
     }
     try {
@@ -774,7 +804,10 @@ function WarehouseMaterials() {
         <Card className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-primary/40 hover:shadow-soft">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Material Masters
+              <TermInfo
+                label="Material Masters"
+                tooltip="Canonical material records used across inventory, procurement, and warehouse workflows."
+              />
             </span>
             <span className="grid size-9 place-items-center rounded-xl bg-primary/15 text-primary border border-primary/20 shadow-2xs">
               <Database className="size-4" />
@@ -791,7 +824,10 @@ function WarehouseMaterials() {
         <Card className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-teal-500/40 hover:shadow-soft">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Total Specifications
+              <TermInfo
+                label="Total Specifications"
+                tooltip="Total SKU-level specification variants defined under all material masters."
+              />
             </span>
             <span className="grid size-9 place-items-center rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/20 shadow-2xs">
               <Layers className="size-4" />
@@ -808,7 +844,10 @@ function WarehouseMaterials() {
         <Card className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-emerald-500/40 hover:shadow-soft">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Active Materials
+              <TermInfo
+                label="Active Materials"
+                tooltip="Material masters currently available for warehouse and procurement operations."
+              />
             </span>
             <span className="grid size-9 place-items-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-2xs">
               <CheckCircle2 className="size-4" />
@@ -833,7 +872,10 @@ function WarehouseMaterials() {
         <Card className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-card p-5 shadow-2xs transition-all duration-300 hover:border-amber-500/40 hover:shadow-soft">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Categories
+              <TermInfo
+                label="Categories"
+                tooltip="Distinct material category groups represented in the current catalog."
+              />
             </span>
             <span className="grid size-9 place-items-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-2xs">
               <Tag className="size-4" />
@@ -947,7 +989,7 @@ function WarehouseMaterials() {
                   "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all",
                   viewMode === "table"
                     ? "bg-card text-foreground shadow-2xs border border-border/50"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 title="Dense Table View"
               >
@@ -961,7 +1003,7 @@ function WarehouseMaterials() {
                   "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all",
                   viewMode === "grid"
                     ? "bg-card text-foreground shadow-2xs border border-border/50"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 title="Card Grid View"
               >
@@ -977,7 +1019,9 @@ function WarehouseMaterials() {
       {loading ? (
         <div className="flex h-72 flex-col items-center justify-center gap-3">
           <Loader2 className="size-8 animate-spin text-primary" />
-          <p className="text-xs font-medium text-muted-foreground">Loading Material Master registry...</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Loading Material Master registry...
+          </p>
         </div>
       ) : materials.length === 0 ? (
         <Card className="flex h-72 flex-col items-center justify-center p-8 text-center border-dashed border-border/80 bg-card/60 rounded-3xl shadow-2xs">
@@ -990,7 +1034,10 @@ function WarehouseMaterials() {
               ? "No materials match your active search or filter criteria. Try clearing filters."
               : "Start by registering your canonical Material Code with specifications for wire, steel, fasteners, or consumables."}
           </p>
-          <Button className="mt-5 rounded-xl shadow-glow bg-primary font-bold text-xs" onClick={openCreateModal}>
+          <Button
+            className="mt-5 rounded-xl shadow-glow bg-primary font-bold text-xs"
+            onClick={openCreateModal}
+          >
             <Plus className="mr-1.5 size-4" /> Add Material Master
           </Button>
         </Card>
@@ -1002,9 +1049,16 @@ function WarehouseMaterials() {
               <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur-md shadow-2xs">
                 <tr className="border-b border-border/80 bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3.5 px-4 whitespace-nowrap w-[130px]">Material Code</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap min-w-[190px] max-w-[260px]">Material Name & Category</th>
+                  <th className="py-3.5 px-4 whitespace-nowrap min-w-[190px] max-w-[260px]">
+                    Material Name & Category
+                  </th>
                   <th className="py-3.5 px-4 text-center whitespace-nowrap w-[90px]">Base UOM</th>
-                  <th className="py-3.5 px-4 min-w-[240px]">Specifications / SKUs</th>
+                  <th className="py-3.5 px-4 min-w-[240px]">
+                    <TermInfo
+                      label="Specifications / SKUs"
+                      tooltip="Specification variants or SKU codes configured under each material master."
+                    />
+                  </th>
                   <th className="py-3.5 px-4 text-center whitespace-nowrap w-[100px]">Status</th>
                   <th className="py-3.5 px-4 text-center whitespace-nowrap w-[290px]">Actions</th>
                 </tr>
@@ -1021,7 +1075,10 @@ function WarehouseMaterials() {
                       onClick={() => openMaterialDetail(mat)}
                     >
                       {/* Code with 1-click copy */}
-                      <td className="py-3.5 px-4 whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="py-3.5 px-4 whitespace-nowrap align-middle"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
@@ -1042,7 +1099,10 @@ function WarehouseMaterials() {
                       {/* Name & Category */}
                       <td className="py-3.5 px-4 min-w-[190px] max-w-[260px] align-middle">
                         <div className="flex flex-col gap-1">
-                          <span className="font-bold text-foreground group-hover:text-primary transition-colors text-sm truncate" title={mat.material_name}>
+                          <span
+                            className="font-bold text-foreground group-hover:text-primary transition-colors text-sm truncate"
+                            title={mat.material_name}
+                          >
                             {mat.material_name}
                           </span>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1050,7 +1110,10 @@ function WarehouseMaterials() {
                               <Tag className="size-2.5 text-muted-foreground" /> {mat.category}
                             </span>
                             {mat.description && (
-                              <span className="truncate max-w-[170px] text-[11px] text-muted-foreground italic" title={mat.description}>
+                              <span
+                                className="truncate max-w-[170px] text-[11px] text-muted-foreground italic"
+                                title={mat.description}
+                              >
                                 {mat.description}
                               </span>
                             )}
@@ -1074,7 +1137,9 @@ function WarehouseMaterials() {
                           {mat.variants && mat.variants.length > 0 ? (
                             <>
                               {mat.variants.slice(0, 2).map((v: any) => {
-                                const specDesc = [v.size, v.color, v.grade].filter(Boolean).join(" · ");
+                                const specDesc = [v.size, v.color, v.grade]
+                                  .filter(Boolean)
+                                  .join(" · ");
                                 const isInactive = v.status === "Inactive";
                                 const specCode = formatSpecCode(v.variant_code);
                                 const fullTitle = `${specCode}${specDesc ? ` (${specDesc})` : ""}`;
@@ -1090,10 +1155,17 @@ function WarehouseMaterials() {
                                       "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-mono transition-colors whitespace-nowrap max-w-[220px] cursor-pointer",
                                       isInactive
                                         ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground"
-                                        : "border-border/80 bg-background/90 text-foreground hover:border-teal-500/50 hover:bg-teal-500/5"
+                                        : "border-border/80 bg-background/90 text-foreground hover:border-teal-500/50 hover:bg-teal-500/5",
                                     )}
                                   >
-                                    <span className={cn("font-bold shrink-0 whitespace-nowrap", isInactive ? "text-muted-foreground" : "text-teal-600 dark:text-teal-400")}>
+                                    <span
+                                      className={cn(
+                                        "font-bold shrink-0 whitespace-nowrap",
+                                        isInactive
+                                          ? "text-muted-foreground"
+                                          : "text-teal-600 dark:text-teal-400",
+                                      )}
+                                    >
                                       {specCode}
                                     </span>
                                     {specDesc && (
@@ -1118,7 +1190,9 @@ function WarehouseMaterials() {
                               )}
                             </>
                           ) : (
-                            <span className="text-xs text-muted-foreground italic">No specifications defined</span>
+                            <span className="text-xs text-muted-foreground italic">
+                              No specifications defined
+                            </span>
                           )}
                         </div>
                       </td>
@@ -1131,7 +1205,10 @@ function WarehouseMaterials() {
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="py-3.5 px-4 text-center whitespace-nowrap align-middle"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-center justify-center gap-1">
                           <Button
                             variant="outline"
@@ -1171,10 +1248,12 @@ function WarehouseMaterials() {
                               "h-7.5 rounded-lg px-2 text-xs font-medium transition-colors",
                               mat.status === "Active"
                                 ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                : "text-emerald-600 hover:bg-emerald-500/10"
+                                : "text-emerald-600 hover:bg-emerald-500/10",
                             )}
                             onClick={() => handleToggleMaterialStatus(mat)}
-                            title={mat.status === "Active" ? "Deactivate Material" : "Activate Material"}
+                            title={
+                              mat.status === "Active" ? "Deactivate Material" : "Activate Material"
+                            }
                           >
                             {mat.status === "Active" ? "Deactivate" : "Activate"}
                           </Button>
@@ -1202,7 +1281,10 @@ function WarehouseMaterials() {
               >
                 <div>
                   {/* Top Bar: Code pill, UOM, and Status */}
-                  <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-3" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex items-center justify-between gap-2 border-b border-border/50 pb-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
@@ -1248,7 +1330,8 @@ function WarehouseMaterials() {
                   <div className="mt-4 pt-3 border-t border-border/40">
                     <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground uppercase mb-2">
                       <span className="flex items-center gap-1">
-                        <Layers className="size-3 text-teal-600 dark:text-teal-400" /> Specifications ({specCount}):
+                        <Layers className="size-3 text-teal-600 dark:text-teal-400" />{" "}
+                        Specifications ({specCount}):
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -1264,13 +1347,24 @@ function WarehouseMaterials() {
                                   "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[10px] font-mono font-medium",
                                   isInactive
                                     ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground"
-                                    : "border-border/80 bg-background/80 text-foreground"
+                                    : "border-border/80 bg-background/80 text-foreground",
                                 )}
                               >
-                                <span className={cn("font-bold", isInactive ? "text-muted-foreground" : "text-teal-600 dark:text-teal-400")}>
+                                <span
+                                  className={cn(
+                                    "font-bold",
+                                    isInactive
+                                      ? "text-muted-foreground"
+                                      : "text-teal-600 dark:text-teal-400",
+                                  )}
+                                >
                                   {formatSpecCode(v.variant_code)}
                                 </span>
-                                {spec && <span className="text-muted-foreground font-sans font-normal">({spec})</span>}
+                                {spec && (
+                                  <span className="text-muted-foreground font-sans font-normal">
+                                    ({spec})
+                                  </span>
+                                )}
                               </span>
                             );
                           })}
@@ -1281,7 +1375,9 @@ function WarehouseMaterials() {
                           )}
                         </>
                       ) : (
-                        <span className="text-xs text-muted-foreground italic">No specifications defined</span>
+                        <span className="text-xs text-muted-foreground italic">
+                          No specifications defined
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1337,7 +1433,8 @@ function WarehouseMaterials() {
               <div>
                 <DialogTitle className="text-xl font-bold">Add Material Master</DialogTitle>
                 <p className="text-xs text-muted-foreground">
-                  Define canonical Material Code with initial specifications for warehouse operations
+                  Define canonical Material Code with initial specifications for warehouse
+                  operations
                 </p>
               </div>
             </div>
@@ -1469,7 +1566,8 @@ function WarehouseMaterials() {
                       Material Specifications
                     </h4>
                     <p className="text-[11px] text-muted-foreground">
-                      Each specification has its own unique Specification Code sharing the same Material Code.
+                      Each specification has its own unique Specification Code sharing the same
+                      Material Code.
                     </p>
                   </div>
                 </div>
@@ -1506,7 +1604,11 @@ function WarehouseMaterials() {
                         className="h-7 px-2 text-xs font-bold text-destructive hover:bg-destructive/10 rounded-lg inline-flex items-center gap-1"
                         onClick={() => removeVariantRow(idx)}
                         disabled={variantsList.length === 1}
-                        title={variantsList.length === 1 ? "At least one specification required" : "Remove specification"}
+                        title={
+                          variantsList.length === 1
+                            ? "At least one specification required"
+                            : "Remove specification"
+                        }
                       >
                         <Trash2 className="size-3.5" /> Remove
                       </Button>
@@ -1626,7 +1728,9 @@ function WarehouseMaterials() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleCopyCode(selectedMaterial.material_code, "Material Code")}
+                        onClick={() =>
+                          handleCopyCode(selectedMaterial.material_code, "Material Code")
+                        }
                         className="font-mono text-sm font-black text-primary px-2.5 py-0.5 rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-colors inline-flex items-center gap-1.5"
                         title="Click to copy Material Code"
                       >
@@ -1720,7 +1824,9 @@ function WarehouseMaterials() {
                           <td className="p-3 whitespace-nowrap">
                             <button
                               type="button"
-                              onClick={() => handleCopyCode(formatSpecCode(v.variant_code), "Spec Code")}
+                              onClick={() =>
+                                handleCopyCode(formatSpecCode(v.variant_code), "Spec Code")
+                              }
                               className="font-mono font-bold text-primary hover:underline inline-flex items-center gap-1"
                               title="Click to copy Specification Code"
                             >
@@ -1728,7 +1834,9 @@ function WarehouseMaterials() {
                               <Copy className="size-2.5 opacity-50" />
                             </button>
                           </td>
-                          <td className="p-3 text-foreground font-medium whitespace-nowrap">{v.size || "—"}</td>
+                          <td className="p-3 text-foreground font-medium whitespace-nowrap">
+                            {v.size || "—"}
+                          </td>
                           <td className="p-3 text-foreground whitespace-nowrap">
                             {v.color ? (
                               <span className="inline-flex items-center gap-1.5">
@@ -2000,9 +2108,7 @@ function WarehouseMaterials() {
                 <Edit className="size-4" />
               </div>
               <div>
-                <DialogTitle className="text-base font-bold">
-                  Edit Material Master
-                </DialogTitle>
+                <DialogTitle className="text-base font-bold">Edit Material Master</DialogTitle>
                 <p className="text-xs text-muted-foreground">
                   Update details for material code{" "}
                   <span className="font-mono font-bold text-foreground">
@@ -2145,13 +2251,10 @@ function WarehouseMaterials() {
                 <Edit className="size-4" />
               </div>
               <div>
-                <DialogTitle className="text-base font-bold">
-                  Edit Specification
-                </DialogTitle>
+                <DialogTitle className="text-base font-bold">Edit Specification</DialogTitle>
                 <p className="text-xs text-muted-foreground">
                   Update spec{" "}
-                  <span className="font-mono font-bold text-foreground">{editVarCode}</span>{" "}
-                  for{" "}
+                  <span className="font-mono font-bold text-foreground">{editVarCode}</span> for{" "}
                   <span className="font-semibold text-foreground">
                     {selectedMaterial?.material_name}
                   </span>
@@ -2326,4 +2429,3 @@ function WarehouseMaterials() {
     </AppShell>
   );
 }
-
