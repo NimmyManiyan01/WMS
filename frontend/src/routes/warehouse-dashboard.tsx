@@ -436,9 +436,10 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
-                  <Link to="/putaway-tasks">
+                  <Link to="/putaway-tasks?status=PENDING">
                     Track Putaways <ArrowRight className="size-3.5" />
                   </Link>
                 </Button>
@@ -486,6 +487,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/warehouse/assembly-requisitions">
@@ -538,6 +540,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/warehouse/quarantine">
@@ -590,6 +593,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/inventory">
@@ -880,17 +884,47 @@ function WarehouseDashboard() {
 
               {/* Hierarchy Metrics */}
               <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">Stores</p>
                   <p className="text-lg font-black text-foreground mt-0.5">
                     {storage.total_stores}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">Zones</p>
                   <p className="text-lg font-black text-foreground mt-0.5">{storage.total_zones}</p>
                 </div>
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">
                     Total Bins
                   </p>
