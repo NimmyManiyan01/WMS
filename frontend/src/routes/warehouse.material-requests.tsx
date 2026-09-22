@@ -362,6 +362,9 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     setItems(
       items.map((it, i) =>
@@ -373,6 +376,7 @@ function WarehouseMaterialRequests() {
               material_code: foundMat.material_code,
               variant_code: formatSpecCode(defaultVariant?.variant_code) || "",
               material_name: nameWithSpec,
+              category: matCat,
               uom: defaultVariant?.uom || foundMat.base_uom || "",
             }
           : it,
@@ -433,6 +437,9 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     newItems[idx] = {
       ...newItems[idx],
@@ -441,6 +448,7 @@ function WarehouseMaterialRequests() {
       materialCode: foundMat.material_code,
       variantCode: formatSpecCode(defaultVariant?.variant_code) || "",
       materialName: nameWithSpec,
+      category: matCat,
       uom: defaultVariant?.uom || foundMat.base_uom || "",
     };
     setSelectedRequest({ ...selectedRequest, items: newItems });
@@ -882,13 +890,23 @@ function WarehouseMaterialRequests() {
                             </Select>
                           </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-4">
+                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-3">
                           <Label className="flex h-4 items-center text-xs font-medium">Material Description</Label>
                           <Input
                             placeholder="e.g. Wire 1.5mm Red PVC..."
                             className="h-10 rounded-xl bg-background text-sm"
                             value={item.material_name}
                             onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-2">
+                          <Label className="flex h-4 items-center text-xs font-medium">Category</Label>
+                          <Input
+                            placeholder="Category..."
+                            className="h-10 rounded-xl bg-background text-sm font-medium"
+                            value={item.category || selectedMat?.category || "Raw Materials"}
+                            onChange={(e) => handleItemChange(idx, "category", e.target.value)}
                           />
                         </div>
 
@@ -1193,11 +1211,12 @@ function WarehouseMaterialRequests() {
                   <div className="rounded-2xl border border-border/60 overflow-hidden bg-muted/5 shadow-inner">
                     <table className="w-full table-fixed text-left text-sm border-collapse">
                       <colgroup>
-                        <col className="w-[23%]" />
-                        <col className="w-[27%]" />
-                        <col className="w-[28%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[20%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[17%]" />
                         <col className="w-[10%]" />
-                        <col className="w-[12%]" />
+                        <col className="w-[10%]" />
                         {isEditing && <col className="w-10" />}
                       </colgroup>
                       <thead>
@@ -1209,7 +1228,10 @@ function WarehouseMaterialRequests() {
                             Specification Code
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
-                            Material Name & Specs
+                            Material Name &amp; Specs
+                          </th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
+                            Category
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">
                             Qty
@@ -1310,6 +1332,22 @@ function WarehouseMaterialRequests() {
                                 ) : (
                                   <span className="text-xs font-medium truncate block">
                                     {item.materialName || item.material_name}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5 min-w-0 overflow-hidden">
+                                {isEditing ? (
+                                  <Input
+                                    value={item.category || selectedMat?.category || "Raw Materials"}
+                                    placeholder="Category"
+                                    onChange={(e) =>
+                                      handleEditItemChange(idx, "category", e.target.value)
+                                    }
+                                    className="h-9 text-xs bg-background rounded-xl w-full min-w-0 font-medium"
+                                  />
+                                ) : (
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block truncate">
+                                    {item.category || selectedMat?.category || "Raw Materials"}
                                   </span>
                                 )}
                               </td>

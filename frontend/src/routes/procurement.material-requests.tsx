@@ -414,11 +414,12 @@ function MaterialRequests() {
                   <div className="rounded-2xl border border-border/60 overflow-hidden bg-muted/5 shadow-inner">
                     <table className="w-full table-fixed text-left text-sm border-collapse">
                       <colgroup>
-                        <col className="w-[23%]" />
-                        <col className="w-[27%]" />
-                        <col className="w-[28%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[20%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[17%]" />
                         <col className="w-[10%]" />
-                        <col className="w-[12%]" />
+                        <col className="w-[10%]" />
                       </colgroup>
                       <thead>
                         <tr className="bg-muted/50 border-b border-border/60">
@@ -430,6 +431,9 @@ function MaterialRequests() {
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground">
                             Material Name &amp; Specs
+                          </th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground">
+                            Category
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground w-20 text-center">
                             Qty
@@ -453,6 +457,9 @@ function MaterialRequests() {
                             </td>
                             <td className="p-3 font-medium text-foreground truncate">
                               {item.materialName || item.material_name || "—"}
+                            </td>
+                            <td className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate">
+                              {item.category || "Raw Materials"}
                             </td>
                             <td className="p-3 text-center font-bold text-orange-600 tabular-nums">
                               {Math.floor(Number(item.quantity || 0))}
