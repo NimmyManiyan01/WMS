@@ -87,7 +87,16 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type MyStoreSearch = {
-  tab?: "overview" | "dashboard" | "putaway" | "pickup" | "takeaway" | "history" | "zones" | "inventory" | "docks";
+  tab?:
+    | "overview"
+    | "dashboard"
+    | "putaway"
+    | "pickup"
+    | "takeaway"
+    | "history"
+    | "zones"
+    | "inventory"
+    | "docks";
 };
 
 export const Route = createFileRoute("/my-store")({
@@ -95,7 +104,17 @@ export const Route = createFileRoute("/my-store")({
     const tab = search.tab;
     if (
       typeof tab === "string" &&
-      ["overview", "dashboard", "putaway", "pickup", "takeaway", "history", "zones", "inventory", "docks"].includes(tab)
+      [
+        "overview",
+        "dashboard",
+        "putaway",
+        "pickup",
+        "takeaway",
+        "history",
+        "zones",
+        "inventory",
+        "docks",
+      ].includes(tab)
     ) {
       return { tab: (tab === "dashboard" ? "overview" : tab) as MyStoreSearch["tab"] };
     }
@@ -236,7 +255,16 @@ interface PutawayTask {
   assigned_store_manager_name?: string | null;
   completed_by?: string | null;
   completed_at?: string | null;
-  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "PUTAWAY_PENDING" | "PUTAWAY_IN_PROGRESS" | "PUTAWAY_COMPLETED" | "ASSIGNED_TO_STORE" | string;
+  status:
+    | "PENDING"
+    | "IN_PROGRESS"
+    | "COMPLETED"
+    | "CANCELLED"
+    | "PUTAWAY_PENDING"
+    | "PUTAWAY_IN_PROGRESS"
+    | "PUTAWAY_COMPLETED"
+    | "ASSIGNED_TO_STORE"
+    | string;
   created_at: string;
   updated_at?: string;
 }
@@ -328,9 +356,9 @@ interface StoreDock {
 
 function MyStorePage() {
   const searchParams = Route.useSearch();
-  const [activeTab, setActiveTab] = useState<"overview" | "putaway" | "pickup" | "takeaway" | "history" | "zones" | "inventory" | "docks">(
-    searchParams.tab === "dashboard" ? "overview" : searchParams.tab || "overview",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "putaway" | "pickup" | "takeaway" | "history" | "zones" | "inventory" | "docks"
+  >(searchParams.tab === "dashboard" ? "overview" : searchParams.tab || "overview");
 
   useEffect(() => {
     if (searchParams.tab) {
@@ -477,14 +505,15 @@ function MyStorePage() {
         setPickupTasksLoading(true);
         setDocksLoading(true);
         setMetricsLoading(true);
-        const [hierarchyData, tasksData, pickupData, balancesData, docksData, metricsData] = await Promise.all([
-          api.getStoreHierarchy().catch(() => []),
-          api.getPutawayTasks().catch(() => []),
-          api.getPickupTasks().catch(() => []),
-          api.getInventoryLocationBalances().catch(() => []),
-          api.getDocks().catch(() => []),
-          api.getStoreDashboardMetrics(storeData.id).catch(() => null),
-        ]);
+        const [hierarchyData, tasksData, pickupData, balancesData, docksData, metricsData] =
+          await Promise.all([
+            api.getStoreHierarchy().catch(() => []),
+            api.getPutawayTasks().catch(() => []),
+            api.getPickupTasks().catch(() => []),
+            api.getInventoryLocationBalances().catch(() => []),
+            api.getDocks().catch(() => []),
+            api.getStoreDashboardMetrics(storeData.id).catch(() => null),
+          ]);
 
         if (metricsData) {
           setStoreMetrics(metricsData);
@@ -1120,7 +1149,11 @@ function MyStorePage() {
     setPickupMatScan(task.material_code || task.item_code || "");
     const defaultZone = activeZonesList[0]?.id || "";
     setPickupZoneScan(defaultZone);
-    const remQty = Math.max(0, Number(task.requested_quantity || task.quantity_requested || 0) - Number(task.picked_quantity || task.quantity_picked || 0));
+    const remQty = Math.max(
+      0,
+      Number(task.requested_quantity || task.quantity_requested || 0) -
+        Number(task.picked_quantity || task.quantity_picked || 0),
+    );
     setPickupQty(String(remQty || task.requested_quantity || task.quantity_requested || ""));
     setExecutePickupModalOpen(true);
   };
@@ -1209,7 +1242,9 @@ function MyStorePage() {
       return;
     }
     if (qty > takeawaySelectedMaterial.available_quantity) {
-      toast.error(`Quantity cannot exceed available stock (${takeawaySelectedMaterial.available_quantity} ${takeawaySelectedMaterial.uom})`);
+      toast.error(
+        `Quantity cannot exceed available stock (${takeawaySelectedMaterial.available_quantity} ${takeawaySelectedMaterial.uom})`,
+      );
       return;
     }
 
@@ -1217,7 +1252,8 @@ function MyStorePage() {
     try {
       const res = await api.performTakeaway({
         bin_scan: takeawayScannedBinCode || takeawayBinInput.trim(),
-        material_scan: takeawaySelectedMaterial.material_qr || takeawaySelectedMaterial.material_code,
+        material_scan:
+          takeawaySelectedMaterial.material_qr || takeawaySelectedMaterial.material_code,
         quantity: qty,
         remarks: takeawayRemarks.trim() || undefined,
         reference_document: takeawayRefDoc.trim() || undefined,
@@ -1287,7 +1323,7 @@ function MyStorePage() {
   return (
     <AppShell
       title="Store Management & Putaway Portal"
-      subtitle={`Authenticated as ${mounted ? (user?.username || "Store Keeper") : "Store Keeper"} · Scoped to ${store?.store_name || "Store"}`}
+      subtitle={`Authenticated as ${mounted ? user?.username || "Store Keeper" : "Store Keeper"} · Scoped to ${store?.store_name || "Store"}`}
       actions={
         <Button
           variant="outline"
@@ -1400,11 +1436,24 @@ function MyStorePage() {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {occupiedDocks.length === 1 ? (
                       <>
-                        Vehicle <strong className="font-mono text-foreground">{occupiedDocks[0].current_allocation?.vehicle_number || "Incoming"}</strong> (Pass: <strong className="font-mono text-foreground">{occupiedDocks[0].current_allocation?.existing_gate_pass_id || "N/A"}</strong>) is currently docked with {occupiedDocks[0].current_allocation?.material_reference || "materials"} for {store.store_name}. Once offloaded, release the dock to free it for incoming shipments.
+                        Vehicle{" "}
+                        <strong className="font-mono text-foreground">
+                          {occupiedDocks[0].current_allocation?.vehicle_number || "Incoming"}
+                        </strong>{" "}
+                        (Pass:{" "}
+                        <strong className="font-mono text-foreground">
+                          {occupiedDocks[0].current_allocation?.existing_gate_pass_id || "N/A"}
+                        </strong>
+                        ) is currently docked with{" "}
+                        {occupiedDocks[0].current_allocation?.material_reference || "materials"} for{" "}
+                        {store.store_name}. Once offloaded, release the dock to free it for incoming
+                        shipments.
                       </>
                     ) : (
                       <>
-                        Docks {occupiedDocks.map((d) => d.dock_code).join(", ")} are currently offloading goods for {store.store_name}. Release docks once receiving is complete.
+                        Docks {occupiedDocks.map((d) => d.dock_code).join(", ")} are currently
+                        offloading goods for {store.store_name}. Release docks once receiving is
+                        complete.
                       </>
                     )}
                   </p>
@@ -1435,12 +1484,12 @@ function MyStorePage() {
           )}
 
           {/* Navigation Tabs */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-border/40 pb-3">
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-border/40 pb-3">
             <Button
               variant={activeTab === "overview" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("overview")}
-              className="rounded-xl text-xs font-bold gap-2 shadow-xs"
+              className="rounded-xl text-xs font-bold gap-2 shadow-xs whitespace-nowrap shrink-0"
             >
               <LayoutDashboard className="size-4" />
               Store Dashboard
@@ -1450,7 +1499,7 @@ function MyStorePage() {
               variant={activeTab === "putaway" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("putaway")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <PackageCheck className="size-4" />
               Inbound Putaway Tasks
@@ -1463,7 +1512,7 @@ function MyStorePage() {
               variant={activeTab === "pickup" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("pickup")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <ClipboardList className="size-4" />
               Outbound Pickup Tasks
@@ -1476,7 +1525,7 @@ function MyStorePage() {
               variant={activeTab === "takeaway" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("takeaway")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <Send className="size-4" />
               Takeaway (Outbound Dispatch)
@@ -1486,7 +1535,7 @@ function MyStorePage() {
               variant={activeTab === "history" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("history")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <History className="size-4" />
               Movement History
@@ -1496,7 +1545,7 @@ function MyStorePage() {
               variant={activeTab === "zones" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("zones")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <Layers className="size-4" />
               Zones & Bins ({zones.length})
@@ -1506,7 +1555,7 @@ function MyStorePage() {
               variant={activeTab === "inventory" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("inventory")}
-              className="rounded-xl text-xs font-semibold gap-2"
+              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
             >
               <Boxes className="size-4" />
               Store Inventory Balances ({inventoryBalances.length})
@@ -1517,8 +1566,10 @@ function MyStorePage() {
               size="sm"
               onClick={() => setActiveTab("docks")}
               className={cn(
-                "rounded-xl text-xs font-semibold gap-2",
-                occupiedDocks.length > 0 && activeTab !== "docks" && "border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400"
+                "rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0",
+                occupiedDocks.length > 0 &&
+                  activeTab !== "docks" &&
+                  "border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400",
               )}
             >
               <Truck className="size-4" />
@@ -1540,10 +1591,20 @@ function MyStorePage() {
             <div className="space-y-6">
               {/* 8 Store Inventory & Operations KPI Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Total SKUs</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider">
+                        Total SKUs
+                      </span>
                       <Package className="size-3.5 text-primary" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-foreground">
@@ -1553,10 +1614,20 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-primary/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Total Stored</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider">
+                        Total Stored
+                      </span>
                       <Boxes className="size-3.5 text-blue-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-foreground">
@@ -1566,10 +1637,20 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-emerald-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-emerald-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Available</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                        Available
+                      </span>
                       <CheckCircle2 className="size-3.5 text-emerald-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
@@ -1579,10 +1660,20 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-amber-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-amber-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Quarantine</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        Quarantine
+                      </span>
                       <ShieldAlert className="size-3.5 text-amber-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-amber-600 dark:text-amber-400">
@@ -1592,10 +1683,20 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-rose-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-rose-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">Damaged</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                        Damaged
+                      </span>
                       <AlertTriangle className="size-3.5 text-rose-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-rose-600 dark:text-rose-400">
@@ -1605,23 +1706,44 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-orange-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setOverviewSearch("");
+                  }}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-orange-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400">Low Stock</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                        Low Stock
+                      </span>
                       <TrendingDown className="size-3.5 text-orange-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-orange-600 dark:text-orange-400">
                       {storeMetrics?.kpis?.low_stock_count ?? 0}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">SKUs alert</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {(storeMetrics?.kpis?.low_stock_count ?? 0) > 0
+                        ? "SKUs alert"
+                        : "All SKUs healthy"}
+                    </p>
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-indigo-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActiveTab("zones")}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-indigo-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Zones</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                        Zones
+                      </span>
                       <Layers className="size-3.5 text-indigo-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-indigo-600 dark:text-indigo-400">
@@ -1631,10 +1753,17 @@ function MyStorePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-border/40 bg-card/70 shadow-2xs hover:border-cyan-500/40 transition-colors">
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActiveTab("zones")}
+                  className="border-border/40 bg-card/70 shadow-2xs hover:border-cyan-500/40 transition-colors cursor-pointer"
+                >
                   <CardContent className="p-3.5 space-y-1">
                     <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Bins</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                        Bins
+                      </span>
                       <Grid className="size-3.5 text-cyan-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-cyan-600 dark:text-cyan-400">
@@ -1658,7 +1787,9 @@ function MyStorePage() {
                     </div>
                     <div>
                       <p className="text-xs font-bold text-foreground">View Full Inventory</p>
-                      <p className="text-[11px] text-muted-foreground">All stored stock & balances</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        All stored stock & balances
+                      </p>
                     </div>
                   </div>
                   <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -1675,7 +1806,9 @@ function MyStorePage() {
                     </div>
                     <div>
                       <p className="text-xs font-bold text-foreground">Manage Zones & Bins</p>
-                      <p className="text-[11px] text-muted-foreground">{zones.length} Zones · Create & QR</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {zones.length} Zones · Create & QR
+                      </p>
                     </div>
                   </div>
                   <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-indigo-500 transition-colors" />
@@ -1719,7 +1852,8 @@ function MyStorePage() {
                     <div>
                       <p className="text-xs font-bold text-foreground">Inbound Putaway</p>
                       <p className="text-[11px] text-muted-foreground">
-                        {putawayTasks.filter((t) => t.status !== "PUTAWAY_COMPLETED").length} Pending Tasks
+                        {putawayTasks.filter((t) => t.status !== "PUTAWAY_COMPLETED").length}{" "}
+                        Pending Tasks
                       </p>
                     </div>
                   </div>
@@ -1750,8 +1884,18 @@ function MyStorePage() {
                         placeholder="Filter materials..."
                         value={overviewSearch}
                         onChange={(e) => setOverviewSearch(e.target.value)}
-                        className="pl-8 h-8 text-xs rounded-xl bg-background/50 border-border/40"
+                        className="pl-8 pr-8 h-8 text-xs rounded-xl bg-background/50 border-border/40"
                       />
+                      {overviewSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setOverviewSearch("")}
+                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Clear material search"
+                        >
+                          <XCircle className="size-3.5" />
+                        </button>
+                      )}
                     </div>
                   </CardHeader>
 
@@ -1762,12 +1906,22 @@ function MyStorePage() {
                         <p className="text-xs">Loading inventory summary...</p>
                       </div>
                     ) : (storeMetrics?.inventory_items || []).length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 px-4 text-center">
                         <Boxes className="size-8 text-muted-foreground/40" />
                         <p className="font-semibold text-sm text-foreground">No Stock In Store</p>
-                        <p className="text-xs text-muted-foreground">
-                          Complete putaway operations to receive stock into this store.
+                        <p className="text-xs text-muted-foreground max-w-sm">
+                          This store has no received inventory yet. Review assigned putaway tasks to
+                          bring accepted materials into stock.
                         </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveTab("putaway")}
+                          className="mt-2 rounded-xl text-xs"
+                        >
+                          <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks
+                        </Button>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -1822,7 +1976,8 @@ function MyStorePage() {
                                   </td>
                                   <td className="py-2.5 px-3 text-center">
                                     <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
-                                      {item.locations_count} {item.locations_count === 1 ? "bin" : "bins"}
+                                      {item.locations_count}{" "}
+                                      {item.locations_count === 1 ? "bin" : "bins"}
                                     </span>
                                   </td>
                                 </tr>
@@ -1848,6 +2003,15 @@ function MyStorePage() {
                         </CardDescription>
                       </div>
                     </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setActiveTab("history")}
+                      className="rounded-xl text-xs font-bold text-primary hover:text-primary"
+                    >
+                      View All <ArrowRight className="ml-1 size-3.5" />
+                    </Button>
                   </CardHeader>
 
                   <CardContent className="p-3">
@@ -1860,8 +2024,10 @@ function MyStorePage() {
                       <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
                         {(storeMetrics?.recent_activity || []).map((act) => {
                           const isPutaway = act.movement_type === "PUTAWAY";
-                          const isTakeaway = act.movement_type === "TAKEAWAY" || act.movement_type === "OUTBOUND";
-                          const isPickup = act.movement_type === "PICKUP" || act.movement_type === "ISSUE";
+                          const isTakeaway =
+                            act.movement_type === "TAKEAWAY" || act.movement_type === "OUTBOUND";
+                          const isPickup =
+                            act.movement_type === "PICKUP" || act.movement_type === "ISSUE";
 
                           return (
                             <div
@@ -1882,7 +2048,12 @@ function MyStorePage() {
                                   {act.movement_type}
                                 </span>
                                 <span className="text-[10px] text-muted-foreground">
-                                  {act.created_at ? new Date(act.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—"}
+                                  {act.created_at
+                                    ? new Date(act.created_at).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : "—"}
                                 </span>
                               </div>
 
@@ -1902,7 +2073,9 @@ function MyStorePage() {
 
                               <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1 border-t border-border/30">
                                 <span className="truncate max-w-[130px]">
-                                  {act.destination_location || act.source_location || "Store Location"}
+                                  {act.destination_location ||
+                                    act.source_location ||
+                                    "Store Location"}
                                 </span>
                                 <span>{act.performed_by_name || "Store Keeper"}</span>
                               </div>
@@ -2371,12 +2544,22 @@ function MyStorePage() {
 
               <CardContent className="p-0">
                 {inventoryBalances.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2 px-4 text-center">
                     <Boxes className="size-8 text-muted-foreground/40" />
                     <p className="font-semibold text-sm text-foreground">No Material Stored Yet</p>
-                    <p className="text-xs text-muted-foreground">
-                      Complete pending Putaway tasks to deposit material into this store.
+                    <p className="text-xs text-muted-foreground max-w-md">
+                      No physical stock has been confirmed for this store. Start with assigned
+                      putaway tasks to scan materials into zones and bins.
                     </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveTab("putaway")}
+                      className="mt-2 rounded-xl text-xs"
+                    >
+                      <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks
+                    </Button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2438,10 +2621,12 @@ function MyStorePage() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                    <Truck className="size-4 text-primary" /> Incoming & Assigned Docks ({assignedStoreDocks.length})
+                    <Truck className="size-4 text-primary" /> Incoming & Assigned Docks (
+                    {assignedStoreDocks.length})
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Docks currently allocated for inbound shipments destined for {store?.store_name} ({store?.store_code}).
+                    Docks currently allocated for inbound shipments destined for {store?.store_name}{" "}
+                    ({store?.store_code}).
                   </p>
                 </div>
 
@@ -2468,16 +2653,21 @@ function MyStorePage() {
               ) : filteredAssignedDocks.length === 0 ? (
                 <Card className="rounded-2xl p-12 text-center text-muted-foreground border-dashed">
                   <Truck className="size-10 mx-auto text-muted-foreground/40 mb-3" />
-                  <p className="font-semibold text-sm text-foreground">No Dock Currently Assigned</p>
+                  <p className="font-semibold text-sm text-foreground">
+                    No Dock Currently Assigned
+                  </p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                    There are currently no inbound trucks or docks allocated to {store?.store_name} ({store?.store_code}). When the Warehouse Manager allocates a dock for incoming shipments to your store, it will appear here for unloading and dock release.
+                    There are currently no inbound trucks or docks allocated to {store?.store_name}{" "}
+                    ({store?.store_code}). When the Warehouse Manager allocates a dock for incoming
+                    shipments to your store, it will appear here for unloading and dock release.
                   </p>
                 </Card>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {filteredAssignedDocks.map((dock) => {
                     const isOccupied = dock.status === "OCCUPIED" || dock.status === "RESERVED";
-                    const isReleased = dock.status === "RELEASED" || dock.current_allocation?.status === "RELEASED";
+                    const isReleased =
+                      dock.status === "RELEASED" || dock.current_allocation?.status === "RELEASED";
                     const alloc = dock.current_allocation;
 
                     return (
@@ -2546,27 +2736,42 @@ function MyStorePage() {
 
                               <div className="grid grid-cols-2 gap-2 text-[11px] border-t border-rose-200/50 dark:border-rose-900/30 pt-2">
                                 <div>
-                                  <span className="text-muted-foreground block text-[10px]">Gate Entry</span>
+                                  <span className="text-muted-foreground block text-[10px]">
+                                    Gate Entry
+                                  </span>
                                   <span className="font-mono font-bold text-foreground truncate block">
                                     {alloc.existing_gate_pass_id || "—"}
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="text-muted-foreground block text-[10px]">Destination Store</span>
+                                  <span className="text-muted-foreground block text-[10px]">
+                                    Destination Store
+                                  </span>
                                   <span className="font-semibold text-foreground truncate block">
                                     {store?.store_name} ({store?.store_code})
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="text-muted-foreground block text-[10px]">Vendor</span>
-                                  <span className="font-semibold text-foreground truncate block" title={alloc.vendor_reference || ""}>
+                                  <span className="text-muted-foreground block text-[10px]">
+                                    Vendor
+                                  </span>
+                                  <span
+                                    className="font-semibold text-foreground truncate block"
+                                    title={alloc.vendor_reference || ""}
+                                  >
                                     {alloc.vendor_reference || "—"}
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="text-muted-foreground block text-[10px]">Material</span>
-                                  <span className="font-semibold text-foreground truncate block" title={alloc.material_reference || ""}>
-                                    {alloc.material_reference || "Material Shipment"} {alloc.quantity ? `(${alloc.quantity} units)` : ""}
+                                  <span className="text-muted-foreground block text-[10px]">
+                                    Material
+                                  </span>
+                                  <span
+                                    className="font-semibold text-foreground truncate block"
+                                    title={alloc.material_reference || ""}
+                                  >
+                                    {alloc.material_reference || "Material Shipment"}{" "}
+                                    {alloc.quantity ? `(${alloc.quantity} units)` : ""}
                                   </span>
                                 </div>
                               </div>
@@ -2590,7 +2795,8 @@ function MyStorePage() {
                             </Button>
                           ) : (
                             <div className="flex-1 text-[11px] text-muted-foreground font-semibold flex items-center gap-1">
-                              <ShieldCheck className="size-3.5 text-emerald-600" /> Released / Completed
+                              <ShieldCheck className="size-3.5 text-emerald-600" /> Released /
+                              Completed
                             </div>
                           )}
 
@@ -2623,7 +2829,9 @@ function MyStorePage() {
                     </CardTitle>
                   </div>
                   <CardDescription className="text-xs">
-                    Scan or select a storage Bin QR to inspect available materials, then scan/select a Material QR to record takeaway quantities with immediate atomic inventory decrement.
+                    Scan or select a storage Bin QR to inspect available materials, then scan/select
+                    a Material QR to record takeaway quantities with immediate atomic inventory
+                    decrement.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -2674,26 +2882,30 @@ function MyStorePage() {
                     {/* Quick Select from Store Bins */}
                     {zones.length > 0 && (
                       <div className="pt-2 border-t border-border/40">
-                        <p className="text-[11px] text-muted-foreground mb-1.5">Quick select from active bins in {store?.store_name}:</p>
+                        <p className="text-[11px] text-muted-foreground mb-1.5">
+                          Quick select from active bins in {store?.store_name}:
+                        </p>
                         <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                          {zones.flatMap((z) => (z.bins || []).filter((b) => b.status === "ACTIVE")).map((b) => (
-                            <button
-                              key={b.id}
-                              type="button"
-                              onClick={() => {
-                                setTakeawayBinInput(b.bin_code);
-                                void handleFetchBinMaterials(b.bin_code);
-                              }}
-                              className={cn(
-                                "font-mono text-[10px] px-2.5 py-1 rounded-lg border transition-all font-semibold",
-                                takeawayScannedBinCode === b.bin_code
-                                  ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                                  : "bg-muted/40 hover:bg-muted text-foreground border-border/60",
-                              )}
-                            >
-                              {b.bin_code} ({b.bin_name})
-                            </button>
-                          ))}
+                          {zones
+                            .flatMap((z) => (z.bins || []).filter((b) => b.status === "ACTIVE"))
+                            .map((b) => (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  setTakeawayBinInput(b.bin_code);
+                                  void handleFetchBinMaterials(b.bin_code);
+                                }}
+                                className={cn(
+                                  "font-mono text-[10px] px-2.5 py-1 rounded-lg border transition-all font-semibold",
+                                  takeawayScannedBinCode === b.bin_code
+                                    ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                                    : "bg-muted/40 hover:bg-muted text-foreground border-border/60",
+                                )}
+                              >
+                                {b.bin_code} ({b.bin_name})
+                              </button>
+                            ))}
                         </div>
                       </div>
                     )}
@@ -2704,7 +2916,8 @@ function MyStorePage() {
                     <div className="rounded-2xl border bg-card p-4 space-y-3 shadow-2xs animate-in fade-in">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                          <Boxes className="size-3.5" /> 2. Materials Stored in Bin {takeawayScannedBinCode}
+                          <Boxes className="size-3.5" /> 2. Materials Stored in Bin{" "}
+                          {takeawayScannedBinCode}
                         </Label>
                         <span className="text-xs text-muted-foreground">
                           {takeawayBinMaterials.length} item(s) found
@@ -2714,7 +2927,8 @@ function MyStorePage() {
                       {takeawayBinMaterials.length === 0 ? (
                         <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-xl">
                           <Boxes className="size-8 mx-auto text-muted-foreground/40 mb-1.5" />
-                          No materials currently stored in this bin. Complete Putaway to populate stock.
+                          No materials currently stored in this bin. Complete Putaway to populate
+                          stock.
                         </div>
                       ) : (
                         <div className="overflow-x-auto border rounded-xl">
@@ -2730,7 +2944,8 @@ function MyStorePage() {
                             </thead>
                             <tbody className="divide-y divide-border/50">
                               {takeawayBinMaterials.map((mat) => {
-                                const isSelected = takeawaySelectedMaterial?.material_code === mat.material_code;
+                                const isSelected =
+                                  takeawaySelectedMaterial?.material_code === mat.material_code;
                                 return (
                                   <tr
                                     key={mat.material_code}
@@ -2782,20 +2997,25 @@ function MyStorePage() {
 
                   {/* Step 3: Takeaway Confirmation Form */}
                   {takeawaySelectedMaterial && (
-                    <form onSubmit={handleTakeawaySubmit} className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 space-y-4 shadow-sm animate-in fade-in">
+                    <form
+                      onSubmit={handleTakeawaySubmit}
+                      className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 space-y-4 shadow-sm animate-in fade-in"
+                    >
                       <div className="flex items-center justify-between border-b border-border/40 pb-2">
                         <Label className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
                           <Send className="size-3.5" /> 3. Confirm Takeaway Quantity & Dispatch
                         </Label>
                         <span className="text-xs font-mono font-bold text-foreground">
-                          {takeawaySelectedMaterial.material_name} ({takeawaySelectedMaterial.material_code})
+                          {takeawaySelectedMaterial.material_name} (
+                          {takeawaySelectedMaterial.material_code})
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div>
                           <Label className="text-xs font-semibold">
-                            Takeaway Quantity ({takeawaySelectedMaterial.uom}) <span className="text-destructive">*</span>
+                            Takeaway Quantity ({takeawaySelectedMaterial.uom}){" "}
+                            <span className="text-destructive">*</span>
                           </Label>
                           <Input
                             type="number"
@@ -2808,12 +3028,18 @@ function MyStorePage() {
                             className="mt-1 h-9 rounded-xl font-mono font-bold text-base"
                           />
                           <span className="text-[10px] text-muted-foreground mt-0.5 block">
-                            Max Available: <strong>{takeawaySelectedMaterial.available_quantity} {takeawaySelectedMaterial.uom}</strong>
+                            Max Available:{" "}
+                            <strong>
+                              {takeawaySelectedMaterial.available_quantity}{" "}
+                              {takeawaySelectedMaterial.uom}
+                            </strong>
                           </span>
                         </div>
 
                         <div>
-                          <Label className="text-xs font-semibold">Reference Document / Requisition</Label>
+                          <Label className="text-xs font-semibold">
+                            Reference Document / Requisition
+                          </Label>
                           <Input
                             placeholder="e.g. REQ-PROD-2026-09"
                             value={takeawayRefDoc}
@@ -2850,10 +3076,14 @@ function MyStorePage() {
                         </Button>
                         <Button
                           type="submit"
-                          disabled={takeawayExecuting || !takeawayQuantity || Number(takeawayQuantity) <= 0}
+                          disabled={
+                            takeawayExecuting || !takeawayQuantity || Number(takeawayQuantity) <= 0
+                          }
                           className="rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold h-9 shadow-glow"
                         >
-                          {takeawayExecuting && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+                          {takeawayExecuting && (
+                            <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                          )}
                           <CheckCircle2 className="size-4 mr-1.5" /> Confirm & Dispatch Takeaway
                         </Button>
                       </div>
@@ -2878,7 +3108,8 @@ function MyStorePage() {
                         </CardTitle>
                       </div>
                       <CardDescription className="text-xs mt-0.5">
-                        Comprehensive ledger of all PUTAWAY and TAKEAWAY actions with scanned QR tags, location transitions, and operator attribution.
+                        Comprehensive ledger of all PUTAWAY and TAKEAWAY actions with scanned QR
+                        tags, location transitions, and operator attribution.
                       </CardDescription>
                     </div>
 
@@ -2890,7 +3121,13 @@ function MyStorePage() {
                         disabled={movementHistoryLoading}
                         className="rounded-xl text-xs h-8"
                       >
-                        <RefreshCw className={cn("size-3.5 mr-1.5", movementHistoryLoading && "animate-spin")} /> Refresh
+                        <RefreshCw
+                          className={cn(
+                            "size-3.5 mr-1.5",
+                            movementHistoryLoading && "animate-spin",
+                          )}
+                        />{" "}
+                        Refresh
                       </Button>
                     </div>
                   </div>
@@ -2941,14 +3178,20 @@ function MyStorePage() {
                       <tbody className="divide-y divide-border/50">
                         {movementHistoryLoading ? (
                           <tr>
-                            <td colSpan={8} className="py-12 text-center text-xs text-muted-foreground">
+                            <td
+                              colSpan={8}
+                              className="py-12 text-center text-xs text-muted-foreground"
+                            >
                               <Loader2 className="size-6 animate-spin mx-auto text-primary mb-2" />
                               Loading movement records...
                             </td>
                           </tr>
                         ) : filteredMovementHistory.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-12 text-center text-xs text-muted-foreground">
+                            <td
+                              colSpan={8}
+                              className="py-12 text-center text-xs text-muted-foreground"
+                            >
                               <History className="size-6 mx-auto text-muted-foreground/40 mb-1.5" />
                               No movement records found matching the filter.
                             </td>
@@ -2988,9 +3231,13 @@ function MyStorePage() {
                               </td>
                               <td className="px-3.5 py-3 text-[11px]">
                                 <div className="flex items-center gap-1 font-mono">
-                                  <span className="text-muted-foreground">{m.from_location || "—"}</span>
+                                  <span className="text-muted-foreground">
+                                    {m.from_location || "—"}
+                                  </span>
                                   <ArrowRight className="size-3 text-primary shrink-0" />
-                                  <span className="font-bold text-foreground">{m.to_location || "—"}</span>
+                                  <span className="font-bold text-foreground">
+                                    {m.to_location || "—"}
+                                  </span>
                                 </div>
                               </td>
                               <td className="px-3.5 py-3 text-right font-mono font-black text-foreground whitespace-nowrap">
@@ -3000,14 +3247,17 @@ function MyStorePage() {
                               <td className="px-3.5 py-3 text-center font-mono text-[11px]">
                                 {m.stock_before !== null && m.stock_after !== null ? (
                                   <span className="text-muted-foreground">
-                                    {m.stock_before} → <strong className="text-foreground">{m.stock_after}</strong>
+                                    {m.stock_before} →{" "}
+                                    <strong className="text-foreground">{m.stock_after}</strong>
                                   </span>
                                 ) : (
                                   "—"
                                 )}
                               </td>
                               <td className="px-3.5 py-3 text-[11px]">
-                                <div className="font-semibold text-foreground">{m.created_by || "System"}</div>
+                                <div className="font-semibold text-foreground">
+                                  {m.created_by || "System"}
+                                </div>
                                 {m.reference_document && (
                                   <div className="font-mono text-[10px] text-muted-foreground">
                                     Ref: {m.reference_document}
@@ -3667,11 +3917,16 @@ function MyStorePage() {
 
                           <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
                             <span>
-                              Priority: <strong className="text-foreground">{pt.priority || "NORMAL"}</strong>
+                              Priority:{" "}
+                              <strong className="text-foreground">{pt.priority || "NORMAL"}</strong>
                             </span>
                             <span>
                               Required:{" "}
-                              <strong>{pt.required_date ? new Date(pt.required_date).toLocaleDateString() : "—"}</strong>
+                              <strong>
+                                {pt.required_date
+                                  ? new Date(pt.required_date).toLocaleDateString()
+                                  : "—"}
+                              </strong>
                             </span>
                           </div>
 
@@ -3805,12 +4060,22 @@ function MyStorePage() {
                 </AlertDialogTitle>
                 <AlertDialogDescription className="space-y-2 text-xs">
                   <p>
-                    You are authorizing the release of dock <strong>{releaseConfirmDock?.dock_code}</strong> ({releaseConfirmDock?.dock_name}).
+                    You are authorizing the release of dock{" "}
+                    <strong>{releaseConfirmDock?.dock_code}</strong> (
+                    {releaseConfirmDock?.dock_name}).
                   </p>
                   {releaseConfirmDock?.current_allocation?.vehicle_number && (
                     <div className="p-3 bg-muted/30 border border-border/50 rounded-xl space-y-1 font-mono text-[11px]">
-                      <p>Vehicle: <strong>{releaseConfirmDock.current_allocation.vehicle_number}</strong></p>
-                      <p>Gate Pass: <strong>{releaseConfirmDock.current_allocation.existing_gate_pass_id || "N/A"}</strong></p>
+                      <p>
+                        Vehicle:{" "}
+                        <strong>{releaseConfirmDock.current_allocation.vehicle_number}</strong>
+                      </p>
+                      <p>
+                        Gate Pass:{" "}
+                        <strong>
+                          {releaseConfirmDock.current_allocation.existing_gate_pass_id || "N/A"}
+                        </strong>
+                      </p>
                       {releaseConfirmDock.current_allocation.material_reference && (
                         <p>Material: {releaseConfirmDock.current_allocation.material_reference}</p>
                       )}
@@ -3860,7 +4125,9 @@ function MyStorePage() {
                             : "bg-[#ffe4e6] text-[#e11d48] border-[#fecdd3]",
                       )}
                     >
-                      {selectedDockForDetails.status === "OCCUPIED" ? "AT DOCK" : selectedDockForDetails.status}
+                      {selectedDockForDetails.status === "OCCUPIED"
+                        ? "AT DOCK"
+                        : selectedDockForDetails.status}
                     </span>
                   </div>
                   <DialogDescription className="text-xs">
@@ -3876,27 +4143,38 @@ function MyStorePage() {
                     </h4>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-muted-foreground block text-[11px]">Dock Code & Name</span>
+                        <span className="text-muted-foreground block text-[11px]">
+                          Dock Code & Name
+                        </span>
                         <span className="font-mono font-bold text-foreground">
                           {selectedDockForDetails.dock_code} ({selectedDockForDetails.dock_name})
                         </span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block text-[11px]">Dock Category</span>
+                        <span className="text-muted-foreground block text-[11px]">
+                          Dock Category
+                        </span>
                         <span className="font-mono font-bold text-foreground">
                           {selectedDockForDetails.dock_type}
                         </span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block text-[11px]">Current Status</span>
+                        <span className="text-muted-foreground block text-[11px]">
+                          Current Status
+                        </span>
                         <span className="font-bold text-[#ef4444]">
-                          {selectedDockForDetails.status === "OCCUPIED" ? "AT DOCK" : selectedDockForDetails.status}
+                          {selectedDockForDetails.status === "OCCUPIED"
+                            ? "AT DOCK"
+                            : selectedDockForDetails.status}
                         </span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block text-[11px]">Assigned Store</span>
+                        <span className="text-muted-foreground block text-[11px]">
+                          Assigned Store
+                        </span>
                         <span className="font-semibold text-foreground">
-                          {selectedDockForDetails.assigned_store_name || store?.store_name} ({selectedDockForDetails.assigned_store_code || store?.store_code})
+                          {selectedDockForDetails.assigned_store_name || store?.store_name} (
+                          {selectedDockForDetails.assigned_store_code || store?.store_code})
                         </span>
                       </div>
                       <div className="col-span-2">
@@ -3916,25 +4194,34 @@ function MyStorePage() {
                         </h4>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Vehicle Number</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Vehicle Number
+                            </span>
                             <span className="font-mono font-black text-sm text-[#2563eb]">
                               {selectedDockForDetails.current_allocation.vehicle_number || "—"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Gate Entry / Pass No</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Gate Entry / Pass No
+                            </span>
                             <span className="font-mono font-bold text-foreground">
-                              {selectedDockForDetails.current_allocation.existing_gate_pass_id || "—"}
+                              {selectedDockForDetails.current_allocation.existing_gate_pass_id ||
+                                "—"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Allocation Status</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Allocation Status
+                            </span>
                             <span className="font-mono font-bold text-emerald-600">
                               {selectedDockForDetails.current_allocation.status || "DOCK_ASSIGNED"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Priority</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Priority
+                            </span>
                             <span className="font-bold text-foreground">
                               {selectedDockForDetails.current_allocation.priority || "NORMAL"}
                             </span>
@@ -3948,27 +4235,37 @@ function MyStorePage() {
                         </h4>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Material Code / Name</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Material Code / Name
+                            </span>
                             <span className="font-bold text-foreground">
-                              {selectedDockForDetails.current_allocation.material_reference || "Materials"}
+                              {selectedDockForDetails.current_allocation.material_reference ||
+                                "Materials"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Vendor / Supplier</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Vendor / Supplier
+                            </span>
                             <span className="font-medium text-foreground">
                               {selectedDockForDetails.current_allocation.vendor_reference || "—"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Quantity</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Quantity
+                            </span>
                             <span className="font-mono font-bold text-foreground">
                               {selectedDockForDetails.current_allocation.quantity || "—"}
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground block text-[11px]">Gate Pass Ref</span>
+                            <span className="text-muted-foreground block text-[11px]">
+                              Gate Pass Ref
+                            </span>
                             <span className="font-mono text-muted-foreground">
-                              {selectedDockForDetails.current_allocation.existing_gate_pass_id || "—"}
+                              {selectedDockForDetails.current_allocation.existing_gate_pass_id ||
+                                "—"}
                             </span>
                           </div>
                         </div>
@@ -3986,7 +4283,8 @@ function MyStorePage() {
                     Close
                   </Button>
 
-                  {(selectedDockForDetails.status === "OCCUPIED" || selectedDockForDetails.status === "RESERVED") && (
+                  {(selectedDockForDetails.status === "OCCUPIED" ||
+                    selectedDockForDetails.status === "RESERVED") && (
                     <Button
                       className="rounded-xl bg-[#ef4444] hover:bg-red-600 text-white font-bold text-xs"
                       onClick={() => {
