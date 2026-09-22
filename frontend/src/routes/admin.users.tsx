@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -281,6 +282,21 @@ function UserManagementPage() {
   );
 }
 
+const emptyUserForm = {
+  full_name: "",
+  employee_id: "",
+  username: "",
+  email: "",
+  password: "",
+  role: "Store Manager",
+  application: "WMS",
+  scope: "Store",
+  store_id: "",
+  status: "ACTIVE",
+  sendInvitation: true,
+  advancedPermissions: false,
+};
+
 function AddUserDialog({
   open,
   onOpenChange,
@@ -290,37 +306,38 @@ function AddUserDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => Promise<void>;
 }) {
-  const [form, setForm] = useState({
-    full_name: "",
-    employee_id: "",
-    username: "",
-    email: "",
-    password: "",
-    store_id: "",
-  });
+  const [form, setForm] = useState(emptyUserForm);
   const [stores, setStores] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (open) void api.getStores({ status: "ACTIVE" }).then(setStores);
   }, [open]);
-  const update = (key: keyof typeof form, value: string) =>
+  const update = (key: keyof typeof form, value: string | boolean) =>
     setForm((current) => ({ ...current, [key]: value }));
-  const canSave = Object.values(form).every(Boolean);
+  const canSave = Boolean(
+    form.full_name.trim() &&
+    form.employee_id.trim() &&
+    form.username.trim() &&
+    form.email.trim() &&
+    form.password.length >= 4 &&
+    form.store_id,
+  );
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      await api.createStoreManager(form);
+      await api.createStoreManager({
+        full_name: form.full_name,
+        employee_id: form.employee_id,
+        username: form.username,
+        email: form.email,
+        password: form.password,
+        store_id: form.store_id,
+        status: form.status,
+      });
       await onCreated();
       onOpenChange(false);
-      setForm({
-        full_name: "",
-        employee_id: "",
-        username: "",
-        email: "",
-        password: "",
-        store_id: "",
-      });
+      setForm(emptyUserForm);
     } finally {
       setSaving(false);
     }
@@ -331,25 +348,96 @@ function AddUserDialog({
         <DialogHeader>
           <DialogTitle>Add New User</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {(
-            [
-              ["full_name", "Full Name *"],
-              ["employee_id", "Employee ID *"],
-              ["username", "Username *"],
-              ["email", "Email Address *"],
-              ["password", "Temporary Password *"],
-            ] as const
-          ).map(([key, label]) => (
-            <div key={key} className="space-y-1.5">
-              <Label>{label}</Label>
-              <Input
-                type={key === "password" ? "password" : "text"}
-                value={form[key]}
-                onChange={(event) => update(key, event.target.value)}
-              />
+        <div className="max-h-[72vh] space-y-5 overflow-y-auto pr-1">
+          <FormSection
+            title="User Information"
+            description="Basic identity and contact details for the user."
+          >
+            {(
+              [
+                ["full_name", "Full Name *"],
+                ["employee_id", "Employee ID *"],
+                ["username", "Username *"],
+                ["email", "Email Address *"],
+                ["password", "Temporary Password *"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="space-y-1.5">
+                <Label>{label}</Label>
+                <Input
+                  type={key === "password" ? "password" : "text"}
+                  value={form[key]}
+                  onChange={(event) => update(key, event.target.value)}
+                />
+              </div>
+            ))}
+          </FormSection>
+          <FormSection
+            title="Role & Access"
+            description="Permissions are inherited from the selected role."
+          >
+            <div className="space-y-1.5">
+              <Label>Role *</Label>
+              <Select value={form.role} onValueChange={(value) => update("role", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Store Manager">Store Manager</SelectItem>
+                  <SelectItem value="Warehouse Manager">Warehouse Manager</SelectItem>
+                  <SelectItem value="Procurement Officer">Procurement Officer</SelectItem>
+                  <SelectItem value="Admin Officer">Admin Officer</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          ))}
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.advancedPermissions}
+                onCheckedChange={(checked) => update("advancedPermissions", checked === true)}
+              />{" "}
+              Enable Advanced Permissions overrides
+            </label>
+          </FormSection>
+          <FormSection
+            title="Application Access"
+            description="Choose the application context for this account."
+          >
+            <div className="space-y-1.5">
+              <Label>Application</Label>
+              <Select
+                value={form.application}
+                onValueChange={(value) => update("application", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WMS">WMS</SelectItem>
+                  <SelectItem value="AMS">AMS</SelectItem>
+                  <SelectItem value="WMS + AMS">WMS + AMS</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </FormSection>
+          <FormSection
+            title="Location Scope"
+            description="Limit access to the relevant operational location."
+          >
+            <div className="space-y-1.5">
+              <Label>Scope</Label>
+              <Select value={form.scope} onValueChange={(value) => update("scope", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Company">Company</SelectItem>
+                  <SelectItem value="Warehouse">Warehouse</SelectItem>
+                  <SelectItem value="Store">Store</SelectItem>
+                  <SelectItem value="Zone">Zone</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </FormSection>
           <div className="space-y-1.5">
             <Label>Assigned Store *</Label>
             <Select value={form.store_id} onValueChange={(value) => update("store_id", value)}>
@@ -365,16 +453,69 @@ function AddUserDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex justify-end gap-2 sm:col-span-2">
+          <FormSection
+            title="Account Settings"
+            description="Control account availability and onboarding."
+          >
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={form.status} onValueChange={(value) => update("status", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="SUSPENDED">Suspended</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.sendInvitation}
+                onCheckedChange={(checked) => update("sendInvitation", checked === true)}
+              />{" "}
+              Send invitation email
+            </label>
+          </FormSection>
+          <FormSection
+            title="Audit Information"
+            description="Creation details are recorded automatically by the system."
+          >
+            <p className="text-xs text-muted-foreground">
+              Created by the signed-in administrator with timestamp and account history.
+            </p>
+          </FormSection>
+          <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button disabled={!canSave || saving} onClick={() => void save()}>
-              {saving ? "Saving..." : "Save User"}
+              {saving ? "Creating..." : "Create User"}
             </Button>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-border/60 bg-muted/10 p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-bold text-foreground">{title}</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
   );
 }
