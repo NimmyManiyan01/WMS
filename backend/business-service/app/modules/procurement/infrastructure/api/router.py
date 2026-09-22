@@ -4376,7 +4376,11 @@ async def global_search(
             or_(
                 SupplierModel.supplier_name.ilike(search_term),
                 SupplierModel.supplier_code.ilike(search_term),
-                SupplierModel.registered_company_name.ilike(search_term)
+                SupplierModel.registered_company_name.ilike(search_term),
+                SupplierModel.gstin.ilike(search_term),
+                SupplierModel.vendor_type.ilike(search_term),
+                SupplierModel.industry.ilike(search_term),
+                SupplierModel.status.ilike(search_term)
             )
         ).limit(5)
         supplier_res = await uow.session.execute(supplier_stmt)
@@ -4385,7 +4389,7 @@ async def global_search(
                 "id": str(s.id),
                 "type": "SUPPLIER",
                 "title": s.supplier_name,
-                "subtitle": f"Vendor Code: {s.supplier_code or 'N/A'}",
+                "subtitle": f"Code: {s.supplier_code or 'N/A'} · GSTIN: {s.gstin or 'N/A'} · Type: {s.vendor_type} · Status: {s.status}",
                 "link": f"/master-data?search={s.supplier_name}"
             })
 
@@ -4393,7 +4397,13 @@ async def global_search(
         po_stmt = select(PurchaseOrderModel).where(
             or_(
                 PurchaseOrderModel.po_number.ilike(search_term),
-                PurchaseOrderModel.supplier_name.ilike(search_term)
+                PurchaseOrderModel.supplier_name.ilike(search_term),
+                PurchaseOrderModel.supplier_code.ilike(search_term),
+                PurchaseOrderModel.supplier_gstin.ilike(search_term),
+                PurchaseOrderModel.warehouse_id.ilike(search_term),
+                PurchaseOrderModel.procurement_officer.ilike(search_term),
+                PurchaseOrderModel.department.ilike(search_term),
+                PurchaseOrderModel.status.ilike(search_term)
             )
         ).limit(5)
         po_res = await uow.session.execute(po_stmt)
@@ -4402,7 +4412,7 @@ async def global_search(
                 "id": str(po.id),
                 "type": "PO",
                 "title": f"PO: {po.po_number}",
-                "subtitle": f"Vendor: {po.supplier_name} · Status: {po.status}",
+                "subtitle": f"Vendor: {po.supplier_name or 'N/A'} · Code: {po.supplier_code or 'N/A'} · Warehouse: {po.warehouse_id or 'N/A'} · Status: {po.status}",
                 "link": f"/purchase-order?poId={po.id}"
             })
 
@@ -4412,7 +4422,12 @@ async def global_search(
                 AsnModel.asn_number.ilike(search_term),
                 AsnModel.po_number.ilike(search_term),
                 AsnModel.vehicle_number.ilike(search_term),
-                AsnModel.driver_name.ilike(search_term)
+                AsnModel.driver_name.ilike(search_term),
+                AsnModel.driver_contact.ilike(search_term),
+                AsnModel.transporter.ilike(search_term),
+                AsnModel.invoice_number.ilike(search_term),
+                AsnModel.status.ilike(search_term),
+                AsnModel.warehouse_id.ilike(search_term)
             )
         ).limit(5)
         asn_res = await uow.session.execute(asn_stmt)
@@ -4421,7 +4436,7 @@ async def global_search(
                 "id": str(asn.id),
                 "type": "ASN",
                 "title": f"ASN: {asn.asn_number}",
-                "subtitle": f"Vehicle: {asn.vehicle_number or 'N/A'} · Status: {asn.status}",
+                "subtitle": f"PO: {asn.po_number or 'N/A'} · Vehicle: {asn.vehicle_number or 'N/A'} · Driver: {asn.driver_name or 'N/A'} · Transporter: {asn.transporter or 'N/A'} · Status: {asn.status}",
                 "link": f"/procurement/asns/{asn.id}"
             })
 
@@ -4430,7 +4445,11 @@ async def global_search(
             or_(
                 MaterialRequestModel.request_number.ilike(search_term),
                 MaterialRequestModel.requested_by.ilike(search_term),
-                MaterialRequestModel.department.ilike(search_term)
+                MaterialRequestModel.department.ilike(search_term),
+                MaterialRequestModel.warehouse_id.ilike(search_term),
+                MaterialRequestModel.priority.ilike(search_term),
+                MaterialRequestModel.status.ilike(search_term),
+                MaterialRequestModel.suggested_supplier.ilike(search_term)
             )
         ).limit(5)
         mr_res = await uow.session.execute(mr_stmt)
@@ -4439,7 +4458,7 @@ async def global_search(
                 "id": str(mr.id),
                 "type": "MATERIAL_REQUEST",
                 "title": f"Req: {mr.request_number}",
-                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department}",
+                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department} · Warehouse: {mr.warehouse_id} · Priority: {mr.priority} · Status: {mr.status}",
                 "link": f"/procurement/material-requests"
             })
 
@@ -4447,7 +4466,10 @@ async def global_search(
         rfq_stmt = select(RfqModel).where(
             or_(
                 RfqModel.rfq_number.ilike(search_term),
-                RfqModel.procurement_officer.ilike(search_term)
+                RfqModel.procurement_officer.ilike(search_term),
+                RfqModel.material_request_number.ilike(search_term),
+                RfqModel.warehouse.ilike(search_term),
+                RfqModel.status.ilike(search_term)
             )
         ).limit(5)
         rfq_res = await uow.session.execute(rfq_stmt)
@@ -4456,7 +4478,7 @@ async def global_search(
                 "id": str(rfq.id),
                 "type": "RFQ",
                 "title": f"RFQ: {rfq.rfq_number}",
-                "subtitle": f"Status: {rfq.status} · Officer: {rfq.procurement_officer}",
+                "subtitle": f"Warehouse: {rfq.warehouse} · MR: {rfq.material_request_number or 'N/A'} · Officer: {rfq.procurement_officer} · Status: {rfq.status}",
                 "link": f"/procurement/rfqs"
             })
 
