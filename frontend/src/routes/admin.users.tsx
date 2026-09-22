@@ -346,7 +346,6 @@ function AddUserDialog({
     form.full_name.trim() &&
     form.employee_id.trim() &&
     form.username.trim() &&
-    form.email.trim() &&
     form.password.length >= 4 &&
     form.store_id,
   );
@@ -358,7 +357,7 @@ function AddUserDialog({
         full_name: form.full_name,
         employee_id: form.employee_id,
         username: form.username,
-        email: form.email,
+        email: form.email.trim() || `${form.username.trim().toLowerCase()}@nexuswms.local`,
         password: form.password,
         store_id: form.store_id,
         status: form.status,
@@ -386,7 +385,7 @@ function AddUserDialog({
                 ["full_name", "Full Name *"],
                 ["employee_id", "Employee ID *"],
                 ["username", "Username *"],
-                ["email", "Email Address *"],
+                ["email", "Email Address"],
                 ["password", "Temporary Password *"],
               ] as const
             ).map(([key, label]) => (
