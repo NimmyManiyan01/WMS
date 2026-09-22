@@ -13,6 +13,7 @@ import {
   X,
   Eye,
   Info,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -274,6 +275,11 @@ function MaterialRequests() {
                       <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
                         Priority: {req.priority || "MEDIUM"}
                       </span>
+                      {req.remarks?.includes("[Note to Procurement:") && (
+                        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                          <AlertCircle className="size-3" /> Sourcing Required
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
@@ -478,9 +484,30 @@ function MaterialRequests() {
                   <Label className="text-[10px] uppercase font-black text-muted-foreground">
                     Remarks / Justification
                   </Label>
-                  <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
-                    {selectedRequest.remarks || "No remarks provided."}
-                  </p>
+                  {selectedRequest.remarks?.includes("[Note to Procurement:") ? (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                        <AlertCircle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Vendor Sourcing Action Required
+                          </p>
+                          <p className="text-xs font-bold mt-1 leading-relaxed">
+                            {selectedRequest.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0] || selectedRequest.remarks}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim() && (
+                        <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                          {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim()}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                      {selectedRequest.remarks || "No remarks provided."}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-3">
                   <Label className="text-[10px] uppercase font-black text-muted-foreground">

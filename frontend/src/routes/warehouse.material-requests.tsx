@@ -1463,6 +1463,25 @@ function WarehouseMaterialRequests() {
                       }
                       className="rounded-2xl min-h-[100px] text-sm"
                     />
+                  ) : selectedRequest.remarks?.includes("[Note to Procurement:") ? (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                        <AlertCircle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Vendor Sourcing Action Required
+                          </p>
+                          <p className="text-xs font-bold mt-1 leading-relaxed">
+                            {selectedRequest.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0] || selectedRequest.remarks}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim() && (
+                        <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                          {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim()}
+                        </p>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
                       {selectedRequest.remarks || "No remarks provided."}
