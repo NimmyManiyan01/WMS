@@ -537,17 +537,39 @@ function WarehouseMaterialRequests() {
     const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     setSubmitting(true);
     try {
+      const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+      const primaryCategory = itemCategories[0] || "Raw Materials";
+      const matchingSuppliers = activeSuppliers.filter((s: any) =>
+        Array.isArray(s.category)
+          ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+          : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+      );
+
+      let finalRemarks = formData.remarks.trim();
+      if (matchingSuppliers.length === 0) {
+        const note = `[Note to Procurement: No active suppliers found in master data for category '${primaryCategory}'. Sourcing & vendor onboarding required.]`;
+        finalRemarks = finalRemarks ? `${finalRemarks}\n${note}` : note;
+      }
+
       const itemsToSubmit = items.map((it) => ({
         ...it,
         category: it.category || "Raw Materials",
         variant_code: formatSpecCode(it.variant_code),
       }));
+
       await api.createMaterialRequest({
         ...formData,
+        remarks: finalRemarks,
         warehouse_id: formData.warehouse_id || "Main Warehouse",
         requested_by: requester,
         items: itemsToSubmit,
       });
+
+      toast.success(
+        matchingSuppliers.length === 0
+          ? "Request submitted to Procurement (Vendor Sourcing Required)"
+          : "Material request submitted to Procurement",
+      );
       toast.success("Material request submitted to Procurement");
       setShowConfirmModal(false);
       setIsCreating(false);
@@ -816,17 +838,6 @@ function WarehouseMaterialRequests() {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium">Suggested Supplier</Label>
-                  <Input
-                    value={formData.suggested_supplier}
-                    onChange={(e) =>
-                      setFormData({ ...formData, suggested_supplier: e.target.value })
-                    }
-                    className="h-10 rounded-xl text-sm"
-                    placeholder="Optional"
-                  />
                 </div>
               </div>
 
@@ -1196,25 +1207,6 @@ function WarehouseMaterialRequests() {
                       </Select>
                     ) : (
                       <p className="font-bold text-sm truncate">{selectedRequest.priority || "MEDIUM"}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1 min-w-0 sm:col-span-3">
-                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
-                      Suggested Supplier
-                    </Label>
-                    {isEditing ? (
-                      <Input
-                        value={selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || ""}
-                        onChange={(e) =>
-                          setSelectedRequest({ ...selectedRequest, suggestedSupplier: e.target.value })
-                        }
-                        className="h-9 rounded-xl text-sm bg-background w-full min-w-0"
-                        placeholder="Optional"
-                      />
-                    ) : (
-                      <p className="font-bold text-sm truncate">
-                        {selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || "Not specified"}
-                      </p>
                     )}
                   </div>
                 </div>
@@ -1631,23 +1623,63 @@ function WarehouseMaterialRequests() {
                   : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
               );
 
+              const hasSuppliers = matchingSuppliers.length > 0;
+
               return (
-                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-950 dark:text-emerald-200 flex items-center justify-between gap-3">
+                <div
+                  className={cn(
+                    "p-4 rounded-2xl flex items-center justify-between gap-3 border transition-colors",
+                    hasSuppliers
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-950 dark:text-emerald-200"
+                      : "bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-200",
+                  )}
+                >
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 font-bold shadow-sm">
-                      <Building2 className="size-5" />
+                    <div
+                      className={cn(
+                        "size-10 rounded-xl text-white flex items-center justify-center shrink-0 font-bold shadow-sm",
+                        hasSuppliers ? "bg-emerald-600" : "bg-amber-600",
+                      )}
+                    >
+                      {hasSuppliers ? <Building2 className="size-5" /> : <AlertCircle className="size-5" />}
                     </div>
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      <p
+                        className={cn(
+                          "text-[10px] font-black uppercase tracking-wider",
+                          hasSuppliers
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400",
+                        )}
+                      >
                         Procurement Supplier Master
                       </p>
-                      <p className="text-sm font-bold text-foreground mt-0.5">
-                        {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
-                      </p>
+                      {hasSuppliers ? (
+                        <p className="text-sm font-bold text-foreground mt-0.5">
+                          {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
+                        </p>
+                      ) : (
+                        <div>
+                          <p className="text-sm font-bold text-foreground mt-0.5">
+                            0 Active Suppliers for Category '{primaryCategory}'
+                          </p>
+                          <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 font-medium">
+                            Request will notify Procurement to source / suggest suppliers for this material.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <Badge variant="outline" className="font-bold text-xs bg-card border-emerald-500/30 shrink-0">
-                    Ready for RFQ
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-bold text-xs bg-card shrink-0",
+                      hasSuppliers
+                        ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                        : "border-amber-500/30 text-amber-700 dark:text-amber-400",
+                    )}
+                  >
+                    {hasSuppliers ? "Ready for RFQ" : "Procurement Action Required"}
                   </Badge>
                 </div>
               );
