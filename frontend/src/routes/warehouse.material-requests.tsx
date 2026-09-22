@@ -894,8 +894,14 @@ function WarehouseMaterialRequests() {
                           <Label className="flex h-4 items-center text-xs font-medium">Material Description</Label>
                           <Input
                             placeholder="e.g. Wire 1.5mm Red PVC..."
-                            className="h-10 rounded-xl bg-background text-sm"
+                            className={cn(
+                              "h-10 rounded-xl text-sm transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 font-medium cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
                             value={item.material_name}
+                            readOnly={Boolean(item.material_id)}
                             onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
                           />
                         </div>
@@ -904,8 +910,14 @@ function WarehouseMaterialRequests() {
                           <Label className="flex h-4 items-center text-xs font-medium">Category</Label>
                           <Input
                             placeholder="Category..."
-                            className="h-10 rounded-xl bg-background text-sm font-medium"
+                            className={cn(
+                              "h-10 rounded-xl text-sm font-medium transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
                             value={item.category || selectedMat?.category || "Raw Materials"}
+                            readOnly={Boolean(item.material_id)}
                             onChange={(e) => handleItemChange(idx, "category", e.target.value)}
                           />
                         </div>
@@ -1324,10 +1336,16 @@ function WarehouseMaterialRequests() {
                                   <Input
                                     value={item.materialName || item.material_name || ""}
                                     placeholder="Material Name / Specification"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
                                     onChange={(e) =>
                                       handleEditItemChange(idx, "materialName", e.target.value)
                                     }
-                                    className="h-9 text-xs bg-background rounded-xl w-full min-w-0"
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 font-medium cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
                                   />
                                 ) : (
                                   <span className="text-xs font-medium truncate block">
@@ -1340,10 +1358,16 @@ function WarehouseMaterialRequests() {
                                   <Input
                                     value={item.category || selectedMat?.category || "Raw Materials"}
                                     placeholder="Category"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
                                     onChange={(e) =>
                                       handleEditItemChange(idx, "category", e.target.value)
                                     }
-                                    className="h-9 text-xs bg-background rounded-xl w-full min-w-0 font-medium"
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0 font-medium",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
                                   />
                                 ) : (
                                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block truncate">
