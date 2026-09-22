@@ -661,7 +661,11 @@ function NewSupplier() {
         <div className="mb-8 flex items-center justify-between">
           {steps.map((step, idx) => (
             <React.Fragment key={step.id}>
-              <div className="flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(step.id)}
+                className="flex flex-col items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              >
                 <div
                   className={cn(
                     "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all",
@@ -686,7 +690,7 @@ function NewSupplier() {
                 >
                   {step.name}
                 </span>
-              </div>
+              </button>
               {idx < steps.length - 1 && (
                 <div
                   className={cn(
