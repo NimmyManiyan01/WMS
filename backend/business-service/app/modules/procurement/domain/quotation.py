@@ -41,9 +41,11 @@ class Quotation(AggregateRoot):
         discount: Decimal | None = None,
         tax: Decimal | None = None,
         freight_charges: Decimal | None = None,
+        additional_charges: Decimal | None = None,
         delivery_time: str | None = None,
         expected_delivery_date: date | None = None,
         payment_terms: str | None = None,
+        warranty: str | None = None,
         quotation_validity: date | None = None,
         remarks: str | None = None,
         documents: List[QuotationDocument] | None = None,
@@ -59,9 +61,11 @@ class Quotation(AggregateRoot):
         self.discount = discount
         self.tax = tax
         self.freight_charges = freight_charges
+        self.additional_charges = additional_charges
         self.delivery_time = delivery_time
         self.expected_delivery_date = expected_delivery_date
         self.payment_terms = payment_terms
+        self.warranty = warranty
         self.quotation_validity = quotation_validity
         self.remarks = remarks
         self.documents = documents or []

@@ -131,6 +131,9 @@ async def test_canonical_material_master_and_procurement_flow():
         assert mr_data["items"][0]["material_variant_id"] == v2_id
         assert mr_data["items"][0]["variant_code"] == "MAT-003-V002"
 
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE material_request SET status = 'Approved' WHERE request_number = :rn"), {"rn": mr_number})
+
         # -------------------------------------------------------------
         # 4. Create Supplier (if needed) & RFQ for MAT-003-V002
         # -------------------------------------------------------------

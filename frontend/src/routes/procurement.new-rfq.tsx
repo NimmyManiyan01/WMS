@@ -36,8 +36,10 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
+import { requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/procurement/new-rfq")({
+  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
   component: NewRfq,
 });
 const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background";
@@ -100,6 +102,75 @@ function NewRfq() {
   const handleItemChange = (index: number, field: string, value: any) => {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
   };
+  const supplierIdOf = (supplier: any) =>
+    String(supplier?.supplierId || supplier?.supplier_id || supplier?.id || "");
+  const supplierNameOf = (supplier: any) =>
+    supplier?.supplierName || supplier?.supplier_name || supplier?.registeredCompanyName || supplier?.registered_company_name || "Supplier";
+  const supplierCategories = (supplier: any) =>
+    supplier?.category || supplier?.categories || supplier?.materialCategories || supplier?.material_categories || [];
+  const supplierMaterials = (supplier: any) =>
+    supplier?.mainMaterials || supplier?.main_materials || supplier?.materials || [];
+  const normalizeMatchText = (value: unknown) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(" ")
+      .map((part) => part.trim())
+      .filter((part) => part && part !== "and")
+      .map((part) => (part.length > 3 && part.endsWith("s") ? part.slice(0, -1) : part));
+  const normalizedValues = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values.flatMap((entry) => normalizeMatchText(entry));
+  };
+  const hasSharedMatchToken = (left: unknown, right: unknown) => {
+    const leftTokens = new Set(normalizedValues(left));
+    if (leftTokens.size === 0) return false;
+    return normalizedValues(right).some((token) => leftTokens.has(token));
+  };
+  const supplierMatchesFilters = (supplier: any) => {
+    const search = filters.search.trim().toLowerCase();
+    const material = filters.material.trim();
+    const category = filters.category.trim();
+    const city = filters.city.trim().toLowerCase();
+    const supplierText = [
+      supplierNameOf(supplier),
+      supplier?.supplierCode,
+      supplier?.supplier_code,
+      supplier?.gstin,
+      supplier?.registeredCompanyName,
+      supplier?.registered_company_name,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const supplierCityText = [
+      supplier?.city,
+      supplier?.location,
+      supplier?.address?.city,
+      supplier?.registeredAddress?.city,
+      supplier?.registered_address?.city,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return (
+      (!search || supplierText.includes(search)) &&
+      (!city || supplierCityText.includes(city)) &&
+      (!category ||
+        hasSharedMatchToken(category, supplierCategories(supplier)) ||
+        hasSharedMatchToken(category, supplierMaterials(supplier))) &&
+      (!material ||
+        hasSharedMatchToken(material, supplierMaterials(supplier)) ||
+        hasSharedMatchToken(material, supplierCategories(supplier)))
+    );
+  };
+  const supplierCategoryText = (supplier: any, fallback = "Category not set") => {
+    const category = supplierCategories(supplier);
+    if (Array.isArray(category)) return category.filter(Boolean).join(", ") || fallback;
+    return String(category || "").trim() || fallback;
+  };
 
   const applyMaterialRequest = (requestId: string, requests = materialRequests) => {
     const mr = requests.find(
@@ -149,16 +220,23 @@ function NewRfq() {
     async function fetchSuppliers() {
       try {
         setLoadingSuppliers(true);
-        const data = await api.getSuppliers({ ...filters, status: "Active" });
+        const data = await api.getSuppliers({ status: "Active" });
         const activeSuppliers = data.filter(
           (supplier: any) =>
             String(supplier.status ?? "")
               .trim()
-              .toLowerCase() === "active",
+              .toLowerCase() === "active" && supplierIdOf(supplier),
         );
-        setSuppliers(activeSuppliers);
-        if (selectedSuppliers.length === 0 && activeSuppliers.length > 0) {
-          setSelectedSuppliers(activeSuppliers.map((s: any) => s.supplierId || s.id));
+        const matchedSuppliers = activeSuppliers.filter(supplierMatchesFilters);
+        setSuppliers(matchedSuppliers);
+        if (matchedSuppliers.length > 0) {
+          setSelectedSuppliers((current) => {
+            const validIds = new Set(matchedSuppliers.map(supplierIdOf));
+            const retained = current.filter((id) => validIds.has(id));
+            return retained.length > 0 ? retained : matchedSuppliers.map(supplierIdOf);
+          });
+        } else {
+          setSelectedSuppliers([]);
         }
       } catch (err) {
         toast.error("Failed to load suppliers");
@@ -170,7 +248,7 @@ function NewRfq() {
       fetchSuppliers();
     }, 300);
     return () => clearTimeout(debounceTimer);
-  }, [filters]);
+  }, [filters, items]);
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -251,9 +329,10 @@ function NewRfq() {
   const executeSubmitRfq = async () => {
     setSubmitting(true);
     try {
+      const uniqueSupplierIds = [...new Set(selectedSuppliers.filter(Boolean))];
       const payload = {
         ...formData,
-        supplier_ids: selectedSuppliers,
+        supplier_ids: uniqueSupplierIds,
         items: items.map((item) => ({
           ...item,
           quantity: parseFloat(item.quantity) || 0,
@@ -261,7 +340,9 @@ function NewRfq() {
         required_delivery_date: formData.required_delivery_date || null,
       };
       await api.createRfq(payload);
-      toast.success("RFQ created and supplier invitations dispatched!");
+      toast.success("RFQ created", {
+        description: "Review and send it from the RFQ list to email suppliers.",
+      });
       setShowConfirmModal(false);
       navigate({ to: "/procurement/rfqs" });
     } catch (error: any) {
@@ -525,43 +606,47 @@ function NewRfq() {
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {suppliers.map((s) => (
-                <div
-                  key={s.supplierId}
-                  onClick={() => toggleSupplier(s.supplierId)}
-                  className={cn(
-                    "relative cursor-pointer rounded-2xl border p-4 transition-all hover:bg-accent/30",
-                    selectedSuppliers.includes(s.supplierId)
-                      ? "border-primary bg-primary-soft/10 ring-1 ring-primary"
-                      : "border-border/60 bg-card",
-                  )}
-                >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={cn(
-                        "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
-                        selectedSuppliers.includes(s.supplierId)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {selectedSuppliers.includes(s.supplierId) ? (
-                        <CheckCircle2 className="size-6" />
-                      ) : (
-                        <Building2 className="size-6" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-bold">{s.supplierName}</p>
+              {suppliers.map((s) => {
+                const supplierId = supplierIdOf(s);
+                const isSelected = selectedSuppliers.includes(supplierId);
+                return (
+                  <div
+                    key={supplierId}
+                    onClick={() => toggleSupplier(supplierId)}
+                    className={cn(
+                      "relative cursor-pointer rounded-2xl border p-4 transition-all hover:bg-accent/30",
+                      isSelected
+                        ? "border-primary bg-primary-soft/10 ring-1 ring-primary"
+                        : "border-border/60 bg-card",
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div
+                        className={cn(
+                          "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
+                          isSelected
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {isSelected ? (
+                          <CheckCircle2 className="size-6" />
+                        ) : (
+                          <Building2 className="size-6" />
+                        )}
                       </div>
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
-                        {s.category}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-bold">{supplierNameOf(s)}</p>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                          {supplierCategoryText(s)}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {selectedSuppliers.length > 0 && (
@@ -586,7 +671,7 @@ function NewRfq() {
 
         <div className="flex items-center justify-end gap-4 rounded-2xl border border-primary/10 bg-primary-soft/5 p-6 shadow-soft">
           <p className="hidden text-sm text-muted-foreground sm:block">
-            Creating this RFQ will notify the selected suppliers via the portal.
+            Creating this RFQ will save a draft for review before supplier emails are sent.
           </p>
           <Button type="submit" size="lg" className="rounded-xl shadow-glow" disabled={submitting}>
             {submitting ? (
@@ -669,10 +754,11 @@ function NewRfq() {
                     </p>
                     <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
                       {suppliers.map((sup: any) => {
-                        const isChecked = selectedSuppliers.includes(sup.supplierId || sup.id);
+                        const supplierId = supplierIdOf(sup);
+                        const isChecked = selectedSuppliers.includes(supplierId);
                         return (
                           <div
-                            key={sup.supplierId || sup.id}
+                            key={supplierId}
                             className={cn(
                               "flex items-center justify-between p-3 rounded-xl border text-xs transition-colors",
                               isChecked
@@ -688,14 +774,14 @@ function NewRfq() {
                                 )}
                               />
                               <div>
-                                <p className="font-bold text-foreground">{sup.supplierName}</p>
+                                <p className="font-bold text-foreground">{supplierNameOf(sup)}</p>
                                 <p className="text-[10px] text-muted-foreground font-mono">
-                                  {sup.gstin || sup.supplierCode || "Active Vendor"}
+                                  {sup.gstin || sup.supplierCode || sup.supplier_code || "Active Vendor"}
                                 </p>
                               </div>
                             </div>
                             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border/40">
-                              {Array.isArray(sup.category) ? sup.category.join(", ") : sup.category || primaryCategory}
+                              {supplierCategoryText(sup, primaryCategory)}
                             </span>
                           </div>
                         );

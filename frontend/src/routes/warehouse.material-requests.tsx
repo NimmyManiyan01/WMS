@@ -592,6 +592,7 @@ function WarehouseMaterialRequests() {
         suggested_supplier: "",
         attachments: [],
       }));
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Failed to submit request: " + (error.message || "Unknown error"));
@@ -708,6 +709,7 @@ function WarehouseMaterialRequests() {
       toast.success("Request updated successfully");
       setIsEditing(false);
       setIsRequestModalOpen(false);
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Update failed: " + (error.message || "Unknown error"));
@@ -730,6 +732,7 @@ function WarehouseMaterialRequests() {
         current.map((req) => (req.id === selectedRequest.id ? updated : req)),
       );
       toast.success(`Material request moved to ${nextStatus}`);
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error(error.message || "Unable to update material request status");

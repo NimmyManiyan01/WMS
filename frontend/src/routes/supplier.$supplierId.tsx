@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
-  Ban,
   Building2,
   FileText,
   Loader2,
@@ -16,7 +15,6 @@ import {
   X,
   AlertCircle,
   ChevronRight,
-  ChevronDown,
   Download,
   Star,
 } from "lucide-react";
@@ -35,16 +33,6 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
@@ -61,8 +49,6 @@ function SupplierProfile() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [blocking, setBlocking] = useState(false);
-  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [form, setForm] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -293,25 +279,6 @@ function SupplierProfile() {
       setSaving(false);
     }
   };
-  const changeSupplierStatus = async (nextStatus: string, successMessage: string) => {
-    const previousSupplier = supplier;
-    setSupplier((prev: any) => ({ ...prev, status: nextStatus }));
-    setBlocking(true);
-
-    try {
-      const updated = await api.updateSupplierStatus(supplierId, nextStatus);
-      setSupplier(updated);
-      toast.success(successMessage);
-    } catch (err) {
-      setSupplier(previousSupplier);
-      toast.error("Unable to update supplier status", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setBlocking(false);
-    }
-  };
-
   const handleDownloadRealtimePdf = (doc: any) => {
     try {
       const docType = doc.documentType || doc.document_type || "Compliance Document";
@@ -401,11 +368,6 @@ function SupplierProfile() {
     }
   };
 
-  const blockSupplier = async () => {
-    await changeSupplierStatus("Blocked", "Supplier blocked");
-    setShowBlockConfirm(false);
-  };
-
   return (
     <AppShell
       title={supplier?.supplierName || "Supplier Profile"}
@@ -417,106 +379,10 @@ function SupplierProfile() {
             <Button variant="outline" className="rounded-xl font-bold" onClick={openEditor}>
               <Pencil className="mr-1.5 size-3.5" /> Edit Supplier
             </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="rounded-xl font-bold">
-                  More <ChevronDown className="ml-1.5 size-3.5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-52 p-2 rounded-xl" align="end">
-                <div className="space-y-1">
-                  {(supplier.status === "Draft" || supplier.status === "Suspended") && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9"
-                      disabled={blocking}
-                      onClick={() =>
-                        changeSupplierStatus("Pending Approval", "Supplier submitted for approval")
-                      }
-                    >
-                      <FileText className="mr-2 size-3.5 text-primary" /> Submit Approval
-                    </Button>
-                  )}
-                  {supplier.status === "Pending Approval" && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
-                        disabled={blocking}
-                        onClick={() =>
-                          changeSupplierStatus("Active", "Supplier approved and active")
-                        }
-                      >
-                        <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Approve
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
-                        disabled={blocking}
-                        onClick={() => changeSupplierStatus("Draft", "Supplier rejected to draft")}
-                      >
-                        <X className="mr-2 size-3.5 text-amber-600" /> Reject
-                      </Button>
-                    </>
-                  )}
-                  {supplier.status === "Active" && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
-                      disabled={blocking}
-                      onClick={() => changeSupplierStatus("Suspended", "Supplier suspended")}
-                    >
-                      <Ban className="mr-2 size-3.5 text-amber-600" /> Suspend
-                    </Button>
-                  )}
-                  {(supplier.status === "Blocked" || supplier.status === "Suspended") && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
-                      disabled={blocking}
-                      onClick={() => changeSupplierStatus("Active", "Supplier activated")}
-                    >
-                      <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Activate
-                    </Button>
-                  )}
-                  {supplier.status !== "Blocked" && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-rose-600 hover:bg-rose-50"
-                      disabled={blocking}
-                      onClick={() => setShowBlockConfirm(true)}
-                    >
-                      <Ban className="mr-2 size-3.5 text-rose-600" /> Block Supplier
-                    </Button>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
           </div>
         )
       }
     >
-      <AlertDialog open={showBlockConfirm} onOpenChange={setShowBlockConfirm}>
-        <AlertDialogContent className="rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Block supplier?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to block <strong>{supplier?.supplierName}</strong>? This action
-              will prevent the supplier from being used in any active operational processes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={blockSupplier}
-              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Confirm block
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <Button variant="ghost" className="mb-4 rounded-xl font-bold text-xs" asChild>
         <Link to="/master-data">
           <ArrowLeft className="mr-2 size-4" /> Back to Suppliers

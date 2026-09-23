@@ -140,7 +140,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     } catch {
       errorMessage = errorText || errorMessage;
     }
-    throw new Error(errorMessage);
+    const httpError = new Error(errorMessage) as Error & { status?: number };
+    httpError.status = response.status;
+    throw httpError;
   }
 
   // Successful DELETE requests commonly return 204 with no response body.
@@ -208,7 +210,20 @@ export const api = {
       };
       storeAuthSession(devUser, rememberMe);
       return devUser;
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const status =
+        typeof e === "object" && e !== null && "status" in e
+          ? Number((e as { status?: number }).status)
+          : undefined;
+
+      if (status === 401 || status === 403) {
+        throw e;
+      }
+
+      if (!(e instanceof TypeError)) {
+        throw e;
+      }
+
       console.warn("Dev server login failed, falling back to client-side mock:", e.message);
       const isProcurement = username.toLowerCase().includes("procurement");
       const isFinance = username.toLowerCase().includes("finance");
@@ -218,9 +233,12 @@ export const api = {
         username.toLowerCase().includes("grn") || username.toLowerCase().includes("receiving");
       const isAssembly = username.toLowerCase().includes("assembly");
       const isStore = username.toLowerCase().includes("store");
+      const isManager = username.toLowerCase().includes("manager") && !isAssembly && !isStore;
       const mockUser = {
         token: isFinance
           ? "mock-jwt-finance-token"
+          : isManager
+            ? "mock-jwt-manager-token"
           : isProcurement
             ? "mock-jwt-procurement-token"
             : isWarehouse
@@ -237,6 +255,8 @@ export const api = {
         username,
         roles: isFinance
           ? ["FINANCE"]
+          : isManager
+            ? ["MANAGER"]
           : isProcurement
             ? ["PROCUREMENT"]
             : isWarehouse

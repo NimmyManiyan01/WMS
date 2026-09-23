@@ -73,19 +73,20 @@ export function hasRole(roles: string[] | string): boolean {
 
 export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
+  if (pathname === "/manager-dashboard") return ["MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/procurement") ||
     pathname === "/master-data" ||
     pathname === "/new-supplier"
   )
-    return ["PROCUREMENT", "ADMIN", "SUPERUSER"];
+    return ["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/finance")) return ["FINANCE", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/supplier") ||
     pathname === "/supplier-dashboard" ||
     pathname === "/submit-quotation"
   )
-    return ["SUPPLIER", "ADMIN", "SUPERUSER"];
+    return ["SUPPLIER", "PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/assembly"))
     return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
   if (
@@ -154,6 +155,7 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
   if (user?.roles.includes("ADMIN") || user?.roles.includes("SUPERUSER")) return "/admin/users";
+  if (user?.roles.includes("MANAGER")) return "/manager-dashboard";
   if (user?.roles.includes("FINANCE")) return "/finance-dashboard";
   if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
   if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
