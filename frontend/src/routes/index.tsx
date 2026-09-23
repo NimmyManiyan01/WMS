@@ -94,6 +94,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/grn",
     description: "Post goods receipts, inspect documents, print QR labels, and close receiving.",
     icon: FileCheck2,
+    image: truckGateUrl,
     tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
     badge: "GRN",
   },
@@ -103,6 +104,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement/quality-issues",
     description: "Inspect damaged goods, raise claims, and notify suppliers with evidence.",
     icon: ShieldAlert,
+    image: driverUrl,
     tone: "text-rose-700 bg-rose-50 border-rose-200",
     badge: "QC",
   },
@@ -112,6 +114,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/putaway-tasks",
     description: "Route accepted materials into stores, zones, bins, and QR-tracked locations.",
     icon: PackageCheck,
+    image: truckRearUrl,
     tone: "text-green-700 bg-green-50 border-green-200",
     badge: "Storage",
   },
@@ -121,6 +124,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/warehouse/stores",
     description: "Maintain store hierarchy, zone isolation, bin status, and manager assignment.",
     icon: Store,
+    image: truckGateUrl,
     tone: "text-lime-700 bg-lime-50 border-lime-200",
     badge: "Master",
   },
@@ -130,6 +134,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/inventory",
     description: "View available, allocated, quarantined, and reserved stock across materials.",
     icon: Boxes,
+    image: driverUrl,
     tone: "text-indigo-700 bg-indigo-50 border-indigo-200",
     badge: "Stock",
   },
@@ -139,6 +144,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/warehouse/material-requests",
     description: "Request material from procurement with approvals, notes, and audit history.",
     icon: ClipboardList,
+    image: truckRearUrl,
     tone: "text-violet-700 bg-violet-50 border-violet-200",
     badge: "Demand",
   },
@@ -148,6 +154,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement-dashboard",
     description: "Control suppliers, RFQs, quotations, purchase orders, ASNs, and reports.",
     icon: Building2,
+    image: truckGateUrl,
     tone: "text-blue-700 bg-blue-50 border-blue-200",
     badge: "Sourcing",
   },
@@ -157,6 +164,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/master-data",
     description: "Create vendor profiles, documents, GSTIN, addresses, banking, and approvals.",
     icon: Users,
+    image: driverUrl,
     tone: "text-sky-700 bg-sky-50 border-sky-200",
     badge: "Vendor",
   },
@@ -166,6 +174,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement/rfqs",
     description: "Publish requests for quotation, invite suppliers, and track bid closure.",
     icon: FileQuestion,
+    image: truckRearUrl,
     tone: "text-amber-700 bg-amber-50 border-amber-200",
     badge: "RFQ",
   },
@@ -175,6 +184,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement/quotations",
     description: "Compare supplier quotes, capture selection reasons, and create PO proposals.",
     icon: FileBadge,
+    image: truckGateUrl,
     tone: "text-purple-700 bg-purple-50 border-purple-200",
     badge: "Bids",
   },
@@ -184,6 +194,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement/purchase-orders",
     description: "Generate POs, download PDFs, send to suppliers, and track acknowledgements.",
     icon: FileText,
+    image: driverUrl,
     tone: "text-slate-700 bg-slate-50 border-slate-200",
     badge: "PO",
   },
@@ -193,6 +204,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/finance/approvals",
     description: "Authorize spend, reject exceptions, compare RFQs, and audit decisions.",
     icon: FileCheck2,
+    image: truckRearUrl,
     tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
     badge: "Control",
   },
@@ -202,6 +214,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/procurement/asns",
     description: "Track advance shipping notices, supplier dispatch, and incoming vehicles.",
     icon: Truck,
+    image: truckGateUrl,
     tone: "text-cyan-700 bg-cyan-50 border-cyan-200",
     badge: "Shipment",
   },
@@ -211,6 +224,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/warehouse/assembly-requisitions",
     description: "Review internal assembly requests and assign stores for physical pickup.",
     icon: PackageSearch,
+    image: driverUrl,
     tone: "text-orange-700 bg-orange-50 border-orange-200",
     badge: "Issue",
   },
@@ -220,6 +234,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/assembly-work-orders",
     description: "Run production orders, workforce, progress, quality, rework, and output.",
     icon: Factory,
+    image: truckRearUrl,
     tone: "text-fuchsia-700 bg-fuchsia-50 border-fuchsia-200",
     badge: "Build",
   },
@@ -229,6 +244,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/assembly-material-reservations",
     description: "Protect stock for released work orders before consumption and issue.",
     icon: PackageCheck,
+    image: truckGateUrl,
     tone: "text-indigo-700 bg-indigo-50 border-indigo-200",
     badge: "Reserve",
   },
@@ -238,6 +254,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/assembly-finished-goods",
     description: "Confirm completed production output and finished-goods availability.",
     icon: BadgeCheck,
+    image: driverUrl,
     tone: "text-green-700 bg-green-50 border-green-200",
     badge: "Output",
   },
@@ -247,6 +264,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/vehicle-exit",
     description: "Approve outbound movement, complete gate exit, and close vehicle lifecycle.",
     icon: Truck,
+    image: truckRearUrl,
     tone: "text-blue-700 bg-blue-50 border-blue-200",
     badge: "Exit",
   },
@@ -256,6 +274,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/reports",
     description: "Analyze procurement, stores, assembly, GRN, quality, and inventory health.",
     icon: BarChart3,
+    image: truckGateUrl,
     tone: "text-violet-700 bg-violet-50 border-violet-200",
     badge: "Insights",
   },
@@ -265,6 +284,7 @@ const moduleSteps: ModuleStep[] = [
     route: "/admin/users",
     description: "Create users, assign roles, scope access, and review administrative activity.",
     icon: LockKeyhole,
+    image: driverUrl,
     tone: "text-zinc-700 bg-zinc-50 border-zinc-200",
     badge: "Access",
   },
@@ -408,255 +428,165 @@ function HomePage() {
   };
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-white text-slate-950">
-      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+    <div className="min-h-screen overflow-x-hidden bg-slate-950 text-white selection:bg-blue-600 selection:text-white">
+      {/* Sticky Cinematic Glassmorphism Header */}
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <button
             type="button"
             onClick={goToDashboard}
-            className="flex min-w-0 items-center gap-3 text-left"
+            className="flex min-w-0 items-center gap-3 text-left group"
             aria-label="Open NexusWMS"
           >
-            <span className="grid h-14 w-36 shrink-0 place-items-center overflow-hidden rounded-md bg-white p-1 ring-1 ring-slate-200">
-              <img src={logoUrl} alt="KGS" className="h-full w-full object-contain" />
+            <span className="grid h-12 w-32 shrink-0 place-items-center overflow-hidden rounded-xl bg-white/10 p-1 ring-1 ring-white/20 transition group-hover:scale-105">
+              <img src={logoUrl} alt="KGS" className="h-full w-full object-contain brightness-0 invert" />
             </span>
             <span className="hidden min-w-0 sm:block">
-              <span className="block text-sm font-semibold tracking-tight text-slate-950">
-                NexusWMS
+              <span className="block text-sm font-bold tracking-tight text-white">
+                NexusWMS OS
               </span>
-              <span className="block text-xs text-slate-500">Enterprise Logistics OS</span>
+              <span className="block text-xs text-blue-400 font-mono">Cinematic Storyline</span>
             </span>
           </button>
 
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={() => navigate({ to: "/login" })}>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" onClick={() => navigate({ to: "/login" })} className="text-white hover:bg-white/10">
               Sign In
             </Button>
-            <Button onClick={goToDashboard} className="shadow-glow">
+            <Button onClick={goToDashboard} className="bg-blue-600 hover:bg-blue-500 text-white shadow-glow rounded-xl font-bold">
               {loggedIn ? "Launch Dashboard" : "Get Started"}
-              <ArrowRight className="size-4" />
+              <ArrowRight className="size-4 ml-1" />
             </Button>
           </div>
         </div>
       </header>
 
       <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:48px_48px]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.10),transparent_38%),linear-gradient(to_bottom,rgba(255,255,255,0.78),#ffffff_74%)]" />
-          <div className="relative mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1fr_520px] lg:py-20">
-            <div className="max-w-3xl">
-              <Badge className="mb-5 border-blue-200 bg-blue-50 text-blue-700">
-                <Sparkles className="size-3.5" />
-                Kaizentrix Global Solutions
-              </Badge>
-              <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl lg:text-7xl">
-                Enterprise Warehouse, Procurement & Assembly Control Platform
-              </h1>
-              <p className="mt-6 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-                Track every vehicle, supplier, purchase order, GRN, bin, material request, quality
-                issue, and assembly workflow from one real-time command center.
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Button size="lg" onClick={goToDashboard} className="h-12 px-6 shadow-glow">
-                  Launch Dashboard
-                  <ArrowRight className="size-4" />
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="h-12 px-6"
-                  onClick={() =>
-                    document
-                      .getElementById("workflow-tracker")
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
-                >
-                  View Workflow
-                </Button>
-              </div>
-
-              <div className="mt-10 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
-                {liveMetrics.slice(0, 4).map(([label, value, state]) => (
-                  <div
-                    key={label}
-                    className="rounded-lg border border-slate-200 bg-white/80 p-3 shadow-sm"
-                  >
-                    <p className="text-2xl font-semibold tracking-tight text-slate-950">{value}</p>
-                    <p className="mt-1 text-xs font-medium text-slate-500">{label}</p>
-                    <p className="mt-2 text-[10px] font-semibold uppercase text-emerald-600">
-                      {state}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="relative hidden h-[560px] lg:block">
-              <div className="absolute inset-0 rounded-lg border border-slate-200 bg-white/80 shadow-2xl backdrop-blur">
-                <img
-                  src={truckGateUrl}
-                  alt="Truck at warehouse gate"
-                  className="h-full w-full rounded-lg object-cover opacity-20"
-                />
-              </div>
-              <svg className="absolute inset-0 h-full w-full" viewBox="0 0 520 560" fill="none">
-                <path
-                  d="M68 88 C212 24 335 61 420 151 C510 247 361 300 262 285 C115 263 46 353 131 437 C206 511 333 500 455 420"
-                  stroke="#dbeafe"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M68 88 C212 24 335 61 420 151 C510 247 361 300 262 285 C115 263 46 353 131 437 C206 511 333 500 455 420"
-                  stroke="url(#heroPath)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray="24 18"
-                />
-                <defs>
-                  <linearGradient id="heroPath" x1="68" x2="455" y1="88" y2="420">
-                    <stop stopColor="#2563eb" />
-                    <stop offset="0.55" stopColor="#0f766e" />
-                    <stop offset="1" stopColor="#16a34a" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              {heroCards.map((step, index) => {
-                const Icon = step.icon;
-                const positions = [
-                  "left-6 top-10",
-                  "right-7 top-24",
-                  "left-14 top-56",
-                  "right-10 top-72",
-                  "left-8 bottom-20",
-                  "right-8 bottom-10",
-                ];
-                return (
-                  <div
-                    key={step.id}
-                    className={`absolute ${positions[index]} w-52 rounded-lg border bg-white/95 p-4 shadow-xl transition duration-500 hover:-translate-y-1`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`grid size-10 place-items-center rounded-md border ${step.tone}`}
-                      >
-                        <Icon className="size-5" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-950">
-                          {step.title}
-                        </p>
-                        <p className="text-xs text-slate-500">{step.badge}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Cinematic Hero Section */}
+        <section className="relative overflow-hidden border-b border-white/10 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 py-24 lg:py-32">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.25),transparent_50%)]" />
+          <div className="relative mx-auto max-w-7xl px-4 sm:px-6 text-center">
+            <Badge className="mb-6 border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-1.5 text-xs font-bold uppercase tracking-widest">
+              <Sparkles className="size-3.5 inline mr-1.5" />
+              Immersive Awwwards-Grade Storytelling
+            </Badge>
+            <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-6xl lg:text-7xl max-w-5xl mx-auto leading-tight">
+              The Enterprise Supply Chain <br />
+              <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400 bg-clip-text text-transparent">
+                Roadmap & Cinematic Journey
+              </span>
+            </h1>
+            <p className="mt-6 max-w-2xl mx-auto text-base text-slate-400 sm:text-lg leading-relaxed">
+              Scroll down to scrub through our live SVG path tracker. Each checkpoint animates seamlessly through every module from Gate Entry to Vehicle Exit.
+            </p>
+            <div className="mt-10 flex flex-wrap justify-center gap-4">
+              <Button size="lg" onClick={goToDashboard} className="h-12 px-8 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-glow">
+                Launch Platform <ArrowRight className="size-4 ml-2" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 px-8 border-white/20 bg-white/5 text-white hover:bg-white/10 rounded-2xl font-bold"
+                onClick={() =>
+                  document
+                    .getElementById("workflow-tracker")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+              >
+                Explore Story Tracker
+              </Button>
             </div>
           </div>
         </section>
 
-        <section className="border-b border-slate-200 bg-white py-8">
+        {/* Live Metrics Bar */}
+        <section className="border-b border-white/10 bg-slate-900/50 backdrop-blur py-8">
           <div className="mx-auto grid max-w-7xl grid-cols-2 gap-3 px-4 sm:px-6 md:grid-cols-4 lg:grid-cols-8">
             {liveMetrics.map(([label, value, state]) => (
-              <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xl font-semibold text-slate-950">{value}</p>
+                  <p className="text-2xl font-bold text-white font-mono">{value}</p>
                   <span className="relative flex size-2.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                     <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
                   </span>
                 </div>
-                <p className="mt-1 text-xs font-medium text-slate-600">{label}</p>
-                <p className="mt-2 text-[10px] font-semibold uppercase text-slate-400">{state}</p>
+                <p className="mt-1 text-xs font-medium text-slate-300">{label}</p>
+                <p className="mt-2 text-[10px] font-bold uppercase text-emerald-400 font-mono">{state}</p>
               </div>
             ))}
           </div>
         </section>
 
+        {/* Cinematic Scroll-Linked SVG Path Tracker Section */}
         <section
           id="workflow-tracker"
-          className="relative overflow-hidden border-y border-slate-200 bg-slate-50 py-20"
+          className="relative overflow-hidden border-b border-white/10 bg-slate-950 py-24"
         >
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.18)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.18)_1px,transparent_1px)] bg-[size:56px_56px]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(37,99,235,0.12),transparent_28%),radial-gradient(circle_at_82%_34%,rgba(22,163,74,0.10),transparent_24%),linear-gradient(to_bottom,rgba(248,250,252,0.86),rgba(248,250,252,0.98))]" />
-          <div className="mx-auto max-w-7xl px-4 sm:px-6">
-            <div className="relative mb-12 grid gap-8 lg:grid-cols-[420px_1fr]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(37,99,235,0.15),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(16,185,129,0.12),transparent_40%)]" />
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 relative z-10">
+            <div className="relative mb-16 grid gap-12 lg:grid-cols-[440px_1fr]">
+              {/* Sticky Preview Media Container (Awwwards Video/Cinematic Style) */}
               <div className="lg:sticky lg:top-28 lg:self-start">
-                <Badge className="border-teal-200 bg-teal-50 text-teal-700">
-                  <Activity className="size-3.5" />
-                  Scroll-linked SVG tracker
+                <Badge className="border-blue-500/30 bg-blue-500/10 text-blue-400 mb-4">
+                  <Activity className="size-3.5 mr-1.5" />
+                  Scroll Scrubbing Preview
                 </Badge>
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                  The complete operation drawn as one live route.
+                <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                  Storyline checkpoint tracker.
                 </h2>
-                <p className="mt-4 text-sm leading-6 text-slate-600">
-                  The path reveals as you scroll, the moving marker travels through each checkpoint,
-                  and every module activates at the moment it becomes part of the operational chain.
+                <p className="mt-4 text-sm leading-relaxed text-slate-400">
+                  As you scroll down the page, the glowing SVG path tracker follows your motion, lighting up checkpoints and updating the cinematic preview card in real time.
                 </p>
 
-                <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-200/70">
-                  <div className="relative h-44">
+                <div className="mt-8 overflow-hidden rounded-3xl border border-white/15 bg-slate-900 shadow-2xl shadow-blue-500/10 backdrop-blur-xl">
+                  <div className="relative h-60">
                     <img
                       src={activeStep.image ?? truckRearUrl}
                       alt={activeStep.title}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover brightness-90 transition duration-700 hover:scale-105"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
-                    <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                    <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-white/70">
-                          Active checkpoint
+                        <p className="text-xs font-mono uppercase tracking-widest text-blue-400">
+                          Milestone {activeModule + 1} of {moduleSteps.length}
                         </p>
-                        <h3 className="mt-1 text-xl font-semibold text-white">
+                        <h3 className="mt-1 text-2xl font-bold text-white">
                           {activeStep.title}
                         </h3>
                       </div>
-                      <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-semibold text-blue-700">
+                      <span className="rounded-full bg-blue-600/90 text-white px-3.5 py-1 text-xs font-bold font-mono shadow-glow">
                         {Math.round(scrollProgress * 100)}%
                       </span>
                     </div>
                   </div>
-                  <div className="p-5">
+                  <div className="p-6 bg-slate-900/90">
                     <div className="flex items-center gap-3">
-                      <span
-                        className={`grid size-12 place-items-center rounded-md border ${activeStep.tone}`}
-                      >
+                      <span className={`grid size-12 place-items-center rounded-2xl border ${activeStep.tone} shadow-lg`}>
                         <activeStep.icon className="size-6" />
                       </span>
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase text-slate-400">
-                          Active module {activeModule + 1} of {moduleSteps.length}
+                        <p className="text-xs font-semibold uppercase text-slate-400 font-mono">
+                          {activeStep.badge} Module
                         </p>
-                        <p className="truncate font-semibold text-slate-950">{activeStep.route}</p>
+                        <p className="truncate font-mono text-xs text-blue-400">{activeStep.route}</p>
                       </div>
                     </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-600">
+                    <p className="mt-4 text-sm leading-relaxed text-slate-300">
                       {activeStep.description}
                     </p>
-                    <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/10">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-500 transition-all duration-200"
+                        className="h-full rounded-full bg-gradient-to-r from-blue-500 via-teal-400 to-emerald-400 transition-all duration-200"
                         style={{ width: `${Math.round(scrollProgress * 100)}%` }}
                       />
-                    </div>
-                    <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                      {["Gate", "Procure", "Assemble"].map((label, index) => (
-                        <div
-                          key={label}
-                          className="rounded-md border border-slate-200 bg-slate-50 p-3"
-                        >
-                          <p className="text-[10px] font-semibold uppercase text-slate-400">
-                            Phase {index + 1}
-                          </p>
-                          <p className="mt-1 text-xs font-semibold text-slate-700">{label}</p>
-                        </div>
-                      ))}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* Scrollable Story Journey Path Container */}
               <div className="relative" style={{ minHeight: `${journeyHeight}px` }}>
                 <svg
                   className="pointer-events-none absolute left-1/2 top-0 hidden h-full w-[360px] -translate-x-1/2 lg:block"
@@ -664,39 +594,40 @@ function HomePage() {
                   fill="none"
                   preserveAspectRatio="none"
                 >
-                  <path d={journeyPath} stroke="#dbeafe" strokeWidth="18" strokeLinecap="round" />
-                  <path d={journeyPath} stroke="#ffffff" strokeWidth="10" strokeLinecap="round" />
+                  <path d={journeyPath} stroke="rgba(255,255,255,0.1)" strokeWidth="18" strokeLinecap="round" />
+                  <path d={journeyPath} stroke="rgba(255,255,255,0.2)" strokeWidth="10" strokeLinecap="round" />
                   <path
                     ref={progressPathRef}
                     d={journeyPath}
-                    stroke="url(#scrollPath)"
+                    stroke="url(#cinematicScrollPath)"
                     strokeWidth="8"
                     strokeLinecap="round"
                     strokeDasharray={pathLength}
                     strokeDashoffset={Math.max(pathLength - scrollProgress * pathLength, 0)}
-                    style={{ filter: "drop-shadow(0 8px 18px rgba(37, 99, 235, 0.22))" }}
+                    style={{ filter: "drop-shadow(0 0 16px rgba(59, 130, 246, 0.6))" }}
                   />
                   <g transform={`translate(${markerPoint.x} ${markerPoint.y})`}>
-                    <circle r="24" fill="#ffffff" opacity="0.9" />
-                    <circle r="17" fill="url(#scrollPath)" />
+                    <circle r="26" fill="#3b82f6" opacity="0.3" className="animate-ping" />
+                    <circle r="18" fill="#ffffff" />
+                    <circle r="12" fill="url(#cinematicScrollPath)" />
                     <path
-                      d="M-7 0h14M2-6l6 6-6 6"
+                      d="M-5 0h10M2-5l5 5-5 5"
                       stroke="#ffffff"
-                      strokeWidth="3"
+                      strokeWidth="2.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   </g>
                   <defs>
-                    <linearGradient id="scrollPath" x1="180" x2="180" y1="52" y2="2572">
-                      <stop stopColor="#2563eb" />
-                      <stop offset="0.48" stopColor="#0f766e" />
-                      <stop offset="1" stopColor="#16a34a" />
+                    <linearGradient id="cinematicScrollPath" x1="180" x2="180" y1="52" y2="2572">
+                      <stop stopColor="#3b82f6" />
+                      <stop offset="0.5" stopColor="#06b6d4" />
+                      <stop offset="1" stopColor="#10b981" />
                     </linearGradient>
                   </defs>
                 </svg>
 
-                <div className="grid gap-5 lg:grid-cols-2">
+                <div className="grid gap-6 lg:grid-cols-2">
                   {moduleSteps.map((step, index) => {
                     const Icon = step.icon;
                     const active = index <= activeModule;
@@ -704,53 +635,53 @@ function HomePage() {
                     return (
                       <div
                         key={step.id}
-                        className={`relative rounded-lg border bg-white/95 p-5 shadow-sm backdrop-blur transition-all duration-500 ${
-                          index % 2 === 0 ? "lg:mr-20" : "lg:ml-20 lg:translate-y-14"
+                        className={`relative rounded-3xl border p-6 transition-all duration-500 backdrop-blur-xl ${
+                          index % 2 === 0 ? "lg:mr-16" : "lg:ml-16 lg:translate-y-16"
                         } ${
                           current
-                            ? "border-blue-300 shadow-2xl shadow-blue-100 ring-4 ring-blue-100/80"
+                            ? "border-blue-500 bg-slate-900/90 shadow-2xl shadow-blue-500/20 ring-4 ring-blue-500/20"
                             : active
-                              ? "border-emerald-200 shadow-lg"
-                              : "border-slate-200 opacity-75"
+                              ? "border-emerald-500/50 bg-slate-900/60 shadow-lg shadow-emerald-500/10"
+                              : "border-white/10 bg-slate-900/30 opacity-70 hover:opacity-100"
                         }`}
                         style={{
-                          transform: `translateY(${index % 2 === 0 ? 0 : 56}px) scale(${
-                            current ? 1.025 : 1
+                          transform: `translateY(${index % 2 === 0 ? 0 : 64}px) scale(${
+                            current ? 1.03 : 1
                           })`,
                         }}
                       >
                         <span
-                          className={`absolute top-7 hidden size-4 rounded-full border-4 border-white shadow-lg lg:block ${
-                            active ? "bg-emerald-500" : "bg-slate-300"
-                          } ${index % 2 === 0 ? "-right-[88px]" : "-left-[88px]"}`}
+                          className={`absolute top-8 hidden size-4 rounded-full border-4 border-slate-950 shadow-lg lg:block ${
+                            active ? "bg-emerald-400" : "bg-slate-700"
+                          } ${index % 2 === 0 ? "-right-[76px]" : "-left-[76px]"}`}
                         />
                         <div className="flex items-start gap-4">
                           <span
-                            className={`grid size-12 shrink-0 place-items-center rounded-md border transition-transform duration-300 ${
+                            className={`grid size-14 shrink-0 place-items-center rounded-2xl border transition-transform duration-300 ${
                               current
-                                ? `${step.tone} scale-125 shadow-lg`
+                                ? "bg-blue-600 text-white border-blue-400 scale-110 shadow-glow"
                                 : active
-                                  ? `${step.tone} scale-110`
-                                  : "border-slate-200 bg-slate-50 text-slate-400"
+                                  ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/30"
+                                  : "border-white/10 bg-white/5 text-slate-500"
                             }`}
                           >
                             {active && index < activeModule ? (
-                              <CheckCircle2 className="size-6" />
+                              <CheckCircle2 className="size-7" />
                             ) : (
-                              <Icon className="size-6" />
+                              <Icon className="size-7" />
                             )}
                           </span>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="font-semibold text-slate-950">{step.title}</h3>
-                              <Badge variant="outline" className="border-slate-200 text-[10px]">
+                              <h3 className="font-bold text-white text-lg">{step.title}</h3>
+                              <Badge variant="outline" className="border-white/20 bg-white/5 text-[10px] text-slate-300">
                                 {step.badge}
                               </Badge>
                             </div>
-                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
                               {step.description}
                             </p>
-                            <p className="mt-3 text-xs font-semibold text-blue-700">{step.route}</p>
+                            <p className="mt-3 text-xs font-mono font-semibold text-blue-400">{step.route}</p>
                           </div>
                         </div>
                       </div>
@@ -762,36 +693,37 @@ function HomePage() {
           </div>
         </section>
 
-        <section className="bg-white py-20">
+        {/* Module Showcase Grid */}
+        <section className="bg-slate-950 py-24 border-b border-white/10">
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
             <div className="max-w-2xl">
-              <Badge className="border-blue-200 bg-blue-50 text-blue-700">Module imagery</Badge>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                Operational modules shown as real workflow surfaces.
+              <Badge className="border-purple-500/30 bg-purple-500/10 text-purple-400">Cinematic Module Surfaces</Badge>
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                Real operational modules brought to life.
               </h2>
             </div>
-            <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            <div className="mt-12 grid gap-6 lg:grid-cols-3">
               {moduleShowcase.map((item) => {
                 const Icon = item.icon;
                 return (
                   <div
                     key={item.title}
-                    className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                    className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur-xl transition hover:-translate-y-1"
                   >
-                    <div className="relative h-56">
+                    <div className="relative h-64">
                       <img
                         src={item.image}
                         alt={item.title}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-cover brightness-90"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/65 to-transparent" />
-                      <span className="absolute bottom-4 left-4 grid size-11 place-items-center rounded-md bg-white text-blue-700">
-                        <Icon className="size-5" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                      <span className="absolute bottom-5 left-5 grid size-12 place-items-center rounded-2xl bg-blue-600 text-white shadow-glow">
+                        <Icon className="size-6" />
                       </span>
                     </div>
-                    <div className="p-5">
-                      <h3 className="font-semibold text-slate-950">{item.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+                    <div className="p-6">
+                      <h3 className="font-bold text-white text-lg">{item.title}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-400">{item.description}</p>
                     </div>
                   </div>
                 );
@@ -800,41 +732,42 @@ function HomePage() {
           </div>
         </section>
 
-        <section className="border-y border-slate-200 bg-slate-50 py-20">
+        {/* Role-Based Cockpit Section */}
+        <section className="bg-slate-900/50 py-24 border-b border-white/10">
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
             <div className="max-w-2xl">
-              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                Role-based platform
+              <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                Strict Role Governance
               </Badge>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                Every team gets its own strict operational cockpit.
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                Every role gets a dedicated operational cockpit.
               </h2>
             </div>
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {roleCards.map((role) => {
                 const Icon = role.icon;
                 return (
                   <div
                     key={role.role}
-                    className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+                    className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-xl backdrop-blur-xl transition hover:border-blue-500/50"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="grid size-10 place-items-center rounded-md bg-slate-50 text-blue-700 ring-1 ring-slate-200">
-                        <Icon className="size-5" />
+                      <span className="grid size-12 place-items-center rounded-2xl bg-blue-600/20 text-blue-400 ring-1 ring-blue-500/30">
+                        <Icon className="size-6" />
                       </span>
                       <div>
-                        <h3 className="font-semibold text-slate-950">{role.role}</h3>
-                        <p className="text-xs text-slate-500">{role.route}</p>
+                        <h3 className="font-bold text-white text-base">{role.role}</h3>
+                        <p className="text-xs font-mono text-slate-400">{role.route}</p>
                       </div>
                     </div>
-                    <div className="mt-4 space-y-2">
+                    <div className="mt-6 space-y-2.5">
                       {role.capabilities.map((capability) => (
                         <div
                           key={capability}
-                          className="flex items-center gap-2 text-sm text-slate-600"
+                          className="flex items-center gap-2.5 text-sm text-slate-300"
                         >
-                          <QrCode className="size-3.5 text-emerald-600" />
-                          {capability}
+                          <QrCode className="size-4 text-emerald-400 shrink-0" />
+                          <span>{capability}</span>
                         </div>
                       ))}
                     </div>
@@ -845,36 +778,35 @@ function HomePage() {
           </div>
         </section>
 
-        <section className="bg-white py-20">
-          <div className="mx-auto max-w-5xl px-4 text-center sm:px-6">
-            <Badge className="border-blue-200 bg-blue-50 text-blue-700">
-              <Gauge className="size-3.5" />
-              Full lifecycle control
+        {/* Call to Action */}
+        <section className="bg-slate-950 py-24 text-center">
+          <div className="mx-auto max-w-4xl px-4 sm:px-6">
+            <Badge className="border-blue-500/30 bg-blue-500/10 text-blue-400 mb-4">
+              <Gauge className="size-3.5 inline mr-1.5" />
+              Complete Lifecycle Control
             </Badge>
-            <h2 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              Run the full material lifecycle from gate to finished goods.
+            <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-6xl">
+              Run the full supply chain from gate to finished goods.
             </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600">
-              NexusWMS connects operational teams, supplier workflows, finance approval, inventory
-              controls, receiving, and assembly execution into one measurable platform.
+            <p className="mx-auto mt-6 max-w-2xl text-base text-slate-400 leading-relaxed">
+              NexusWMS unites warehouse execution, procurement sourcing, financial approvals, supplier portals, and assembly lines into one integrated platform.
             </p>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button size="lg" onClick={() => navigate({ to: "/login" })}>
+            <div className="mt-10 flex flex-wrap justify-center gap-4">
+              <Button size="lg" onClick={() => navigate({ to: "/login" })} className="h-14 px-8 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-glow">
                 Sign In
               </Button>
-              <Button size="lg" variant="outline" onClick={goToDashboard}>
-                Open Dashboard
-                <ArrowRight className="size-4" />
+              <Button size="lg" variant="outline" onClick={goToDashboard} className="h-14 px-8 border-white/20 bg-white/5 text-white hover:bg-white/10 font-bold rounded-2xl">
+                Open Dashboard <ArrowRight className="size-4 ml-2" />
               </Button>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-slate-50 py-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 text-sm text-slate-500 sm:px-6 md:flex-row md:items-center md:justify-between">
+      <footer className="border-t border-white/10 bg-slate-950 py-10 text-center text-xs text-slate-500">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Kaizentrix Global Solutions. NexusWMS Enterprise Logistics OS.</p>
-          <p>Gate • Warehouse • Procurement • Finance • Supplier • Assembly</p>
+          <p className="font-mono">Gate • Warehouse • Procurement • Finance • Supplier • Assembly</p>
         </div>
       </footer>
     </div>
