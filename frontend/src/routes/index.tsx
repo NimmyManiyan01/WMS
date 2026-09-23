@@ -177,12 +177,12 @@ function HomePage() {
             </span>
           </h1>
           <p className="mt-4 text-base text-slate-400 sm:text-lg max-w-2xl mx-auto">
-            Scroll down to journey through the end-to-end logistics lifecycle. Immersive background photography alternates left and right with detailed explanation panels, connected by a winding snake pipeline.
+            Scroll down to journey through the end-to-end logistics lifecycle. Immersive photography is attached directly as ambient page backgrounds, alternating left and right with clean detail panels.
           </p>
         </div>
       </section>
 
-      {/* Vertical Snake Roadmap Container */}
+      {/* Vertical Snake Roadmap Container with Full-Bleed Background Images */}
       <main className="relative max-w-7xl mx-auto px-6 py-28 space-y-36 lg:space-y-48">
 
         {/* Background Wavy Snake SVG Connector Pipeline */}
@@ -213,20 +213,20 @@ function HomePage() {
           return (
             <div
               key={step.id}
-              className={`relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center`}
+              className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center py-12"
             >
-              {/* Image Section (Attached as ambient background visual, alternating left & right) */}
-              <div className={`w-full ${isImageLeft ? "lg:order-1" : "lg:order-2"}`}>
-                <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-slate-900 shadow-2xl shadow-blue-500/10 group">
-                  <div className="relative h-72 sm:h-96 w-full">
+              {/* Immersive Background Image attached to page (No Card) */}
+              <div className={`w-full absolute inset-0 -z-10 overflow-hidden opacity-30 blur-[2px] pointer-events-none lg:relative lg:inset-auto lg:opacity-100 lg:blur-none lg:w-full ${isImageLeft ? "lg:order-1" : "lg:order-2"}`}>
+                <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-transparent">
+                  <div className="relative h-80 sm:h-[420px] w-full">
                     <img
                       src={step.image}
                       alt={step.title}
-                      className="h-full w-full object-cover brightness-90 transition duration-700 group-hover:scale-105"
+                      className="h-full w-full object-cover brightness-95"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
                     <div className="absolute top-6 left-6">
-                      <span className="text-4xl font-black font-mono text-blue-400 tracking-wider">
+                      <span className="text-5xl font-black font-mono text-blue-400/90 tracking-wider">
                         {step.number}
                       </span>
                     </div>
@@ -234,7 +234,7 @@ function HomePage() {
                       <Badge className="bg-blue-600/90 text-white border-blue-400/30 text-xs font-bold font-mono px-3.5 py-1">
                         {step.badge}
                       </Badge>
-                      <span className="text-xs font-mono font-semibold text-emerald-400 bg-slate-950/80 px-3 py-1 rounded-full border border-white/10">
+                      <span className="text-xs font-mono font-semibold text-emerald-400 bg-slate-950/95 px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
                         {step.metric}
                       </span>
                     </div>
@@ -242,9 +242,9 @@ function HomePage() {
                 </div>
               </div>
 
-              {/* Details & Explanation Panel (Opposite side of image) */}
+              {/* Details & Explanation Panel on Opposite Side */}
               <div className={`w-full ${isImageLeft ? "lg:order-2" : "lg:order-1"}`}>
-                <div className="rounded-3xl border border-white/15 bg-slate-900/80 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
+                <div className="rounded-3xl border border-white/15 bg-slate-900/90 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="size-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-glow">
                       <Icon className="size-6" />
