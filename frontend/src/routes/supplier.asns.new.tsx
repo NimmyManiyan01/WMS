@@ -54,6 +54,10 @@ function NewAsn() {
     transporter: "",
     number_of_packages: "",
     package_type: "",
+    invoice_number: "",
+    invoice_date: "",
+    challan_number: "",
+    challan_date: "",
   });
 
   const [lines, setLines] = useState<any[]>([]);
@@ -101,7 +105,12 @@ function NewAsn() {
           const poItems = poData.items || poData.lines || [];
           setLines(
             poItems.map((item: any) => {
-              const itemCode = item.variantCode || item.variant_code || item.itemCode || item.materialCode || item.material_code;
+              const itemCode =
+                item.variantCode ||
+                item.variant_code ||
+                item.itemCode ||
+                item.materialCode ||
+                item.material_code;
               const savedLine = savedDraft?.lines?.find((line: any) => line.item_code === itemCode);
               const alreadyShippedQuantity = existingAsns
                 .filter((asn: any) => String(asn.poId || asn.po_id || "") === String(poId))
@@ -231,6 +240,10 @@ function NewAsn() {
         transporter: String(formData.transporter || ""),
         number_of_packages: parseInt(formData.number_of_packages) || 0,
         package_type: String(formData.package_type || ""),
+        invoice_number: String(formData.invoice_number || ""),
+        invoice_date: formData.invoice_date || null,
+        challan_number: String(formData.challan_number || ""),
+        challan_date: formData.challan_date || null,
         status: "SUBMITTED",
         documents: documents,
         lines: lines.map((l) => ({
@@ -336,6 +349,55 @@ function NewAsn() {
                     value={formData.expected_arrival_date}
                     onChange={handleInputChange}
                     required
+                  />
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Invoice / Challan Details" icon={FileText}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="invoice_number">Invoice Number</Label>
+                  <Input
+                    id="invoice_number"
+                    name="invoice_number"
+                    placeholder="Supplier invoice no."
+                    className={inputClass}
+                    value={formData.invoice_number}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="invoice_date">Invoice Date</Label>
+                  <Input
+                    id="invoice_date"
+                    name="invoice_date"
+                    type="date"
+                    className={inputClass}
+                    value={formData.invoice_date}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="challan_number">Challan Number</Label>
+                  <Input
+                    id="challan_number"
+                    name="challan_number"
+                    placeholder="Delivery challan no."
+                    className={inputClass}
+                    value={formData.challan_number}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="challan_date">Challan Date</Label>
+                  <Input
+                    id="challan_date"
+                    name="challan_date"
+                    type="date"
+                    className={inputClass}
+                    value={formData.challan_date}
+                    onChange={handleInputChange}
                   />
                 </div>
               </div>

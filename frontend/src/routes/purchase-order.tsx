@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -16,6 +16,9 @@ import {
   Warehouse,
   CreditCard,
   Send,
+  ClipboardCheck,
+  Paperclip,
+  SquarePen,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
@@ -23,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +34,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api-client";
+import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 type POSearch = {
@@ -61,10 +65,21 @@ function PurchaseOrder() {
   const [damagedGoodsData, setDamagedGoodsData] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showAmendModal, setShowAmendModal] = useState(false);
   const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(!!poId);
   const [sending, setSending] = useState(false);
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [amending, setAmending] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [amendmentForm, setAmendmentForm] = useState({
+    expectedDeliveryDate: "",
+    paymentTerms: "",
+    deliveryTerms: "",
+    warranty: "",
+    notes: "",
+    reason: "",
+  });
   const navigate = useNavigate();
 
   const fetchPo = async () => {
@@ -129,13 +144,102 @@ function PurchaseOrder() {
     );
   }
 
-  const subtotal = Number(poData.subtotal) || 0;
-  const discountAmount = Number(poData.discountAmount) || 0;
-  const freightCharges = Number(poData.freightCharges) || 0;
-  const taxAmount = Number(poData.taxAmount) || 0;
+  const toNumber = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const handleAcknowledge = async () => {
+    try {
+      setAcknowledging(true);
+      await api.acknowledgePurchaseOrder(poId as string);
+      toast.success("Purchase Order acknowledged");
+      fetchPo();
+    } catch (e: any) {
+      toast.error("Failed to acknowledge PO: " + e.message);
+    } finally {
+      setAcknowledging(false);
+    }
+  };
+  const openAmendment = () => {
+    setAmendmentForm({
+      expectedDeliveryDate: poData.expectedDeliveryDate || "",
+      paymentTerms: poData.paymentTerms || "",
+      deliveryTerms: poData.deliveryTerms || "",
+      warranty: poData.warranty || "",
+      notes: poData.notes || poData.procurementComments || "",
+      reason: "",
+    });
+    setShowAmendModal(true);
+  };
+
+  const submitAmendment = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!amendmentForm.reason.trim()) {
+      toast.error("Revision reason is required");
+      return;
+    }
+
+    try {
+      setAmending(true);
+      await api.amendPurchaseOrder(poId as string, {
+        reason: amendmentForm.reason,
+        changes: {
+          expected_delivery_date: amendmentForm.expectedDeliveryDate || null,
+          payment_terms: amendmentForm.paymentTerms,
+          delivery_terms: amendmentForm.deliveryTerms,
+          warranty: amendmentForm.warranty,
+          notes: amendmentForm.notes,
+        },
+      });
+      toast.success("PO revision recorded");
+      setShowAmendModal(false);
+      fetchPo();
+    } catch (e: any) {
+      toast.error("Failed to amend PO: " + e.message);
+    } finally {
+      setAmending(false);
+    }
+  };
+  const selectedQuotation = poData.quotation || null;
+  const quotedLines = Array.isArray(selectedQuotation?.lines) ? selectedQuotation.lines : [];
+  const quotationSubtotal = quotedLines.reduce((sum: number, line: any) => {
+    return sum + toNumber(line.quantity) * toNumber(line.unitPrice);
+  }, 0);
+  const subtotal = quotationSubtotal || toNumber(poData.subtotal);
+  const discountAmount = toNumber(selectedQuotation?.discount ?? poData.discountAmount);
+  const freightCharges = toNumber(selectedQuotation?.freightCharges ?? poData.freightCharges);
+  const quotationTaxPercentage = toNumber(selectedQuotation?.tax);
   const taxableAmount = subtotal - discountAmount;
+  const taxAmount = selectedQuotation
+    ? Math.max(taxableAmount, 0) * quotationTaxPercentage / 100
+    : toNumber(poData.taxAmount);
   const discountPercentage = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
-  const taxPercentage = taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0;
+  const taxPercentage = selectedQuotation
+    ? quotationTaxPercentage
+    : taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0;
+  const quotationTotal =
+    toNumber(selectedQuotation?.totalAmount) ||
+    toNumber(poData.totalAmount) ||
+    Math.max(taxableAmount, 0) + taxAmount + freightCharges;
+  const itemsQuoted = quotedLines.length || poData.items?.length || 0;
+  const expectedDelivery =
+    selectedQuotation?.expectedDeliveryDate || poData.expectedDeliveryDate || "Not specified";
+  const paymentTerms = selectedQuotation?.paymentTerms || poData.paymentTerms || "Not specified";
+  const deliveryTerms = poData.deliveryTerms || selectedQuotation?.deliveryTime || "Not specified";
+  const warranty = poData.warranty || selectedQuotation?.warranty || "Not specified";
+  const attachments = Array.isArray(poData.attachments) ? poData.attachments : selectedQuotation?.documents || [];
+  const lifecycleSteps = [
+    "DRAFT",
+    "PENDING_FINANCE",
+    "APPROVED",
+    "SENT",
+    "ACKNOWLEDGED",
+    "PARTIALLY_RECEIVED",
+    "FULLY_RECEIVED",
+    "CLOSED",
+  ];
+  const currentLifecycleIndex = Math.max(0, lifecycleSteps.indexOf(String(poData.status || "").toUpperCase()));
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -178,6 +282,26 @@ function PurchaseOrder() {
               Resend to Supplier
             </Button>
           )}
+          {poData.status === "SENT" && (
+            <Button
+              className="rounded-xl bg-success text-white hover:bg-success/90"
+              onClick={handleAcknowledge}
+              disabled={acknowledging}
+            >
+              {acknowledging ? (
+                <Loader2 className="size-4 animate-spin mr-2" />
+              ) : (
+                <ClipboardCheck className="size-4 mr-2" />
+              )}
+              Acknowledge
+            </Button>
+          )}
+          {!["CLOSED", "CANCELLED", "FULLY_RECEIVED"].includes(poData.status) && (
+            <Button variant="outline" className="rounded-xl" onClick={openAmendment}>
+              <SquarePen className="size-4 mr-2" />
+              Amend PO
+            </Button>
+          )}
           <Button
             variant="outline"
             className="rounded-xl"
@@ -210,10 +334,30 @@ function PurchaseOrder() {
           <SectionCard title="PO Information" icon={FileText}>
             <div className="grid gap-3">
               <Field label="PO Number" value={poData.poNumber} mono />
+              <Field label="Revision" value={`Version ${poData.revisionNumber || poData.revision_number || 1}`} />
               <Field label="PO Date" value={new Date(poData.createdAt).toLocaleDateString()} />
               <Field label="Status" value={<StatusBadge status={poData.status} />} />
               <Field label="Procurement Officer" value={poData.procurementOfficer} />
               <Field label="Department" value={poData.department || "Procurement"} />
+            </div>
+          </SectionCard>
+
+          <SectionCard title="PO Lifecycle" icon={ClipboardCheck}>
+            <div className="space-y-2">
+              {lifecycleSteps.map((step, index) => (
+                <div
+                  key={step}
+                  className={cn(
+                    "flex items-center justify-between rounded-xl border px-3 py-2 text-xs font-bold",
+                    index <= currentLifecycleIndex
+                      ? "border-primary/25 bg-primary-soft/20 text-primary"
+                      : "border-border/60 bg-muted/20 text-muted-foreground",
+                  )}
+                >
+                  <span>{step.replace("PENDING_FINANCE", "Pending Approval").replaceAll("_", " ")}</span>
+                  {index <= currentLifecycleIndex && <CheckCircle2 className="size-3.5" />}
+                </div>
+              ))}
             </div>
           </SectionCard>
 
@@ -226,6 +370,7 @@ function PurchaseOrder() {
               <Field label="Email" value={poData.supplierEmail} />
               <Field label="GSTIN" value={poData.supplierGstin} mono />
               <Field label="Address" value={poData.supplierAddress} />
+              <Field label="Billing Address" value={poData.billingAddress || poData.supplierAddress} />
             </div>
           </SectionCard>
 
@@ -360,7 +505,7 @@ function PurchaseOrder() {
             icon={CheckCircle2}
           >
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <SummaryMetric label="Items quoted" value={`${poData.items?.length || 0}`} />
+              <SummaryMetric label="Items quoted" value={`${itemsQuoted}`} />
               <SummaryMetric label="Subtotal" value={formatCurrency(subtotal)} />
               <SummaryMetric
                 label={`Discount (${discountPercentage.toFixed(2)}%)`}
@@ -374,14 +519,16 @@ function PurchaseOrder() {
               <SummaryMetric label="Freight charges" value={formatCurrency(freightCharges)} />
               <SummaryMetric
                 label="Quotation total"
-                value={formatCurrency(Number(poData.totalAmount) || 0)}
+                value={formatCurrency(quotationTotal)}
                 valueClassName="text-primary"
                 emphasis
               />
             </div>
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
-              <span>Expected delivery: {poData.expectedDeliveryDate || "Not specified"}</span>
-              <span>Payment: {poData.paymentTerms || "Not specified"}</span>
+              <span>Expected delivery: {expectedDelivery}</span>
+              <span>Payment: {paymentTerms}</span>
+              <span>Delivery terms: {deliveryTerms}</span>
+              <span>Warranty: {warranty}</span>
             </div>
           </SectionCard>
 
@@ -393,6 +540,7 @@ function PurchaseOrder() {
                   label="Expected Delivery"
                   value={poData.expectedDeliveryDate || "As per schedule"}
                 />
+                <Field label="Delivery Terms" value={deliveryTerms} />
                 <Field label="Delivery Address" value={poData.deliveryAddress} />
               </div>
             </SectionCard>
@@ -402,11 +550,133 @@ function PurchaseOrder() {
                 <Field label="Selected By" value={poData.selectedBy} />
                 <Field label="Selection Reason" value={poData.selectionReason} />
                 <Field label="Payment Terms" value={poData.paymentTerms} />
+                <Field label="Warranty" value={warranty} />
+                <Field label="Notes" value={poData.notes || poData.procurementComments} />
               </div>
             </SectionCard>
           </div>
+
+          <SectionCard title="Attachments" icon={Paperclip}>
+          {attachments.length > 0 ? (
+              <div className="grid gap-2">
+                {attachments.map((attachment: any, index: number) => (
+                  <a
+                    key={`${attachment.file_url || attachment.fileUrl || index}`}
+                    href={attachment.file_url || attachment.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs font-bold text-primary hover:bg-primary-soft/20"
+                  >
+                    <span>{attachment.file_name || attachment.fileName || `Attachment ${index + 1}`}</span>
+                    <Download className="size-3.5" />
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No attachments recorded for this PO.</p>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Revision History" icon={History}>
+            {poData.revisions?.length ? (
+              <div className="space-y-3">
+                {poData.revisions.map((revision: any, index: number) => (
+                  <div key={`${revision.revisionNumber || revision.revision_number}-${revision.changedField || revision.changed_field}-${index}`} className="rounded-xl border border-border/60 bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-black uppercase text-primary">
+                        Version {revision.revisionNumber || revision.revision_number} · {revision.changedField || revision.changed_field}
+                      </p>
+                      <p className="text-[10px] font-mono text-muted-foreground">
+                        {new Date(revision.changedAt || revision.changed_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                      <Field label="Old Value" value={revision.oldValue ?? revision.old_value ?? "-"} />
+                      <Field label="New Value" value={revision.newValue ?? revision.new_value ?? "-"} />
+                      <Field label="Changed By" value={revision.changedBy || revision.changed_by} />
+                      <Field label="Reason" value={revision.reason} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No PO revisions recorded.</p>
+            )}
+          </SectionCard>
         </div>
       </div>
+
+      <Dialog open={showAmendModal} onOpenChange={(open) => !amending && setShowAmendModal(open)}>
+        <DialogContent className="sm:max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SquarePen className="size-5 text-primary" /> Amend Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Changes create a new revision and preserve old values in the PO audit trail.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitAmendment} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Expected delivery date</Label>
+                <Input
+                  type="date"
+                  value={amendmentForm.expectedDeliveryDate}
+                  onChange={(event) => setAmendmentForm((current) => ({ ...current, expectedDeliveryDate: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Warranty</Label>
+                <Input
+                  value={amendmentForm.warranty}
+                  onChange={(event) => setAmendmentForm((current) => ({ ...current, warranty: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Payment terms</Label>
+                <Input
+                  value={amendmentForm.paymentTerms}
+                  onChange={(event) => setAmendmentForm((current) => ({ ...current, paymentTerms: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Delivery terms</Label>
+                <Input
+                  value={amendmentForm.deliveryTerms}
+                  onChange={(event) => setAmendmentForm((current) => ({ ...current, deliveryTerms: event.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <Textarea
+                value={amendmentForm.notes}
+                onChange={(event) => setAmendmentForm((current) => ({ ...current, notes: event.target.value }))}
+                className="min-h-20"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Reason <span className="text-destructive">*</span></Label>
+              <Textarea
+                value={amendmentForm.reason}
+                onChange={(event) => setAmendmentForm((current) => ({ ...current, reason: event.target.value }))}
+                className="min-h-20"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t pt-4">
+              <Button type="button" variant="outline" onClick={() => setShowAmendModal(false)} disabled={amending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={amending}>
+                {amending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <SquarePen className="mr-2 size-4" />}
+                Save Revision
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {poData.status === "REJECTED" && (
         <Card className="mt-6 border-destructive/30 bg-destructive/5 overflow-hidden">
@@ -537,20 +807,33 @@ function PurchaseOrder() {
             {damagedGoodsData.materials?.some((m: any) => m.photos && m.photos.length > 0) && (
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Attached Damage Evidence Photos</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {damagedGoodsData.materials.flatMap((m: any) =>
-                    (m.photos || []).map((p: any) => (
-                      <div
-                        key={p.id}
-                        className="group relative rounded-xl overflow-hidden border bg-black/5 cursor-pointer"
-                        onClick={() => setEnlargedPhoto(p.url)}
-                      >
-                        <img src={p.url} alt={p.file_name} className="h-24 w-full object-cover group-hover:scale-105 transition-transform" />
-                        <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-1.5 py-0.5 truncate font-mono">
-                          {m.item_code}: {p.file_name}
+                    (m.photos || []).map((p: any) => {
+                      const fullUrl = p.url?.startsWith("http") || p.url?.startsWith("data:")
+                        ? p.url
+                        : `${BUSINESS_API_URL}${p.url?.startsWith("/") ? "" : "/"}${p.url}`;
+                      return (
+                        <div
+                          key={p.id}
+                          className="group relative rounded-xl overflow-hidden border bg-black/5 cursor-pointer shadow-xs hover:border-rose-400 hover:shadow-md transition-all"
+                          onClick={() => setEnlargedPhoto(fullUrl)}
+                        >
+                          <img
+                            src={fullUrl}
+                            alt={p.file_name}
+                            className="h-28 w-full object-cover group-hover:scale-105 transition-transform"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23e11d48' stroke-width='2'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E";
+                            }}
+                          />
+                          <div className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[10px] px-2 py-1 truncate font-mono">
+                            {m.item_code}: {p.file_name}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

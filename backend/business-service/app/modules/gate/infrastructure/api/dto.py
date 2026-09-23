@@ -124,12 +124,15 @@ class GateEntryResponse(ApiModel):
     ocr_result: Optional[OcrResultDto] = None
     mismatched_fields: List[FieldMismatchDto] = Field(default_factory=list)
     verified_by: Optional[str] = None
+    exited_at: Optional[str] = None
+    exited_by: Optional[str] = None
     created_at: str
     updated_at: str
 
 
 class AssignDockRequest(ApiModel):
-    dock_id: str = Field(..., min_length=1, max_length=32)
+    dock_id: str = Field(..., min_length=1, max_length=64)
+    store_id: Optional[str] = Field(default=None, max_length=64, description="Assigned Store ID or Code")
 
 
 class CreateDockRequest(ApiModel):

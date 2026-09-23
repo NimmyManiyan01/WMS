@@ -64,14 +64,7 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-3.1-flash-lite-preview")
 
     # --- CORS ------------------------------------------------------------------
-    cors_allow_origins: List[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-        ]
-    )
+    cors_allow_origins: List[str] = Field(default_factory=lambda: ["http://localhost:8080", "http://127.0.0.1:8080"])
 
     # --- Observability -----------------------------------------------------------
     otel_exporter_otlp_endpoint: str = Field(default="http://otel-collector:4317")
@@ -87,6 +80,8 @@ class Settings(BaseSettings):
     finance_password: str = Field(default="finance")
     warehouse_username: str = Field(default="warehouse")
     warehouse_password: str = Field(default="warehouse")
+    manager_username: str = Field(default="manager")
+    manager_password: str = Field(..., description="Required manager login secret; must be configured via environment variables.")
     assembly_manager_username: str = Field(default="assembly_manager")
     assembly_manager_password: str = Field(default="assembly123")
     gate_security_username: str = Field(default="gate_entry")
@@ -95,20 +90,20 @@ class Settings(BaseSettings):
     gate_entry_password: str = Field(default="gate123")
     supplier_username: str = Field(default="supplier")
     supplier_password: str = Field(default="supplier123")
-    dispatch_username: str = Field(default="dispatch")
-    dispatch_password: str = Field(default="dispatch123")
+    grn_username: str = Field(default="grn")
+    grn_password: str = Field(default="grn123")
 
     # --- Email SMTP Settings ----------------------------------------------------
     email_host: str = Field(default="smtp.gmail.com")
-    email_port: int = Field(default=465)
+    email_port: int = Field(default=587)
     email_timeout_seconds: int = Field(default=8, ge=1, le=60)
     email_host_user: str = Field(default="")
     email_host_password: str = Field(default="")
     email_from_name: str = Field(default="NexusWMS Procurement")
-    procurement_email: str = Field(default="spoorthiharakuni55@gmail.com")
-    warehouse_email: str = Field(default="")
+    procurement_email: str = Field(default="")
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

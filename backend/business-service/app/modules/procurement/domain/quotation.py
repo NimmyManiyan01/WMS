@@ -41,9 +41,11 @@ class Quotation(AggregateRoot):
         discount: Decimal | None = None,
         tax: Decimal | None = None,
         freight_charges: Decimal | None = None,
+        additional_charges: Decimal | None = None,
         delivery_time: str | None = None,
         expected_delivery_date: date | None = None,
         payment_terms: str | None = None,
+        warranty: str | None = None,
         quotation_validity: date | None = None,
         remarks: str | None = None,
         documents: List[QuotationDocument] | None = None,
@@ -59,9 +61,11 @@ class Quotation(AggregateRoot):
         self.discount = discount
         self.tax = tax
         self.freight_charges = freight_charges
+        self.additional_charges = additional_charges
         self.delivery_time = delivery_time
         self.expected_delivery_date = expected_delivery_date
         self.payment_terms = payment_terms
+        self.warranty = warranty
         self.quotation_validity = quotation_validity
         self.remarks = remarks
         self.documents = documents or []
@@ -75,24 +79,23 @@ class Quotation(AggregateRoot):
         discount: Decimal | None = None,
         tax: Decimal | None = None,
         freight_charges: Decimal | None = None,
+        additional_charges: Decimal | None = None,
         delivery_time: str | None = None,
         expected_delivery_date: date | None = None,
         payment_terms: str | None = None,
+        warranty: str | None = None,
         quotation_validity: date | None = None,
         remarks: str | None = None,
         documents: List[QuotationDocument] = None,
     ) -> Quotation:
         total_amount = sum((line.quantity * line.unit_price for line in lines), Decimal("0"))
-        # Adjust total_amount for tax/freight/discount if needed, or keep sum. Let's do simple calculation:
-        # total = (sum(qty * price) - discount) + tax + freight
         disc = discount or Decimal("0")
         tx = tax or Decimal("0")
         fr = freight_charges or Decimal("0")
-        # Let's say tax is percentage, e.g. total_amount * (tx / 100) or value. Let's treat tax as a value/flat amount or calculate:
-        # standard is total_amount = (base_amount - discount) + (base_amount - discount)*tax/100 + freight_charges
-        base_amount = total_amount - disc
+        add = additional_charges or Decimal("0")
+        base_amount = max(Decimal("0"), total_amount - disc)
         calculated_tax = base_amount * (tx / Decimal("100")) if tx > 0 else Decimal("0")
-        net_amount = base_amount + calculated_tax + fr
+        net_amount = base_amount + calculated_tax + fr + add
 
         q = Quotation(
             id=QuotationId.new_id(),
@@ -104,9 +107,11 @@ class Quotation(AggregateRoot):
             discount=discount,
             tax=tax,
             freight_charges=freight_charges,
+            additional_charges=additional_charges,
             delivery_time=delivery_time,
             expected_delivery_date=expected_delivery_date,
             payment_terms=payment_terms,
+            warranty=warranty,
             quotation_validity=quotation_validity,
             remarks=remarks,
             documents=documents or [],

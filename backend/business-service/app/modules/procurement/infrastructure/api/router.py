@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import asyncio
 import uuid
+import hashlib
+import secrets
 from io import BytesIO
 from datetime import date, datetime
 from decimal import Decimal
@@ -14,7 +16,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
@@ -25,7 +27,6 @@ from sqlalchemy.orm import aliased, selectinload, joinedload
 from app.modules.gate.infrastructure.persistence.models import GateEntryModel
 
 from app.common.domain.exceptions import DomainRuleViolationException, NotFoundException
-from app.config.settings import get_settings
 from app.logging.logger import get_logger
 
 from app.database.session import UnitOfWork, get_uow
@@ -71,6 +72,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ContactRequest,
     CreateSupplierRequest,
     UpdateSupplierRequest,
+    SupplierStatusRequest,
     DocumentRequest,
     MasterDataCreate,
     MasterDataResponse,
@@ -94,15 +96,16 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ArrivalNotificationResponse,
     PurchaseOrderResponse,
     PurchaseOrderItemSchema,
+    PurchaseOrderAmendmentRequest,
     MaterialRequestResponse,
     MaterialRequestItemSchema,
     CreateMaterialRequest,
-    CreateFinishedGoodsRequest,
-    FinishedGoodsRequestResponse,
+    MaterialRequestStatusRequest,
     SupplierSelectionRequest,
     MaterialStockResponse,
     FinanceApprovalResponse,
     POApprovalHistorySchema,
+    PORevisionSchema,
     ProcurementStatsResponse,
     ProcurementTrendItem,
     SupplierLoginRequest,
@@ -110,10 +113,6 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ChangePasswordRequest,
     DevLoginRequest,
     GlobalSearchResponse,
-    PoDamagedGoodsResponse,
-    DamagedMaterialItemSchema,
-    DamagedMaterialPhotoSchema,
-    NotificationHistoryItemSchema,
 )
 from app.modules.procurement.infrastructure.persistence.models import (
     SupplierModel,
@@ -132,11 +131,11 @@ from app.modules.procurement.infrastructure.persistence.models import (
     QuotationDocumentModel,
     PurchaseOrderModel,
     PurchaseOrderItemModel,
+    PORevisionModel,
     MaterialModel,
     MaterialVariantModel,
     MaterialRequestModel,
     MaterialRequestItemModel,
-    FinishedGoodsRequestModel,
     MaterialStockModel,
     POApprovalHistoryModel,
     NotificationModel,
@@ -152,10 +151,21 @@ from app.modules.procurement.infrastructure.persistence.repository_impl import (
 )
 from app.common.email_utils import render_premium_email, send_email
 from app.security.dependencies import CurrentUser, get_current_user
+from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/procurement", tags=["procurement"])
+
+
+def verify_procurement_role(_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    roles_upper = {r.upper() for r in (_user.roles or [])}
+    if not any(r in roles_upper for r in ["PROCUREMENT", "PROCUREMENT_OFFICER", "MANAGER", "ADMIN", "SUPERUSER"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Procurement role required."
+        )
+    return _user
 
 
 @router.get("/health", tags=["ops"])
@@ -175,6 +185,33 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         total_suppliers_res = await uow.session.execute(total_suppliers_stmt)
         total_suppliers = total_suppliers_res.scalar() or 0
 
+        pending_supplier_registrations_stmt = select(func.count(SupplierModel.id)).where(
+            func.lower(SupplierModel.status).like("%pending%")
+        )
+        pending_supplier_registrations_res = await uow.session.execute(pending_supplier_registrations_stmt)
+        pending_supplier_registrations = pending_supplier_registrations_res.scalar() or 0
+
+        pending_material_requests_stmt = select(func.count(MaterialRequestModel.id)).where(
+            MaterialRequestModel.status == "Submitted"
+        )
+        pending_material_requests_res = await uow.session.execute(pending_material_requests_stmt)
+        pending_material_requests = pending_material_requests_res.scalar() or 0
+
+        pending_request_sources_stmt = (
+            select(MaterialRequestModel.warehouse_id, MaterialRequestModel.department)
+            .where(MaterialRequestModel.status == "Submitted")
+            .order_by(MaterialRequestModel.created_at.desc())
+            .limit(3)
+        )
+        pending_request_sources_res = await uow.session.execute(pending_request_sources_stmt)
+        pending_material_request_sources = []
+        for warehouse_id, department in pending_request_sources_res.all():
+            source_parts = [part for part in (warehouse_id, department) if part]
+            if source_parts:
+                pending_material_request_sources.append(" / ".join(source_parts))
+
+        expiring_supplier_documents = 0
+
 
         open_pos_stmt = select(func.count(PurchaseOrderModel.id)).where(
             PurchaseOrderModel.status.in_(["APPROVED", "SENT", "DISPATCHED", "SHIPPED"])
@@ -186,6 +223,57 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         total_value_stmt = select(func.sum(PurchaseOrderModel.total_amount))
         total_value_res = await uow.session.execute(total_value_stmt)
         total_po_value = total_value_res.scalar() or Decimal("0.0")
+
+        pending_approvals_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status.in_([
+                "DRAFT",
+                "PENDING_APPROVAL",
+                "PENDING_FINANCE",
+                "SUBMITTED",
+                "RESUBMITTED",
+            ])
+        )
+        pending_approvals_res = await uow.session.execute(pending_approvals_stmt)
+        pending_approvals = pending_approvals_res.scalar() or 0
+
+        pending_quotations_stmt = select(func.count(RfqModel.id)).where(
+            RfqModel.status.in_(["PUBLISHED", "SENT", "OPEN", "INVITED", "PENDING_QUOTATION"])
+        )
+        pending_quotations_res = await uow.session.execute(pending_quotations_stmt)
+        pending_quotations = pending_quotations_res.scalar() or 0
+
+        awaiting_confirmation_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status == "SENT"
+        )
+        awaiting_confirmation_res = await uow.session.execute(awaiting_confirmation_stmt)
+        awaiting_supplier_confirmation = awaiting_confirmation_res.scalar() or 0
+
+        overdue_pos_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.expected_delivery_date < date.today(),
+            PurchaseOrderModel.status.notin_(["FULLY_RECEIVED", "RECEIVED", "CLOSED", "CANCELLED"]),
+        )
+        overdue_pos_res = await uow.session.execute(overdue_pos_stmt)
+        overdue_pos = overdue_pos_res.scalar() or 0
+
+        partially_received_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.status.in_(["PARTIALLY_RECEIVED", "PARTIAL_RECEIVED", "PARTIAL"])
+        )
+        partially_received_res = await uow.session.execute(partially_received_stmt)
+        partially_received_pos = partially_received_res.scalar() or 0
+
+        rfqs_closing_today_stmt = select(func.count(RfqModel.id)).where(
+            cast(RfqModel.closing_date, Date) == date.today(),
+            RfqModel.status.notin_(["CLOSED", "CANCELLED", "SELECTED"]),
+        )
+        rfqs_closing_today_res = await uow.session.execute(rfqs_closing_today_stmt)
+        rfqs_closing_today = rfqs_closing_today_res.scalar() or 0
+
+        asns_expected_today_stmt = select(func.count(AsnModel.id)).where(
+            cast(AsnModel.expected_arrival_at, Date) == date.today(),
+            AsnModel.status.notin_(["RECEIVED", "COMPLETED", "CANCELLED", "GRN_POSTED"]),
+        )
+        asns_expected_today_res = await uow.session.execute(asns_expected_today_stmt)
+        asns_expected_today = asns_expected_today_res.scalar() or 0
 
 
 
@@ -239,6 +327,17 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
             active_suppliers=active_suppliers,
             total_suppliers=total_suppliers,
             open_pos=open_pos,
+            pending_material_requests=pending_material_requests,
+            pending_material_request_sources=pending_material_request_sources,
+            pending_supplier_registrations=pending_supplier_registrations,
+            expiring_supplier_documents=expiring_supplier_documents,
+            pending_approvals=pending_approvals,
+            pending_quotations=pending_quotations,
+            awaiting_supplier_confirmation=awaiting_supplier_confirmation,
+            overdue_pos=overdue_pos,
+            partially_received_pos=partially_received_pos,
+            rfqs_closing_today=rfqs_closing_today,
+            asns_expected_today=asns_expected_today,
             compliance_rate=round(compliance_rate, 1) if compliance_rate is not None else None,
             compliance_target=99.0,
             total_po_value=total_po_value,
@@ -353,119 +452,86 @@ async def get_next_mr_number(uow: UnitOfWork = Depends(get_uow)):
     }
 
 
+MR_STATUS_ALIASES = {
+    "PENDING": "Submitted",
+    "PROCESSED": "Approved",
+    "COMPLETED": "Closed",
+    "CANCELLED": "Closed",
+}
+MR_ALLOWED_STATUSES = {
+    "Draft",
+    "Submitted",
+    "Pending Approval",
+    "Approved",
+    "Rejected",
+    "Converted to RFQ",
+    "Closed",
+}
+MR_STATUS_TRANSITIONS = {
+    "Draft": {"Submitted", "Closed"},
+    "Submitted": {"Approved", "Rejected", "Closed"},
+    "Pending Approval": {"Approved", "Rejected", "Closed"},
+    "Approved": {"Converted to RFQ", "Closed"},
+    "Rejected": {"Draft", "Closed"},
+    "Converted to RFQ": {"Closed"},
+    "Closed": set(),
+}
+
+
+def _normalize_mr_status(value: str | None) -> str:
+    raw = (value or "Submitted").strip()
+    return MR_STATUS_ALIASES.get(raw.upper(), raw)
+
+
+def _material_request_response(m: MaterialRequestModel) -> MaterialRequestResponse:
+    def loaded_item_category(item: MaterialRequestItemModel) -> str | None:
+        if not _is_rel_loaded(item, "material"):
+            return None
+        return getattr(item.material, "category", None)
+
+    return MaterialRequestResponse(
+        id=str(m.id),
+        request_number=m.request_number,
+        warehouse_id=m.warehouse_id,
+        department=m.department,
+        requested_by=m.requested_by,
+        status=_normalize_mr_status(m.status),
+        priority=getattr(m, "priority", None) or "MEDIUM",
+        required_date=m.required_date,
+        remarks=m.remarks,
+        suggested_supplier=getattr(m, "suggested_supplier", None),
+        attachments=getattr(m, "attachments", None) or [],
+        approval_history=getattr(m, "approval_history", None) or [],
+        items=[
+            MaterialRequestItemSchema(
+                material_id=str(it.material_id) if it.material_id else None,
+                material_variant_id=str(it.material_variant_id) if it.material_variant_id else None,
+                material_code=it.material_code,
+                variant_code=it.variant_code,
+                material_name=it.material_name,
+                category=loaded_item_category(it),
+                quantity=it.quantity,
+                uom=it.uom,
+            )
+            for it in (m.items or [])
+        ],
+        created_at=m.created_at,
+        updated_at=getattr(m, "updated_at", None),
+    )
+
+
 @router.get("/material-requests", response_model=List[MaterialRequestResponse])
 async def list_material_requests(uow: UnitOfWork = Depends(get_uow)):
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).order_by(MaterialRequestModel.created_at.desc())
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .order_by(MaterialRequestModel.created_at.desc())
+    )
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
-    return [
-        MaterialRequestResponse(
-            id=str(m.id),
-            request_number=m.request_number,
-            warehouse_id=m.warehouse_id,
-            department=m.department,
-            requested_by=m.requested_by,
-            status=m.status,
-            required_date=m.required_date,
-            remarks=m.remarks,
-            items=[
-                MaterialRequestItemSchema(
-                    material_id=str(it.material_id) if it.material_id else None,
-                    material_variant_id=str(it.material_variant_id) if it.material_variant_id else None,
-                    material_code=it.material_code,
-                    variant_code=it.variant_code,
-                    material_name=it.material_name,
-                    quantity=it.quantity,
-                    uom=it.uom
-                )
-                for it in m.items
-            ],
-            created_at=m.created_at
-        )
-        for m in entities
-    ]
-
-
-def _to_finished_goods_response(request: FinishedGoodsRequestModel) -> FinishedGoodsRequestResponse:
-    return FinishedGoodsRequestResponse(
-        id=str(request.id),
-        request_number=request.request_number,
-        warehouse_id=request.warehouse_id,
-        finished_goods_code=request.finished_goods_code,
-        finished_goods_name=request.finished_goods_name,
-        quantity=request.quantity,
-        uom=request.uom,
-        required_date=request.required_date,
-        requested_by=request.requested_by,
-        status=request.status,
-        remarks=request.remarks,
-        created_at=request.created_at,
-        updated_at=request.updated_at,
-    )
-
-
-async def _next_finished_goods_request_number(uow: UnitOfWork) -> str:
-    year = datetime.now().year
-    prefix = f"FG-{year}-"
-    result = await uow.session.execute(
-        select(FinishedGoodsRequestModel.request_number).where(
-            FinishedGoodsRequestModel.request_number.like(f"{prefix}%")
-        )
-    )
-    highest_sequence = 0
-    for request_number in result.scalars().all():
-        try:
-            highest_sequence = max(highest_sequence, int(str(request_number).rsplit("-", 1)[-1]))
-        except (TypeError, ValueError):
-            continue
-    return f"{prefix}{highest_sequence + 1:04d}"
-
-
-@router.get("/finished-goods-requests", response_model=List[FinishedGoodsRequestResponse])
-async def list_finished_goods_requests(uow: UnitOfWork = Depends(get_uow)):
-    stmt = select(FinishedGoodsRequestModel).order_by(FinishedGoodsRequestModel.created_at.desc())
-    result = await uow.session.execute(stmt)
-    return [_to_finished_goods_response(request) for request in result.scalars().all()]
-
-
-@router.post(
-    "/finished-goods-requests",
-    response_model=FinishedGoodsRequestResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_finished_goods_request(
-    request: CreateFinishedGoodsRequest,
-    uow: UnitOfWork = Depends(get_uow),
-):
-    new_request = FinishedGoodsRequestModel(
-        id=uuid.uuid4(),
-        request_number=await _next_finished_goods_request_number(uow),
-        warehouse_id=request.warehouse_id.strip(),
-        finished_goods_code=request.finished_goods_code.strip() if request.finished_goods_code else None,
-        finished_goods_name=request.finished_goods_name.strip(),
-        quantity=request.quantity,
-        uom=request.uom.strip().upper(),
-        required_date=request.required_date,
-        requested_by=request.requested_by.strip(),
-        status="PENDING",
-        remarks=request.remarks.strip() if request.remarks else None,
-    )
-    uow.session.add(new_request)
-    uow.session.add(NotificationModel(
-        id=uuid.uuid4(),
-        user_role="WAREHOUSE",
-        title="Finished Goods Availability Request",
-        message=(
-            f"Procurement asked warehouse to confirm availability for "
-            f"{new_request.finished_goods_name} ({new_request.quantity} {new_request.uom})."
-        ),
-        link="/procurement/finished-goods",
-        is_read=False,
-        created_at=datetime.now(),
-    ))
-    await uow.commit()
-    await uow.session.refresh(new_request)
-    return _to_finished_goods_response(new_request)
+    return [_material_request_response(m) for m in entities]
 
 
 @router.post("/material-requests", status_code=status.HTTP_201_CREATED)
@@ -511,8 +577,19 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
         warehouse_id=request.warehouse_id.strip(),
         department=request.department.strip(),
         requested_by=request.requested_by.strip(),
-        status="PENDING",
+        status="Submitted",
+        priority=(request.priority or "MEDIUM").strip().upper(),
         required_date=request.required_date,
+        suggested_supplier=request.suggested_supplier.strip() if request.suggested_supplier else None,
+        attachments=request.attachments or [],
+        approval_history=[
+            {
+                "status": "Submitted",
+                "actor": request.requested_by.strip(),
+                "comments": "Material request created",
+                "timestamp": datetime.now().isoformat(),
+            }
+        ],
         remarks=request.remarks.strip() if request.remarks else None,
     )
 
@@ -624,6 +701,27 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
     }
 
 
+@router.get("/material-requests/{id}", response_model=MaterialRequestResponse)
+async def get_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
+    try:
+        req_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
+
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    req = res.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
+    return _material_request_response(req)
+
+
 @router.post("/material-requests/{id}/process")
 async def process_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     try:
@@ -637,13 +735,22 @@ async def process_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
 
-    if req.status and req.status.upper() != "PENDING":
+    current_status = _normalize_mr_status(req.status)
+    if current_status not in {"Submitted", "Pending Approval"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot process Material Request '{req.request_number}' in '{req.status}' status. Only PENDING requests can be processed."
+            detail=f"Cannot process Material Request '{req.request_number}' in '{current_status}' status."
         )
 
-    req.status = "PROCESSED"
+    req.status = "Approved"
+    history = list(getattr(req, "approval_history", None) or [])
+    history.append({
+        "status": "Approved",
+        "actor": "Procurement",
+        "comments": "Material request approved",
+        "timestamp": datetime.now().isoformat(),
+    })
+    req.approval_history = history
     await uow.commit()
     return {"status": "success"}
 
@@ -655,20 +762,32 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     mr = res.scalar_one_or_none()
     if not mr:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
 
-    if mr.status and mr.status.upper() in ["PROCESSED", "COMPLETED", "CANCELLED", "REJECTED"]:
+    current_status = _normalize_mr_status(mr.status)
+    if current_status not in {"Draft", "Submitted", "Rejected"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot edit Material Request '{mr.request_number}' because it is in '{mr.status}' status."
+            detail=f"Cannot edit Material Request '{mr.request_number}' because it is in '{current_status}' status."
         )
 
+    mr.warehouse_id = request.warehouse_id.strip()
     mr.department = request.department.strip()
+    mr.requested_by = request.requested_by.strip()
+    mr.priority = (request.priority or "MEDIUM").strip().upper()
     mr.required_date = request.required_date
+    mr.suggested_supplier = request.suggested_supplier.strip() if request.suggested_supplier else None
+    mr.attachments = request.attachments or []
     mr.remarks = request.remarks.strip() if request.remarks else None
 
     mr.items = []
@@ -761,6 +880,61 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     return {"status": "success"}
 
 
+@router.post("/material-requests/{id}/status", response_model=MaterialRequestResponse)
+async def update_material_request_status(
+    id: str,
+    request: MaterialRequestStatusRequest,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    try:
+        req_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
+
+    requested_status = request.status.strip()
+    status_lookup = {s.lower(): s for s in MR_ALLOWED_STATUSES}
+    canonical_status = status_lookup.get(requested_status.lower())
+    if not canonical_status:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported material request status '{request.status}'.",
+        )
+
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    mr = res.scalar_one_or_none()
+    if not mr:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material request not found")
+
+    current_status = _normalize_mr_status(mr.status)
+    allowed_next = MR_STATUS_TRANSITIONS.get(current_status, set())
+    if canonical_status != current_status and canonical_status not in allowed_next:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot move Material Request '{mr.request_number}' from '{current_status}' to '{canonical_status}'.",
+        )
+
+    mr.status = canonical_status
+    history = list(getattr(mr, "approval_history", None) or [])
+    history.append({
+        "status": canonical_status,
+        "actor": (request.actor or "System").strip(),
+        "comments": request.comments.strip() if request.comments else None,
+        "timestamp": datetime.now().isoformat(),
+    })
+    mr.approval_history = history
+    await uow.commit()
+    refreshed_res = await uow.session.execute(stmt)
+    refreshed_mr = refreshed_res.scalar_one_or_none()
+    return _material_request_response(refreshed_mr or mr)
+
+
 @router.get("/material-stock", response_model=List[MaterialStockResponse])
 async def list_material_stock(uow: UnitOfWork = Depends(get_uow)):
     try:
@@ -821,6 +995,10 @@ def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
             industry=getattr(entity, 'industry', None),
             gstin=getattr(entity, 'gstin', None),
             main_materials=getattr(entity, 'main_materials', []) if isinstance(getattr(entity, 'main_materials', None), list) else [],
+            payment_terms=getattr(entity, 'payment_terms', None),
+            credit_period_days=getattr(entity, 'credit_period_days', None),
+            rating=getattr(entity, 'rating', None),
+            performance_score=getattr(entity, 'performance_score', None),
             address=SupplierAddressResponse(
                 registered_address=getattr(addr, 'registered_address', None),
                 city=getattr(addr, 'city', None),
@@ -871,6 +1049,37 @@ def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
             supplier_name=getattr(entity, 'supplier_name', "Mapping Error"),
             created_at=datetime.now()
         )
+
+
+SUPPLIER_STATUSES = {"Draft", "Pending Approval", "Active", "Suspended", "Blocked"}
+REQUIRED_ACTIVE_DOCUMENTS = {"GST_CERTIFICATE", "CANCELLED_CHEQUE"}
+
+
+def _normalize_document_type(value: str) -> str:
+    return str(value or "").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def _supplier_activation_gaps(entity: SupplierModel) -> list[str]:
+    gaps: list[str] = []
+    if not getattr(entity, "registered_company_name", None):
+        gaps.append("registered company name")
+    if not getattr(entity, "gstin", None):
+        gaps.append("GSTIN")
+    if not getattr(entity, "category", None):
+        gaps.append("supplier category")
+    if not getattr(entity, "address", None):
+        gaps.append("registered address")
+    if not getattr(entity, "contact", None):
+        gaps.append("primary contact")
+    if not getattr(entity, "bank_info", None):
+        gaps.append("bank details")
+
+    docs = getattr(entity, "documents", None) or []
+    uploaded_types = {_normalize_document_type(getattr(doc, "document_type", "")) for doc in docs}
+    missing_docs = sorted(REQUIRED_ACTIVE_DOCUMENTS - uploaded_types)
+    if missing_docs:
+        gaps.append(f"required documents: {', '.join(missing_docs)}")
+    return gaps
 
 
 @router.post("/suppliers/documents")
@@ -983,6 +1192,11 @@ async def create_supplier(
         )
         supplier_id = await use_case.handle(command)
         entity = await repo.find_by_id(supplier_id)
+        if entity:
+            entity.payment_terms = request.payment_terms
+            entity.credit_period_days = request.credit_period_days
+            entity.status = "Pending Approval"
+            await uow.commit()
         return _response_from_entity(entity)
     except DomainRuleViolationException as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -1063,7 +1277,16 @@ async def get_supplier(
         if not entity:
             raise HTTPException(status_code=404, detail="Supplier not found")
 
-        return _response_from_entity(entity)
+        response = _response_from_entity(entity)
+        history_stmt = select(
+            func.count(PurchaseOrderModel.id),
+            func.coalesce(func.sum(PurchaseOrderModel.total_amount), Decimal("0")),
+        ).where(PurchaseOrderModel.supplier_id == supplier_id)
+        history_result = await uow.session.execute(history_stmt)
+        po_count, purchase_value = history_result.one()
+        response.purchase_order_count = int(po_count or 0)
+        response.purchase_value = purchase_value or Decimal("0")
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -1105,6 +1328,12 @@ async def update_supplier(
             updated_by=_user.username,
         )
         await use_case.handle(command)
+        model = await uow.session.get(SupplierModel, supplier_id)
+        if model:
+            if request.payment_terms is not None:
+                model.payment_terms = request.payment_terms
+            if request.credit_period_days is not None:
+                model.credit_period_days = request.credit_period_days
         await uow.commit()
 
 
@@ -1120,6 +1349,57 @@ async def update_supplier(
         return _response_from_entity(entity)
     except Exception as e:
         logger.error(f"Update supplier {id} failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suppliers/{id}/status", response_model=SupplierResponse)
+async def update_supplier_status(
+    id: str,
+    request: SupplierStatusRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> SupplierResponse:
+    try:
+        requested_status = request.status.strip()
+        status_lookup = {s.lower(): s for s in SUPPLIER_STATUSES}
+        canonical_status = status_lookup.get(requested_status.lower())
+        if not canonical_status:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unsupported supplier status '{request.status}'.",
+            )
+
+        supplier_id = uuid.UUID(str(id))
+        stmt = select(SupplierModel).options(
+            selectinload(SupplierModel.address),
+            selectinload(SupplierModel.contact),
+            selectinload(SupplierModel.bank_info),
+            selectinload(SupplierModel.documents),
+        ).where(SupplierModel.id == supplier_id)
+        res = await uow.session.execute(stmt)
+        entity = res.scalar_one_or_none()
+        if not entity:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+
+        if canonical_status == "Active":
+            gaps = _supplier_activation_gaps(entity)
+            if gaps:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Supplier cannot become Active until these are complete: " + ", ".join(gaps),
+                )
+
+        entity.status = canonical_status
+        entity.updated_by = _user.username
+        if request.remarks:
+            entity.remarks = request.remarks
+        await uow.commit()
+        await uow.session.refresh(entity)
+        return _response_from_entity(entity)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update supplier status {id} failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1185,9 +1465,23 @@ async def unblock_supplier(
 async def create_rfq(
     request: CreateRfqRequest,
     uow: UnitOfWork = Depends(get_uow),
-    _user: CurrentUser = Depends(get_current_user),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ) -> RfqResponse:
     try:
+        if request.material_request_number:
+            mr_stmt = select(MaterialRequestModel).where(
+                MaterialRequestModel.request_number == request.material_request_number
+            )
+            mr_res = await uow.session.execute(mr_stmt)
+            mr = mr_res.scalar_one_or_none()
+            if mr:
+                mr_status = _normalize_mr_status(mr.status)
+                if mr_status != "Approved":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Material Request '{request.material_request_number}' must be Approved before RFQ creation.",
+                    )
+
         repo = SqlAlchemyRfqRepository(uow.session)
         use_case = CreateRfqUseCase(repo)
         command = CreateRfqCommand(
@@ -1201,8 +1495,23 @@ async def create_rfq(
             remarks=request.remarks,
         )
         rfq_id = await use_case.handle(command)
+        if request.material_request_number:
+            mr_stmt = select(MaterialRequestModel).where(
+                MaterialRequestModel.request_number == request.material_request_number
+            )
+            mr_res = await uow.session.execute(mr_stmt)
+            mr = mr_res.scalar_one_or_none()
+            if mr:
+                mr.status = "Converted to RFQ"
+                history = list(getattr(mr, "approval_history", None) or [])
+                history.append({
+                    "status": "Converted to RFQ",
+                    "actor": _user.username,
+                    "comments": f"RFQ created from material request {request.material_request_number}",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                mr.approval_history = history
         await uow.commit()
-
 
         stmt = select(RfqModel).options(
             selectinload(RfqModel.items),
@@ -1227,8 +1536,8 @@ async def create_rfq(
 @router.post("/rfqs/{id}/send")
 async def send_rfq_endpoint(
     id: str,
-    background_tasks: BackgroundTasks,
-    uow: UnitOfWork = Depends(get_uow)
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ):
     repo = SqlAlchemyRfqRepository(uow.session)
 
@@ -1243,11 +1552,31 @@ async def send_rfq_endpoint(
         elif rfq.status != "OPEN":
             raise HTTPException(status_code=409, detail=f"Cannot send RFQ in status: {rfq.status}")
 
-        background_tasks.add_task(_notify_suppliers_rfq, id)
+        delivery_result = await _notify_suppliers_rfq(id)
+        sent = delivery_result.get("sent", 0)
+        failed = delivery_result.get("failed", 0)
+        total = delivery_result.get("total", 0)
+
+        if failed == 0 and sent > 0:
+            status_str = "sent"
+            msg = f"RFQ published. Supplier email sent successfully to {sent} supplier(s)."
+        elif sent > 0 and failed > 0:
+            status_str = "partially_sent"
+            msg = f"RFQ published. Supplier email partially sent: {sent} succeeded, {failed} failed."
+        elif total > 0 and sent == 0:
+            status_str = "failed"
+            msg = f"RFQ published, but email delivery failed for all {total} supplier(s)."
+        else:
+            status_str = "sent"
+            msg = "RFQ published."
+
         return {
-            "status": "queued",
-            "message": "RFQ published. Supplier emails are being delivered in the background.",
-            "delivery": {"status": "queued"},
+            "status": status_str,
+            "message": msg,
+            "delivery": delivery_result,
+            "sent": sent,
+            "failed": failed,
+            "total": total,
         }
     except HTTPException:
         raise
@@ -1259,50 +1588,70 @@ async def send_rfq_endpoint(
 
 
 async def _notify_suppliers_rfq(rfq_id: str):
-    """Persist supplier access, then deliver all supplier emails concurrently."""
+    """Persist supplier access, then deliver all supplier emails with full logging and tracking."""
     from app.database.session import session_scope
     import random
     import string
     import hashlib
     import os
+    import re
+    from sqlalchemy import or_
+    from app.config.settings import get_settings
+
+    settings = get_settings()
+    sender_email = settings.email_host_user or ""
 
     sent = 0
     failed = 0
     total = 0
     deliveries = []
     async with session_scope() as session:
+        clause = RfqModel.rfq_number == str(rfq_id)
+        try:
+            target_uuid = uuid.UUID(str(rfq_id))
+            clause = or_(RfqModel.id == target_uuid, clause)
+        except Exception:
+            pass
 
         stmt = (
             select(RfqModel)
             .options(
-                selectinload(RfqModel.suppliers).joinedload(SupplierModel.contact),
+                selectinload(RfqModel.suppliers).selectinload(SupplierModel.contact),
                 selectinload(RfqModel.items)
             )
-            .where(RfqModel.id == rfq_id)
+            .where(clause)
         )
         res = await session.execute(stmt)
         rfq = res.scalar_one_or_none()
 
         if not rfq:
-            logger.error(f"Background notify failed: RFQ {rfq_id} not found")
+            logger.error(f"RFQ notify failed: RFQ {rfq_id} not found in database")
             return {"total": 0, "sent": 0, "failed": 1}
 
+        notified_supplier_ids = set()
+        notified_emails = set()
         for supplier in rfq.suppliers:
+            supplier_key = str(supplier.id)
+            if supplier_key in notified_supplier_ids:
+                continue
+            notified_supplier_ids.add(supplier_key)
             total += 1
 
             su_stmt = select(SupplierUserModel).where(SupplierUserModel.supplier_id == supplier.id)
             su_res = await session.execute(su_stmt)
             sup_user = su_res.scalar_one_or_none()
 
-
             chars = string.ascii_letters + string.digits
             temp_password = "".join(random.choices(chars, k=10))
             password_hash = hashlib.sha256(temp_password.encode()).hexdigest()
 
             if not sup_user:
-
-                code = supplier.supplier_code or "".join(c for c in supplier.supplier_name if c.isalnum()).lower()[:10]
+                code = supplier.supplier_code or "".join(c for c in (supplier.supplier_name or "supplier") if c.isalnum()).lower()[:10]
                 username = f"supplier_{code.lower()}"
+                
+                existing_user = await session.execute(select(SupplierUserModel).where(SupplierUserModel.username == username))
+                if existing_user.scalar_one_or_none():
+                    username = f"{username}_{random.randint(100, 999)}"
 
                 sup_user = SupplierUserModel(
                     id=uuid.uuid4(),
@@ -1317,44 +1666,65 @@ async def _notify_suppliers_rfq(rfq_id: str):
                 sup_user.password_hash = password_hash
                 sup_user.must_change_password = False
 
-            email = None
+            raw_email = None
             if supplier.contact and supplier.contact.primary_email:
-                email = supplier.contact.primary_email
+                raw_email = str(supplier.contact.primary_email).strip()
 
+            if not raw_email:
+                sc_stmt = select(SupplierContactModel).where(SupplierContactModel.supplier_id == supplier.id)
+                sc_res = await session.execute(sc_stmt)
+                sup_contact = sc_res.scalar_one_or_none()
+                if sup_contact:
+                    raw_email = (sup_contact.primary_email or sup_contact.secondary_email or "").strip()
+
+            email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+            email_valid = bool(raw_email and re.match(email_pattern, raw_email))
+            email = raw_email.lower() if email_valid else None
+            subject = f"Request for Quotation - {rfq.rfq_number}"
+
+            logger.info(
+                f"\n--- RFQ SUPPLIER DISPATCH EVALUATION ---\n"
+                f"RFQ ID: {rfq.id}\n"
+                f"Supplier ID: {supplier.id}\n"
+                f"Supplier name: {supplier.supplier_name}\n"
+                f"Supplier email: {email or '<INVALID/MISSING>'}\n"
+                f"Sender email: {sender_email}\n"
+                f"Subject: {subject}\n"
+                f"-----------------------------------------"
+            )
+
+            if email and email in notified_emails:
+                logger.info(
+                    f"Skipping duplicate RFQ notification recipient {email} for RFQ {rfq.rfq_number}"
+                )
+                continue
             if email:
-                subject = f"Request for Quotation - {rfq.rfq_number}"
-
-
-                materials_str = ""
-                for idx, item in enumerate(rfq.items):
-                    materials_str += f"\nMaterial: {item.material_name}\nQuantity: {item.quantity} {item.uom}\nRequired Delivery: {item.required_delivery_date}\nWarehouse: {item.warehouse}\n"
-
+                notified_emails.add(email)
                 login_link = f"http://localhost:8080/login?redirect=/submit-quotation?rfqId={rfq.id}"
 
                 body = (
                     f"Dear {supplier.supplier_name},\n\n"
-                    f"We request you to submit a quotation for the following materials:\n"
-                    f"{materials_str}\n"
-                    f"Please use the following link to login and submit your quotation:\n\n"
-                    f"{login_link}\n\n"
-                    f"Your Credentials:\n"
+                    f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}.\n\n"
+                    f"Please use your authorized email address and password to log in and open your supplier portal:\n\n"
+                    f"Login Portal: {login_link}\n"
+                    f"Authorized Email ID: {email}\n"
                     f"Username: {username}\n"
-                    f"Temporary Password: {temp_password}\n\n"
-                    f"Note: This temporary access password was generated for your quotation submission.\n"
+                    f"Password: {temp_password}\n\n"
+                    f"Note: Keep these credentials secure. Log in using your email ID and password to access the supplier portal and submit your quotation.\n"
                 )
+
                 html_body = render_premium_email(
                     eyebrow="Request for quotation",
                     title=f"Quotation requested · {rfq.rfq_number}",
                     greeting=f"Hello {supplier.supplier_name},",
-                    intro="You have been invited to submit a commercial quotation. Review the requirements and respond through the secure supplier portal.",
+                    intro=f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}. Log in to your supplier portal using your authorized email ID and password below.",
                     details=(),
                     items=(),
                     items_heading=None,
-                    credentials=[("Username", username), ("Temporary password", temp_password)],
-                    primary_cta=("Review & submit quotation", login_link),
-                    note="Please submit your quotation before the RFQ closing date. Pricing and delivery commitments entered in the portal will form part of your official response.",
+                    credentials=[("Authorized Email ID", email), ("Username", username), ("Password", temp_password)],
+                    primary_cta=("Login to supplier portal", login_link),
+                    note=f"This account is uniquely associated with your authorized email address ({email}). Use your email ID and password to log in and open your supplier portal.",
                 )
-
 
                 os.makedirs(os.path.join("media_uploads", "emails"), exist_ok=True)
                 email_path = os.path.join("media_uploads", "emails", f"rfq_{rfq.rfq_number}_{username}.html")
@@ -1366,9 +1736,11 @@ async def _notify_suppliers_rfq(rfq_id: str):
 
                 deliveries.append((email, subject, body, html_body))
             else:
-                logger.warning(f"No primary email configured for supplier {supplier.id}")
+                logger.warning(
+                    f"Cannot send RFQ notification: Supplier {supplier.id} ({supplier.supplier_name}) "
+                    f"has no valid primary email configured (raw='{raw_email}')"
+                )
                 failed += 1
-
 
         await session.commit()
         results = await asyncio.gather(
@@ -1381,229 +1753,22 @@ async def _notify_suppliers_rfq(rfq_id: str):
                 logger.error(f"Failed to send RFQ notification to {email}: {result}")
                 failed += 1
             else:
-                logger.info(f"Sent RFQ notification to {email}")
+                logger.info(f"Successfully sent RFQ notification to {email}")
                 sent += 1
 
     return {"total": total, "sent": sent, "failed": failed}
 
 
 async def _send_email_logged(to_email: str, subject: str, body: str, html_body: str, context: str) -> None:
-    """Background delivery boundary: logs attempts, delivery results, and errors with full context."""
-    logger.info(f"Initiating email dispatch: context={context}, recipient={to_email}, subject={subject}")
+    """Background delivery boundary: failures are logged without delaying the API response."""
     try:
         delivered = await send_email(to_email, subject, body, html_body)
         if delivered:
-            logger.info(f"Email successfully delivered: context={context}, recipient={to_email}")
+            logger.info(f"{context} email delivered to {to_email}")
         else:
-            logger.warning(f"Email delivery skipped (SMTP not configured or placeholder credentials): context={context}, recipient={to_email}")
+            logger.error(f"{context} email skipped because SMTP is not configured")
     except Exception as error:
-        logger.error(f"Email delivery failed: context={context}, recipient={to_email}, reason={error}", exc_info=True)
-
-
-async def _dispatch_asn_email(
-    asn: AsnModel,
-    po_obj: PurchaseOrderModel | None,
-    supplier_name: str,
-    warehouse_name: str,
-    background_tasks: BackgroundTasks | None = None,
-    is_resubmit: bool = False,
-    supplier_email: str | None = None,
-) -> None:
-    """Generate and deliver the Advance Shipment Notice (ASN) email notification to supplier and warehouse."""
-    settings = get_settings()
-
-    expected_arrival_str = (
-        asn.expected_arrival_at.strftime("%d-%m-%Y %I:%M %p")
-        if asn.expected_arrival_at
-        else "Not specified"
-    )
-    shipment_date_str = (
-        asn.shipment_date.strftime("%d-%m-%Y")
-        if asn.shipment_date
-        else "Not specified"
-    )
-
-    po_ref = asn.po_number or (po_obj.po_number if po_obj else "N/A")
-    action_label = "updated" if is_resubmit else "submitted"
-    subject_suffix = " (UPDATED)" if is_resubmit else ""
-    email_subject = f"Advance Shipment Notice - ASN {asn.asn_number} - PO {po_ref}{subject_suffix}"
-
-    details_for_render: list[tuple[str, str]] = [
-        ("ASN Number", asn.asn_number),
-        ("PO Number", po_ref),
-        ("Supplier Name", supplier_name),
-        ("Warehouse", warehouse_name),
-        ("Expected Arrival", expected_arrival_str),
-        ("Shipment Date", shipment_date_str),
-        ("Vehicle Number", asn.vehicle_number or "Not specified"),
-        ("Driver Name", asn.driver_name or "Not specified"),
-        ("Driver Phone", asn.driver_contact or "Not specified"),
-        ("ASN Status", asn.status or "SUBMITTED"),
-    ]
-    if asn.transporter:
-        details_for_render.append(("Transporter", asn.transporter))
-    if asn.number_of_packages:
-        details_for_render.append(("Packages", f"{asn.number_of_packages} ({asn.package_type or 'Standard'})"))
-
-    items_for_render: list[dict[str, str]] = [
-        {
-            "material": f"{l.item_code} - {l.material_name or l.item_code}",
-            "quantity": f"{float(l.shipped_quantity):.4f} {l.uom or 'PCS'}",
-            "delivery": expected_arrival_str,
-            "warehouse": warehouse_name,
-        }
-        for l in (asn.lines or [])
-    ]
-
-    items_list = [f"• {l.item_code} - {l.material_name or l.item_code}" for l in (asn.lines or [])]
-    items_str = "\n".join(items_list) if items_list else "No materials listed"
-
-    quantities_list = [f"• {l.item_code}: {float(l.shipped_quantity):.4f} {l.uom or 'PCS'}" for l in (asn.lines or [])]
-    quantities_str = "\n".join(quantities_list) if quantities_list else "No quantities listed"
-
-    email_body = (
-        f"Dear {supplier_name},\n\n"
-        f"This is to inform you that an Advance Shipment Notice has been {action_label} for the following purchase order.\n\n"
-        f"ASN Number:\n{asn.asn_number}\n\n"
-        f"PO Number:\n{po_ref}\n\n"
-        f"Supplier:\n{supplier_name}\n\n"
-        f"Shipment Date:\n{shipment_date_str}\n\n"
-        f"Expected Delivery Date:\n{expected_arrival_str}\n\n"
-        f"Items:\n{items_str}\n\n"
-        f"Quantities:\n{quantities_str}\n\n"
-        f"Vehicle Number: {asn.vehicle_number or 'Not specified'}\n"
-        f"Driver Name: {asn.driver_name or 'Not specified'}\n"
-        f"Driver Contact: {asn.driver_contact or 'Not specified'}\n"
-        f"Transporter: {asn.transporter or 'Not specified'}\n\n"
-        f"Please review the shipment details.\n\n"
-        f"Regards,\nNexusWMS Procurement"
-    )
-
-    asn_link = f"http://localhost:8080/procurement/asns/{asn.id}"
-
-    # 1. Deliver email to Supplier
-    actual_supplier_email = (supplier_email or (po_obj.supplier_email if po_obj else None) or "").strip()
-    if not actual_supplier_email or "@" not in actual_supplier_email:
-        logger.error(f"Supplier email not found for ASN {asn.asn_number}, PO {po_ref}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Supplier email not found for PO {po_ref}"
-        )
-
-    supplier_email_html = render_premium_email(
-        eyebrow="Advance Shipment Notice",
-        title=f"Advance Shipment Notice · {asn.asn_number}",
-        greeting=f"Dear {supplier_name},",
-        intro=f"This is to inform you that an Advance Shipment Notice has been {action_label} for Purchase Order {po_ref}. Below are the confirmed shipment schedule, driver details, and materials list:",
-        details=details_for_render,
-        items=items_for_render,
-        items_heading="Shipment Materials & Quantities",
-        col_headers=("Material Code & Name", "Shipped Quantity", "Expected Arrival", "Destination Warehouse"),
-        primary_cta=("View ASN in Portal", asn_link),
-        note="Please ensure the driver carries a copy of this ASN and the Purchase Order document for smooth gate entry and dock verification upon arrival.",
-        signoff="NexusWMS Procurement",
-    )
-
-    os.makedirs(os.path.join("media_uploads", "emails"), exist_ok=True)
-    email_preview_path = os.path.join("media_uploads", "emails", f"asn_supplier_{asn.asn_number}.html")
-    try:
-        with open(email_preview_path, "w", encoding="utf-8") as f:
-            f.write(supplier_email_html)
-    except Exception as fe:
-        logger.warning(f"Failed to write mock ASN email preview: {fe}")
-
-    logger.info(
-        f"ASN email dispatch started:\n"
-        f"ASN={asn.asn_number}\n"
-        f"PO={po_ref}\n"
-        f"Supplier={supplier_name}\n"
-        f"Recipient={actual_supplier_email}\n"
-        f"Subject={email_subject}"
-    )
-
-    try:
-        delivered = await send_email(
-            to_email=actual_supplier_email,
-            subject=email_subject,
-            body=email_body,
-            html_body=supplier_email_html,
-        )
-        if delivered:
-            logger.info(
-                f"ASN email send returned successfully:\n"
-                f"ASN={asn.asn_number}\n"
-                f"Recipient={actual_supplier_email}\n"
-                f"SMTP server accepted the message."
-            )
-        else:
-            logger.warning(
-                f"ASN email sending skipped (SMTP credentials not configured or using placeholder):\n"
-                f"ASN={asn.asn_number}\n"
-                f"Recipient={actual_supplier_email}"
-            )
-    except Exception as email_err:
-        logger.error(
-            f"ASN email send failed:\n"
-            f"ASN={asn.asn_number}\n"
-            f"PO={po_ref}\n"
-            f"Recipient={actual_supplier_email}\n"
-            f"ExceptionType={type(email_err).__name__}\n"
-            f"Message={email_err}",
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to send ASN email to supplier ({actual_supplier_email}): {str(email_err)}"
-        )
-
-    # 2. Dispatch internal copy to Warehouse / Procurement Operations
-    internal_recipient = (
-        getattr(settings, "warehouse_email", None)
-        or getattr(settings, "procurement_email", None)
-        or getattr(settings, "email_host_user", None)
-        or ""
-    )
-    if internal_recipient:
-        internal_recipient = internal_recipient.strip()
-
-    if (
-        internal_recipient
-        and "@" in internal_recipient
-        and internal_recipient.lower() != actual_supplier_email.lower()
-    ):
-        internal_email_html = render_premium_email(
-            eyebrow="Advance Shipment Notice",
-            title=f"Advance Shipment Notice · {asn.asn_number}",
-            greeting="Dear Warehouse & Procurement Team,",
-            intro=f"Supplier {supplier_name} has {action_label} an Advance Shipment Notice (ASN) for PO {po_ref}. The shipment is in transit with the schedule and materials detailed below:",
-            details=details_for_render,
-            items=items_for_render,
-            items_heading="Shipment Materials",
-            col_headers=("Material Code & Name", "Shipped Quantity", "Expected Arrival", "Destination Warehouse"),
-            primary_cta=("View ASN in Portal", asn_link),
-            note="Please notify inbound receiving and dock management teams to prepare for unloading and inspection upon vehicle arrival.",
-            signoff="NexusWMS Logistics & Inbound Operations",
-        )
-
-        if background_tasks is not None:
-            background_tasks.add_task(
-                _send_email_logged,
-                internal_recipient,
-                email_subject,
-                email_body,
-                internal_email_html,
-                f"ASN {asn.asn_number} (Internal)",
-            )
-        else:
-            asyncio.create_task(
-                _send_email_logged(
-                    internal_recipient,
-                    email_subject,
-                    email_body,
-                    internal_email_html,
-                    f"ASN {asn.asn_number} (Internal)",
-                )
-            )
+        logger.error(f"{context} email delivery failed for {to_email}: {error}", exc_info=True)
 
 
 @router.post("/rfqs/{rfq_id}/select-supplier")
@@ -1612,6 +1777,12 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         rfq_uuid = uuid.UUID(rfq_id)
         supplier_id = request.supplier_id
         supplier_uuid = supplier_id
+        selected_quotation_uuid = None
+        if request.quotation_id:
+            try:
+                selected_quotation_uuid = uuid.UUID(str(request.quotation_id))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="Invalid quotation ID") from exc
 
         stmt = select(RfqModel).options(selectinload(RfqModel.items)).where(RfqModel.id == rfq_uuid)
         res = await uow.session.execute(stmt)
@@ -1631,6 +1802,34 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         )
         existing_po = existing_po_result.scalar_one_or_none()
         if existing_po:
+            if selected_quotation_uuid and str(getattr(existing_po, "quotation_id", "")) != str(selected_quotation_uuid):
+                quote_res = await uow.session.execute(
+                    select(QuotationModel)
+                    .options(
+                        selectinload(QuotationModel.lines),
+                        selectinload(QuotationModel.documents),
+                    )
+                    .where(
+                        QuotationModel.id == selected_quotation_uuid,
+                        QuotationModel.rfq_id == rfq_uuid,
+                        QuotationModel.supplier_id == supplier_uuid,
+                    )
+                    .limit(1)
+                )
+                selected_quote = quote_res.scalar_one_or_none()
+                if not selected_quote:
+                    raise HTTPException(status_code=404, detail="Selected quotation was not found for this supplier and RFQ")
+
+                subtotal, discount_amount, _tax_rate, tax_amount, freight_charges, total_amount = _calculate_quotation_financials(selected_quote)
+                existing_po.quotation_id = selected_quote.id
+                existing_po.subtotal = subtotal
+                existing_po.discount_amount = discount_amount
+                existing_po.tax_amount = tax_amount
+                existing_po.freight_charges = freight_charges
+                existing_po.total_amount = total_amount
+                existing_po.payment_terms = selected_quote.payment_terms
+                await uow.commit()
+
             return {
                 "status": "already_saved",
                 "po_number": existing_po.po_number,
@@ -1651,9 +1850,18 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         supplier = s_res.scalar_one_or_none()
 
 
-        quo_stmt = select(QuotationModel).options(selectinload(QuotationModel.lines)).where(
+        quo_filters = [
             QuotationModel.rfq_id == rfq_uuid,
-            QuotationModel.supplier_id == supplier_uuid
+            QuotationModel.supplier_id == supplier_uuid,
+        ]
+        if selected_quotation_uuid:
+            quo_filters.append(QuotationModel.id == selected_quotation_uuid)
+
+        quo_stmt = select(QuotationModel).options(
+            selectinload(QuotationModel.lines),
+            selectinload(QuotationModel.documents),
+        ).where(
+            *quo_filters
         ).order_by(QuotationModel.created_at.desc()).limit(1)
         q_res = await uow.session.execute(quo_stmt)
         quotation = q_res.scalars().first()
@@ -1671,24 +1879,16 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             if mr_obj:
                 mr_dept = mr_obj.department
 
-        subtotal = Decimal("0.0")
-        if quotation:
-            quoted_prices = {line.item_code: line.unit_price for line in quotation.lines}
-            subtotal = sum(
-                (item.quantity * quoted_prices.get(item.material_code, Decimal("0.0")) for item in rfq.items),
-                Decimal("0.0"),
-            )
-        discount_amount = Decimal(str(quotation.discount or 0)) if quotation else Decimal("0.0")
-        tax_rate = Decimal(str(quotation.tax or 0)) if quotation else Decimal("0.0")
-        taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-        tax_amount = taxable_amount * tax_rate / Decimal("100")
-        freight_charges = Decimal(str(quotation.freight_charges or 0)) if quotation else Decimal("0.0")
-        total_amount = taxable_amount + tax_amount + freight_charges
+        if selected_quotation_uuid and not quotation:
+            raise HTTPException(status_code=404, detail="Selected quotation was not found for this supplier and RFQ")
+
+        subtotal, discount_amount, tax_rate, tax_amount, freight_charges, total_amount = _calculate_quotation_financials(quotation)
 
         new_po = PurchaseOrderModel(
             id=uuid.uuid4(),
             po_number=po_number,
             rfq_id=rfq.id,
+            quotation_id=quotation.id if quotation else None,
             supplier_id=supplier_uuid,
             supplier_name=supplier.supplier_name if supplier else "Unknown",
             supplier_code=supplier.supplier_code if supplier else None,
@@ -1697,9 +1897,11 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             supplier_email=supplier.contact.primary_email if supplier and supplier.contact else None,
             supplier_gstin=supplier.gstin if supplier else None,
             supplier_address=supplier.address.registered_address if supplier and supplier.address else None,
+            billing_address=supplier.address.registered_address if supplier and supplier.address else None,
             warehouse_id=rfq.warehouse,
             delivery_warehouse_name=rfq.warehouse,
             delivery_address="Main Industrial Area, Phase 2, Pune, MH",
+            delivery_terms=getattr(quotation, "delivery_time", None) if quotation else None,
             department=mr_dept,
             status="PENDING_FINANCE",
             total_amount=total_amount,
@@ -1709,7 +1911,17 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
             freight_charges=freight_charges,
             additional_charges=Decimal("0.0"),
             expected_delivery_date=rfq.required_delivery_date,
-            payment_terms=quotation.payment_terms,
+            payment_terms=quotation.payment_terms if quotation else None,
+            warranty=getattr(quotation, "warranty", None) if quotation else None,
+            notes=request.selection_comments,
+            attachments=[
+                {
+                    "document_type": document.document_type,
+                    "file_name": document.file_name,
+                    "file_url": document.file_url,
+                }
+                for document in (getattr(quotation, "documents", []) if quotation else [])
+            ],
             procurement_officer=rfq.procurement_officer,
             selection_reason=request.selection_reason,
             procurement_comments=request.selection_comments,
@@ -1719,7 +1931,14 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
 
         new_po.history.append(POApprovalHistoryModel(
             id=uuid.uuid4(),
-            status="SUBMITTED",
+            status="DRAFT",
+            actor_name=_user.username,
+            comments="PO draft created from selected quotation"
+        ))
+
+        new_po.history.append(POApprovalHistoryModel(
+            id=uuid.uuid4(),
+            status="PENDING_FINANCE",
             actor_name=_user.username,
             comments="Proposal submitted for Finance Approval"
         ))
@@ -1776,6 +1995,68 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _calculate_quotation_financials(
+    quotation: Optional[QuotationModel],
+) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]:
+    if not quotation:
+        zero = Decimal("0.0")
+        return zero, zero, zero, zero, zero, zero
+
+    subtotal = sum((line.quantity * line.unit_price for line in quotation.lines), Decimal("0.0"))
+    discount_percentage = Decimal(str(quotation.discount or 0))
+    discount_amount = subtotal * discount_percentage / Decimal("100")
+    tax_percentage = Decimal(str(quotation.tax or 0))
+    taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
+    tax_amount = taxable_amount * tax_percentage / Decimal("100")
+    freight_charges = Decimal(str(quotation.freight_charges or 0))
+    additional_charges = Decimal(str(getattr(quotation, "additional_charges", 0) or 0))
+    total_amount = taxable_amount + tax_amount + freight_charges + additional_charges
+    return subtotal, discount_amount, tax_percentage, tax_amount, freight_charges, total_amount
+
+async def _get_purchase_order_quotation(
+    session,
+    po: PurchaseOrderModel,
+) -> Optional[QuotationModel]:
+    try:
+        state = inspect(po)
+        if "quotation" not in state.unloaded and po.quotation:
+            return po.quotation
+    except Exception:
+        pass
+
+    quotation_id = getattr(po, "quotation_id", None)
+    if quotation_id:
+        res = await session.execute(
+            select(QuotationModel)
+            .options(
+                selectinload(QuotationModel.lines),
+                selectinload(QuotationModel.documents),
+            )
+            .where(QuotationModel.id == quotation_id)
+        )
+        quotation = res.scalar_one_or_none()
+        if quotation:
+            return quotation
+
+    if not po.rfq_id or not po.supplier_id:
+        return None
+
+    res = await session.execute(
+        select(QuotationModel)
+        .options(
+            selectinload(QuotationModel.lines),
+            selectinload(QuotationModel.documents),
+        )
+        .where(
+            QuotationModel.rfq_id == po.rfq_id,
+            QuotationModel.supplier_id == po.supplier_id,
+        )
+        .order_by(QuotationModel.created_at.desc())
+        .limit(1)
+    )
+    return res.scalar_one_or_none()
+
+
 @router.get("/purchase-orders", response_model=List[PurchaseOrderResponse])
 async def list_purchase_orders(
     search: Optional[str] = Query(None),
@@ -1783,13 +2064,24 @@ async def list_purchase_orders(
     uow: UnitOfWork = Depends(get_uow)
 ):
     try:
-        repo = SqlAlchemyPurchaseOrderRepository(uow.session)
-
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
             selectinload(PurchaseOrderModel.rfq),
         )
+
+        if supplier_id:
+            try:
+                supp_uuid = uuid.UUID(supplier_id)
+                stmt = stmt.where(or_(
+                    PurchaseOrderModel.supplier_id == supp_uuid,
+                    cast(PurchaseOrderModel.supplier_id, String) == supplier_id,
+                ))
+            except ValueError:
+                stmt = stmt.where(PurchaseOrderModel.supplier_name.ilike(f"%{supplier_id}%"))
 
         if search:
             search_term = f"%{search}%"
@@ -1801,17 +2093,15 @@ async def list_purchase_orders(
                 )
             )
 
-        if supplier_id:
-            try:
-                stmt = stmt.where(PurchaseOrderModel.supplier_id == uuid.UUID(str(supplier_id)))
-            except (ValueError, TypeError) as exc:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid supplier ID") from exc
-
         stmt = stmt.order_by(PurchaseOrderModel.created_at.desc())
         res = await uow.session.execute(stmt)
         entities = res.scalars().all()
         logger.info(f"Retrieved {len(entities)} purchase orders from DB")
-        return [_to_po_response(e) for e in entities]
+        responses = []
+        for entity in entities:
+            quotation = await _get_purchase_order_quotation(uow.session, entity)
+            responses.append(_to_po_response(entity, quotation=quotation))
+        return responses
     except Exception as e:
         logger.error(f"List POs failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1829,7 +2119,9 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         .options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
             selectinload(PurchaseOrderModel.rfq),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
         )
         .where(PurchaseOrderModel.id == po_id)
     )
@@ -1839,7 +2131,19 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
 
     buffer = BytesIO()
     styles = getSampleStyleSheet()
-    right_style = ParagraphStyle("Right", parent=styles["BodyText"], alignment=TA_RIGHT)
+    app_blue = colors.HexColor("#2563eb")
+    app_teal = colors.HexColor("#0d9488")
+    app_ink = colors.HexColor("#0f172a")
+    app_muted = colors.HexColor("#64748b")
+    app_line = colors.HexColor("#dbe5f0")
+    app_soft = colors.HexColor("#eff6ff")
+    right_style = ParagraphStyle("Right", parent=styles["BodyText"], alignment=TA_RIGHT, fontSize=8, leading=10, textColor=app_ink)
+    title_style = ParagraphStyle("PoTitle", parent=styles["Title"], alignment=TA_CENTER, textColor=colors.white, fontSize=20, leading=24, spaceAfter=0)
+    subtitle_style = ParagraphStyle("PoSubtitle", parent=styles["BodyText"], alignment=TA_CENTER, textColor=colors.HexColor("#dbeafe"), fontSize=8, leading=11)
+    label_style = ParagraphStyle("PoLabel", parent=styles["BodyText"], textColor=app_muted, fontName="Helvetica-Bold", fontSize=7, leading=9)
+    value_style = ParagraphStyle("PoValue", parent=styles["BodyText"], textColor=app_ink, fontSize=8, leading=10)
+    item_style = ParagraphStyle("PoItem", parent=styles["BodyText"], textColor=app_ink, fontSize=7.2, leading=8.5)
+    small_style = ParagraphStyle("PoSmall", parent=styles["BodyText"], textColor=app_muted, fontSize=7, leading=8)
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -1850,27 +2154,78 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         title=f"Purchase Order {po.po_number}",
     )
 
+    def text(value) -> str:
+        return str(value) if value not in (None, "") else "-"
+
+    def money(value) -> str:
+        return f"INR {Decimal(str(value or 0)):,.2f}"
+
+    quotation = getattr(po, "quotation", None)
+    item_subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
+    if quotation:
+        quote_lines = list(getattr(quotation, "lines", []) or [])
+        quote_subtotal = sum((line.quantity * line.unit_price for line in quote_lines), Decimal("0.0"))
+        calc_subtotal = quote_subtotal if quote_subtotal > 0 else item_subtotal
+        calc_discount = Decimal(str(quotation.discount or 0))
+        tax_percentage = Decimal(str(quotation.tax or 0))
+        taxable_amount = max(calc_subtotal - calc_discount, Decimal("0.0"))
+        calculated_tax = taxable_amount * tax_percentage / Decimal("100")
+        calc_tax = calculated_tax if calculated_tax > 0 else Decimal(str(po.tax_amount or 0))
+        calc_freight = Decimal(str(quotation.freight_charges or 0))
+        calculated_total = taxable_amount + calc_tax + calc_freight
+        calc_grand_total = Decimal(str(quotation.total_amount or 0)) or calculated_total
+    else:
+        stored_subtotal = Decimal(str(po.subtotal or 0))
+        calc_subtotal = stored_subtotal if stored_subtotal > 0 else item_subtotal
+        calc_discount = Decimal(str(po.discount_amount or 0))
+        calc_tax = Decimal(str(po.tax_amount or 0))
+        calc_freight = Decimal(str(po.freight_charges or 0))
+        calc_grand_total = Decimal(str(po.total_amount or 0))
+        taxable_amount = max(calc_subtotal - calc_discount, Decimal("0.0"))
+        tax_percentage = (
+            (calc_tax * Decimal("100") / taxable_amount).quantize(Decimal("0.01"))
+            if taxable_amount > 0 and calc_tax > 0
+            else Decimal("0.0")
+        )
+    calc_additional = Decimal(str(po.additional_charges or 0))
+    if calc_grand_total <= 0:
+        calc_grand_total = max(calc_subtotal - calc_discount, Decimal("0.0")) + calc_tax + calc_freight + calc_additional
+
     story = [
-        Paragraph("PURCHASE ORDER", styles["Title"]),
-        Spacer(1, 4 * mm),
         Table(
             [
-                ["PO Number", po.po_number, "Date", str(po.po_date)],
-                ["Status", po.status, "Expected Delivery", str(po.expected_delivery_date or "-")],
-                ["Supplier", po.supplier_name or "-", "Payment Terms", po.payment_terms or "-"],
-                ["Supplier Address", po.supplier_address or "-", "Delivery Address", po.delivery_address or "-"],
+                [Paragraph("PURCHASE ORDER", title_style)],
+                [Paragraph(f"NexusWMS Procurement | {po.po_number}", subtitle_style)],
+            ],
+            colWidths=[180 * mm],
+            style=TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), app_blue),
+                ("BOX", (0, 0), (-1, -1), 0.8, app_blue),
+                ("TOPPADDING", (0, 0), (-1, 0), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
+            ]),
+        ),
+        Spacer(1, 5 * mm),
+        Table(
+            [
+                [Paragraph("PO NUMBER", label_style), Paragraph(text(po.po_number), value_style), Paragraph("DATE", label_style), Paragraph(text(po.po_date), value_style)],
+                [Paragraph("STATUS", label_style), Paragraph(text(po.status), value_style), Paragraph("EXPECTED DELIVERY", label_style), Paragraph(text(po.expected_delivery_date), value_style)],
+                [Paragraph("SUPPLIER", label_style), Paragraph(text(po.supplier_name), value_style), Paragraph("PAYMENT TERMS", label_style), Paragraph(text(po.payment_terms), value_style)],
+                [Paragraph("SUPPLIER ADDRESS", label_style), Paragraph(text(po.supplier_address), value_style), Paragraph("DELIVERY ADDRESS", label_style), Paragraph(text(po.delivery_address), value_style)],
             ],
             colWidths=[28 * mm, 62 * mm, 34 * mm, 56 * mm],
             style=TableStyle([
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e2e8f0")),
-                ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#e2e8f0")),
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BACKGROUND", (0, 0), (0, -1), app_soft),
+                ("BACKGROUND", (2, 0), (2, -1), app_soft),
+                ("GRID", (0, 0), (-1, -1), 0.45, app_line),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#bfdbfe")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("LEADING", (0, 0), (-1, -1), 10),
-                ("PADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ]),
         ),
         Spacer(1, 7 * mm),
@@ -1882,51 +2237,70 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
 
         item_rows.append([
             str(index),
-            item.material_code,
-            item.material_name or "-",
-            f"{item.quantity:,.2f}",
-            item.uom,
-            f"{item.unit_price:,.2f}",
-            f"{line_gross:,.2f}",
+            Paragraph(text(item.material_code), item_style),
+            Paragraph(text(item.material_name), item_style),
+            Paragraph(f"{item.quantity:,.2f}", item_style),
+            Paragraph(text(item.uom), item_style),
+            Paragraph(money(item.unit_price), item_style),
+            Paragraph(money(line_gross), item_style),
         ])
-
-    normalized_po = _to_po_response(po)
-    calc_subtotal = normalized_po.subtotal
-    calc_discount = normalized_po.discount_amount
-    calc_tax = normalized_po.tax_amount
-    calc_freight = po.freight_charges or Decimal("0.0")
-    calc_additional = po.additional_charges or Decimal("0.0")
-    calc_grand_total = normalized_po.total_amount
 
     story.append(Table(
         item_rows,
         repeatRows=1,
-        colWidths=[8 * mm, 25 * mm, 53 * mm, 20 * mm, 15 * mm, 27 * mm, 32 * mm],
+        colWidths=[8 * mm, 24 * mm, 58 * mm, 18 * mm, 16 * mm, 28 * mm, 28 * mm],
         style=TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+            ("BACKGROUND", (0, 0), (-1, 0), app_ink),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+            ("GRID", (0, 0), (-1, -1), 0.4, app_line),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#bfdbfe")),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
             ("ALIGN", (3, 1), (3, -1), "RIGHT"),
             ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("PADDING", (0, 0), (-1, -1), 5),
+            ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ]),
     ))
 
 
-    def fmt(val): return f"INR {val:,.2f}"
-
     story.extend([
         Spacer(1, 6 * mm),
-        Paragraph(f"Subtotal: {fmt(calc_subtotal)}", right_style),
-        Paragraph(f"Discount: - {fmt(calc_discount)}", right_style),
-        Paragraph(f"Tax (GST {normalized_po.tax_percentage:g}%): {fmt(calc_tax)}", right_style),
-        Paragraph(f"Freight: {fmt(calc_freight)}", right_style),
-        Paragraph(f"Additional charges: {fmt(calc_additional)}", right_style),
-        Spacer(1, 2 * mm),
-        Paragraph(f"<b>Grand Total: {fmt(calc_grand_total)}</b>", right_style),
+        Table(
+            [
+                ["", Paragraph("ORDER SUMMARY", label_style), ""],
+                ["", Paragraph("Subtotal", value_style), Paragraph(money(calc_subtotal), right_style)],
+                ["", Paragraph("Discount", value_style), Paragraph(f"- {money(calc_discount)}", right_style)],
+                ["", Paragraph(f"GST ({tax_percentage:g}%)", value_style), Paragraph(money(calc_tax), right_style)],
+                ["", Paragraph("Freight charges", value_style), Paragraph(money(calc_freight), right_style)],
+                ["", Paragraph("Additional charges", value_style), Paragraph(money(calc_additional), right_style)],
+                ["", Paragraph("<b>Grand Total</b>", value_style), Paragraph(f"<b>{money(calc_grand_total)}</b>", right_style)],
+            ],
+            colWidths=[92 * mm, 46 * mm, 42 * mm],
+            style=TableStyle([
+                ("SPAN", (1, 0), (2, 0)),
+                ("BACKGROUND", (1, 0), (2, 0), app_soft),
+                ("BACKGROUND", (1, 1), (2, 5), colors.HexColor("#f8fafc")),
+                ("BACKGROUND", (1, 6), (2, 6), colors.HexColor("#dbeafe")),
+                ("LINEABOVE", (1, 6), (2, 6), 1.0, app_blue),
+                ("BOX", (1, 0), (2, 6), 0.8, colors.HexColor("#bfdbfe")),
+                ("INNERGRID", (1, 0), (2, 6), 0.35, app_line),
+                ("LEFTPADDING", (1, 0), (2, 6), 8),
+                ("RIGHTPADDING", (1, 0), (2, 6), 8),
+                ("TOPPADDING", (1, 0), (2, 6), 6),
+                ("BOTTOMPADDING", (1, 0), (2, 6), 6),
+            ]),
+        ),
+        Spacer(1, 5 * mm),
+        Paragraph(
+            "This purchase order is generated from backend procurement records. Amounts reflect the approved PO values stored in NexusWMS.",
+            small_style,
+        ),
     ])
     document.build(story)
 
@@ -1946,7 +2320,10 @@ async def get_purchase_order_by_number(po_number: str, uow: UnitOfWork = Depends
     try:
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
-            selectinload(PurchaseOrderModel.history)
+            selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
         ).where(PurchaseOrderModel.po_number == po_number)
         res = await uow.session.execute(stmt)
         po = res.scalar_one_or_none()
@@ -1954,7 +2331,8 @@ async def get_purchase_order_by_number(po_number: str, uow: UnitOfWork = Depends
         if not po:
             raise HTTPException(status_code=404, detail=f"Purchase Order {po_number} not found")
 
-        return _to_po_response(po)
+        quotation = await _get_purchase_order_quotation(uow.session, po)
+        return _to_po_response(po, quotation=quotation)
     except HTTPException:
         raise
     except Exception as e:
@@ -1962,164 +2340,21 @@ async def get_purchase_order_by_number(po_number: str, uow: UnitOfWork = Depends
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/purchase-orders/{po_identifier}/damaged-goods", response_model=PoDamagedGoodsResponse)
-async def get_po_damaged_goods(po_identifier: str, uow: UnitOfWork = Depends(get_uow)):
-    try:
-        from pathlib import PurePosixPath
-        from app.modules.receiving.infrastructure.persistence.models import GrnModel, GrnLineModel
-        
-        target_po_number = po_identifier.strip()
-        po = None
-        
-        try:
-            po_uuid = uuid.UUID(po_identifier)
-            res = await uow.session.execute(select(PurchaseOrderModel).where(PurchaseOrderModel.id == po_uuid))
-            po = res.scalar_one_or_none()
-            if po and po.po_number:
-                target_po_number = po.po_number
-        except ValueError:
-            pass
-
-        if not po:
-            res = await uow.session.execute(select(PurchaseOrderModel).where(PurchaseOrderModel.po_number == target_po_number))
-            po = res.scalar_one_or_none()
-
-        grn_stmt = (
-            select(GrnModel)
-            .options(
-                selectinload(GrnModel.lines).selectinload(GrnLineModel.damage_evidence),
-                selectinload(GrnModel.lines).selectinload(GrnLineModel.damage_lots)
-            )
-            .where(or_(GrnModel.po_number == target_po_number, GrnModel.po_number == po_identifier))
-            .order_by(GrnModel.created_at.desc())
-        )
-        grn_res = await uow.session.execute(grn_stmt)
-        grns = grn_res.scalars().all()
-
-        if not grns:
-            return PoDamagedGoodsResponse(has_damaged_goods=False)
-
-        damaged_materials = []
-        first_damaged_grn = None
-
-        def _clean_reason(raw_reason: str | None) -> str:
-            r = (raw_reason or "").strip()
-            generic_phrases = [
-                "Damaged/Rejected during receiving quality inspection",
-                "Damaged/Rejected during inbound quality inspection",
-                "Damaged/Rejected during receiving inspection",
-            ]
-            for phrase in generic_phrases:
-                if r.startswith(phrase):
-                    r = r[len(phrase):].strip(" |:-")
-            return r if r else "Damaged / Rejected"
-
-        for grn in grns:
-            for line in grn.lines:
-                has_dmg = (
-                    (line.damaged_quantity and line.damaged_quantity > Decimal("0")) or
-                    (line.rejected_quantity and line.rejected_quantity > Decimal("0")) or
-                    line.quality_result == "REJECTED" or
-                    bool(line.damage_lots) or
-                    bool(line.damage_evidence)
-                )
-                if not has_dmg:
-                    continue
-
-                if first_damaged_grn is None:
-                    first_damaged_grn = grn
-
-                reason = "Damaged during receiving inspection"
-                if line.damage_evidence and line.damage_evidence[0].reason:
-                    reason = line.damage_evidence[0].reason
-                elif line.damage_lots and line.damage_lots[0].reason:
-                    reason = line.damage_lots[0].reason
-
-                photos = []
-                for ev in (line.damage_evidence or []):
-                    filename = ev.file_name or "damage_photo.jpg"
-                    if ev.file_path and ev.file_path.startswith("/media/"):
-                        url = ev.file_path
-                    elif ev.file_path and "/media/grn_documents/" in ev.file_path:
-                        fname = PurePosixPath(ev.file_path).name
-                        url = f"/media/grn_documents/{fname}"
-                    else:
-                        url = f"/media/grn_documents/{filename}"
-                    photos.append(DamagedMaterialPhotoSchema(id=str(ev.id), file_name=filename, url=url))
-
-                dmg_qty = float(line.damaged_quantity or line.rejected_quantity or Decimal("0"))
-                damaged_materials.append(
-                    DamagedMaterialItemSchema(
-                        item_code=line.item_code,
-                        material_name=line.material_name or line.item_code,
-                        damaged_quantity=dmg_qty,
-                        uom=line.uom or "PCS",
-                        reason=_clean_reason(reason),
-                        photos=photos,
-                    )
-                )
-
-        if not damaged_materials or first_damaged_grn is None:
-            return PoDamagedGoodsResponse(has_damaged_goods=False)
-
-        damage_date = (
-            first_damaged_grn.created_at.strftime("%d-%m-%Y %I:%M %p")
-            if first_damaged_grn.created_at
-            else datetime.now().strftime("%d-%m-%Y %I:%M %p")
-        )
-
-        supplier_email = getattr(po, "supplier_email", None) or "spoorthiharakuni@gmail.com"
-        procurement_email = "spoorthiharakuni55@gmail.com"
-
-        notif_history = [
-            NotificationHistoryItemSchema(
-                recipient_type="Supplier",
-                recipient=supplier_email,
-                status="Sent",
-                sent_at=damage_date,
-            ),
-            NotificationHistoryItemSchema(
-                recipient_type="Procurement",
-                recipient=procurement_email,
-                status="Sent",
-                sent_at=damage_date,
-            )
-        ]
-
-        total_qty = sum(m.damaged_quantity for m in damaged_materials)
-
-        return PoDamagedGoodsResponse(
-            has_damaged_goods=True,
-            po_number=target_po_number,
-            grn_number=first_damaged_grn.grn_number or str(first_damaged_grn.id),
-            grn_id=str(first_damaged_grn.id),
-            supplier_name=first_damaged_grn.supplier_name or (po.supplier_name if po else "Supplier"),
-            warehouse_name=first_damaged_grn.warehouse_name or "Main Warehouse",
-            damage_reported_at=damage_date,
-            damaged_materials_count=len(damaged_materials),
-            total_damaged_quantity=total_qty,
-            status="Damage Reported",
-            supplier_notification_status="Sent",
-            procurement_notification_status="Sent",
-            materials=damaged_materials,
-            notification_history=notif_history,
-        )
-    except Exception as e:
-        logger.error(f"Failed to fetch damaged goods for PO {po_identifier}: {e}", exc_info=True)
-        return PoDamagedGoodsResponse(has_damaged_goods=False)
-
-
 @router.get("/purchase-orders/{id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order(id: str, uow: UnitOfWork = Depends(get_uow)):
     stmt = select(PurchaseOrderModel).options(
         selectinload(PurchaseOrderModel.items),
-        selectinload(PurchaseOrderModel.history)
+        selectinload(PurchaseOrderModel.history),
+        selectinload(PurchaseOrderModel.revisions),
+        selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+        selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
     ).where(PurchaseOrderModel.id == uuid.UUID(id))
     res = await uow.session.execute(stmt)
     po = res.scalar_one_or_none()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase Order not found")
-    return _to_po_response(po)
+    quotation = await _get_purchase_order_quotation(uow.session, po)
+    return _to_po_response(po, quotation=quotation)
 
 
 @router.get("/finance-approvals", response_model=List[PurchaseOrderResponse])
@@ -2127,15 +2362,25 @@ async def list_finance_approvals(uow: UnitOfWork = Depends(get_uow)):
     stmt = select(PurchaseOrderModel).options(
         selectinload(PurchaseOrderModel.items),
         selectinload(PurchaseOrderModel.history),
+        selectinload(PurchaseOrderModel.revisions),
+        selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+        selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
         joinedload(PurchaseOrderModel.rfq)
     ).where(PurchaseOrderModel.status == "PENDING_FINANCE").order_by(PurchaseOrderModel.created_at.desc())
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
-    return [_to_po_response(e) for e in entities]
+    responses = []
+    for entity in entities:
+        quotation = await _get_purchase_order_quotation(uow.session, entity)
+        responses.append(_to_po_response(entity, quotation=quotation))
+    return responses
 
 
 @router.post("/purchase-orders/{id}/approve")
 async def approve_purchase_order(id: str, uow: UnitOfWork = Depends(get_uow), _user: CurrentUser = Depends(get_current_user)):
+    roles_upper = {r.upper() for r in (_user.roles or [])}
+    if "FINANCE" not in roles_upper and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Finance role is authorized to approve purchase orders")
     try:
         logger.info(f"Attempting to approve PO ID: {id}")
         stmt = (
@@ -2151,21 +2396,13 @@ async def approve_purchase_order(id: str, uow: UnitOfWork = Depends(get_uow), _u
 
 
         year = datetime.now().year
-        if not po.po_number or not po.po_number.startswith(f"PO-{year}-"):
-            po_numbers_stmt = select(PurchaseOrderModel.po_number).where(
-                PurchaseOrderModel.po_number.like(f"PO-{year}-%")
-            )
-            res_numbers = await uow.session.execute(po_numbers_stmt)
-            existing_numbers = set(res_numbers.scalars().all())
 
-            seq = 1
-            while f"PO-{year}-{seq:04d}" in existing_numbers:
-                seq += 1
-
-            formal_po_number = f"PO-{year}-{seq:04d}"
-        else:
-            formal_po_number = po.po_number
-
+        count_stmt = select(func.count(PurchaseOrderModel.id)).where(
+            PurchaseOrderModel.po_number.like(f"PO-{year}-%")
+        )
+        count_res = await uow.session.execute(count_stmt)
+        seq = (count_res.scalar() or 0) + 1
+        formal_po_number = f"PO-{year}-{seq:04d}"
         logger.info(f"Generated formal PO number: {formal_po_number}")
 
         po.status = "APPROVED"
@@ -2199,6 +2436,9 @@ async def approve_purchase_order(id: str, uow: UnitOfWork = Depends(get_uow), _u
 
 @router.post("/purchase-orders/{id}/reject")
 async def reject_purchase_order(id: str, request: dict, uow: UnitOfWork = Depends(get_uow), _user: CurrentUser = Depends(get_current_user)):
+    roles_upper = {r.upper() for r in (_user.roles or [])}
+    if "FINANCE" not in roles_upper and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Finance role is authorized to reject purchase orders")
     try:
         stmt = (
             select(PurchaseOrderModel)
@@ -2373,22 +2613,199 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
         ))
 
         await uow.commit()
-        try:
-            await send_email(recipient_email, subject, body, html_body)
-            logger.info(f"Purchase Order {po.po_number} email successfully delivered to {recipient_email}")
-        except Exception as send_err:
-            logger.error(f"Failed to send PO email to {recipient_email}: {send_err}", exc_info=True)
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to send Purchase Order email to supplier ({recipient_email}): {str(send_err)}"
-            )
-
-        return {"status": "sent", "message": f"Purchase order email sent successfully to {recipient_email}.", "recipient": recipient_email, "resent": is_resend}
+        background_tasks.add_task(_send_email_logged, recipient_email, subject, body, html_body, f"PO {po.po_number}")
+        return {"status": "queued", "message": "Purchase order saved. Email delivery is running in the background.", "recipient": recipient_email, "resent": is_resend}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Send to supplier failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/purchase-orders/{id}/acknowledge")
+async def acknowledge_purchase_order(id: str, request: dict | None = None, uow: UnitOfWork = Depends(get_uow), _user: CurrentUser = Depends(get_current_user)):
+    try:
+        po_id = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid purchase order ID")
+
+    result = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(selectinload(PurchaseOrderModel.history))
+        .where(PurchaseOrderModel.id == po_id)
+    )
+    po = result.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+
+    if po.status not in {"SENT", "ACKNOWLEDGED"}:
+        raise HTTPException(status_code=400, detail="Only sent purchase orders can be acknowledged")
+
+    comments = (request or {}).get("comments") or "Supplier acknowledged the purchase order"
+    if po.status != "ACKNOWLEDGED":
+        po.status = "ACKNOWLEDGED"
+        po.history.append(POApprovalHistoryModel(
+            id=uuid.uuid4(),
+            status="ACKNOWLEDGED",
+            actor_name=_user.username or po.supplier_name or "supplier",
+            comments=comments,
+        ))
+
+        uow.session.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="PROCUREMENT",
+            title="PO Acknowledged",
+            message=f"Supplier acknowledged Purchase Order {po.po_number}.",
+            link=f"/purchase-order?poId={po.id}",
+        ))
+
+        await uow.commit()
+
+    return {"status": "success", "po_number": po.po_number}
+
+
+@router.post("/purchase-orders/{id}/amend", response_model=PurchaseOrderResponse)
+async def amend_purchase_order(
+    id: str,
+    request: PurchaseOrderAmendmentRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        po_id = uuid.UUID(id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid purchase order ID") from exc
+
+    if not request.reason.strip():
+        raise HTTPException(status_code=400, detail="Amendment reason is mandatory")
+
+    result = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(
+            selectinload(PurchaseOrderModel.items),
+            selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
+        )
+        .where(PurchaseOrderModel.id == po_id)
+    )
+    po = result.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if po.status in {"CLOSED", "CANCELLED", "FULLY_RECEIVED"}:
+        raise HTTPException(status_code=400, detail="Closed, cancelled, or fully received POs cannot be amended")
+
+    allowed_fields = {
+        "expected_delivery_date": "expected_delivery_date",
+        "payment_terms": "payment_terms",
+        "delivery_terms": "delivery_terms",
+        "warranty": "warranty",
+        "billing_address": "billing_address",
+        "delivery_address": "delivery_address",
+        "notes": "notes",
+        "freight_charges": "freight_charges",
+        "additional_charges": "additional_charges",
+        "discount_amount": "discount_amount",
+        "tax_amount": "tax_amount",
+    }
+
+    actor = _user.username or "system"
+    reason = request.reason.strip()
+    next_revision = int(getattr(po, "revision_number", None) or 1) + 1
+    revisions: list[PORevisionModel] = []
+
+    def stringify(value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
+
+    def add_revision(field: str, old_value, new_value) -> None:
+        revisions.append(PORevisionModel(
+            id=uuid.uuid4(),
+            purchase_order_id=po.id,
+            revision_number=next_revision,
+            changed_field=field,
+            old_value=stringify(old_value),
+            new_value=stringify(new_value),
+            changed_by=actor,
+            reason=reason,
+        ))
+
+    for incoming_field, value in (request.changes or {}).items():
+        attr = allowed_fields.get(incoming_field)
+        if not attr:
+            raise HTTPException(status_code=400, detail=f"Field cannot be amended: {incoming_field}")
+
+        if attr == "expected_delivery_date" and value:
+            new_value = datetime.strptime(str(value), "%Y-%m-%d").date()
+        elif attr in {"freight_charges", "additional_charges", "discount_amount", "tax_amount"}:
+            new_value = Decimal(str(value or 0))
+        else:
+            new_value = value
+
+        old_value = getattr(po, attr, None)
+        if stringify(old_value) != stringify(new_value):
+            add_revision(attr, old_value, new_value)
+            setattr(po, attr, new_value)
+
+    items_by_code = {item.material_code: item for item in po.items}
+    for line_change in request.items:
+        item = items_by_code.get(line_change.material_code)
+        if not item:
+            raise HTTPException(status_code=400, detail=f"PO item not found: {line_change.material_code}")
+
+        for attr in ("quantity", "unit_price", "discount", "tax"):
+            new_value = getattr(line_change, attr)
+            if new_value is None:
+                continue
+            old_value = getattr(item, attr)
+            if Decimal(str(old_value)) != Decimal(str(new_value)):
+                add_revision(f"item.{item.material_code}.{attr}", old_value, new_value)
+                setattr(item, attr, Decimal(str(new_value)))
+
+    if not revisions:
+        return _to_po_response(po, quotation=await _get_purchase_order_quotation(uow.session, po))
+
+    po.revision_number = next_revision
+    po.subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
+    taxable_amount = max(po.subtotal - Decimal(str(po.discount_amount or 0)), Decimal("0.0"))
+    po.total_amount = (
+        taxable_amount
+        + Decimal(str(po.tax_amount or 0))
+        + Decimal(str(po.freight_charges or 0))
+        + Decimal(str(po.additional_charges or 0))
+    )
+    po.updated_at = datetime.now()
+
+    for revision in revisions:
+        uow.session.add(revision)
+
+    po.history.append(POApprovalHistoryModel(
+        id=uuid.uuid4(),
+        status="AMENDED",
+        actor_name=actor,
+        comments=f"Revision {next_revision}: {reason}",
+    ))
+
+    await uow.commit()
+    await uow.session.refresh(po)
+
+    refreshed = await uow.session.execute(
+        select(PurchaseOrderModel)
+        .options(
+            selectinload(PurchaseOrderModel.items),
+            selectinload(PurchaseOrderModel.history),
+            selectinload(PurchaseOrderModel.revisions),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.lines),
+            selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
+        )
+        .where(PurchaseOrderModel.id == po.id)
+    )
+    saved_po = refreshed.scalar_one()
+    return _to_po_response(saved_po, quotation=await _get_purchase_order_quotation(uow.session, saved_po))
 
 
 @router.post("/purchase-orders/{id}/resubmit")
@@ -2437,49 +2854,65 @@ async def resubmit_purchase_order(id: str, request: dict, uow: UnitOfWork = Depe
         raise HTTPException(status_code=500, detail=f"Resubmit failed: {str(e)}")
 
 
-def _to_po_response(po: PurchaseOrderModel) -> PurchaseOrderResponse:
+def _to_po_response(
+    po: PurchaseOrderModel,
+    quotation: Optional[QuotationModel] = None,
+) -> PurchaseOrderResponse:
 
     rfq_number = None
+    response_quotation = quotation
     try:
         from sqlalchemy import inspect
         state = inspect(po)
         if state and "rfq" not in state.unloaded:
             if po.rfq:
                 rfq_number = po.rfq.rfq_number
+        if response_quotation is None and state and "quotation" not in state.unloaded:
+            response_quotation = po.quotation
     except Exception as e:
         logger.warning(f"Could not load rfq_number for PO {po.id}: {e}")
 
-    subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
-    discount_amount = Decimal(str(getattr(po, "discount_amount", 0) or 0))
-    stored_subtotal = Decimal(str(getattr(po, "subtotal", 0) or 0))
-    stored_tax = Decimal(str(getattr(po, "tax_amount", 0) or 0))
-    if abs(stored_subtotal - subtotal) > Decimal("0.01") and Decimal("0") <= stored_tax <= Decimal("100"):
-        taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-        tax_percentage = stored_tax
-        tax_amount = taxable_amount * tax_percentage / Decimal("100")
-        total_amount = (
-            taxable_amount
-            + tax_amount
-            + Decimal(str(getattr(po, "freight_charges", 0) or 0))
-            + Decimal(str(getattr(po, "additional_charges", 0) or 0))
-        )
+    if response_quotation:
+        subtotal, discount_amount, tax_percentage, tax_amount, freight_charges, total_amount = _calculate_quotation_financials(response_quotation)
     else:
-        tax_amount = stored_tax
-        taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-        tax_percentage = (
-            (tax_amount * Decimal("100") / taxable_amount).quantize(Decimal("0.01"))
-            if taxable_amount > 0
-            else Decimal("0.0")
-        )
-        total_amount = Decimal(str(po.total_amount or 0))
+        subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
+        discount_amount = Decimal(str(getattr(po, "discount_amount", 0) or 0))
+        stored_subtotal = Decimal(str(getattr(po, "subtotal", 0) or 0))
+        stored_tax = Decimal(str(getattr(po, "tax_amount", 0) or 0))
+        freight_charges = Decimal(str(getattr(po, "freight_charges", 0) or 0))
+        if abs(stored_subtotal - subtotal) > Decimal("0.01") and Decimal("0") <= stored_tax <= Decimal("100"):
+            taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
+            tax_percentage = stored_tax
+            tax_amount = taxable_amount * tax_percentage / Decimal("100")
+            total_amount = (
+                taxable_amount
+                + tax_amount
+                + freight_charges
+                + Decimal(str(getattr(po, "additional_charges", 0) or 0))
+            )
+        else:
+            tax_amount = stored_tax
+            taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
+            tax_percentage = (
+                (tax_amount * Decimal("100") / taxable_amount).quantize(Decimal("0.01"))
+                if taxable_amount > 0
+                else Decimal("0.0")
+            )
+            total_amount = Decimal(str(po.total_amount or 0))
 
     return PurchaseOrderResponse(
         id=str(po.id),
         po_number=po.po_number,
         po_date=po.po_date or date.today(),
         status=po.status,
+        revision_number=getattr(po, "revision_number", 1) or 1,
         rfq_id=str(po.rfq_id) if po.rfq_id else None,
         rfq_number=rfq_number,
+        quotation_id=(
+            str(getattr(po, "quotation_id", None))
+            if getattr(po, "quotation_id", None)
+            else str(response_quotation.id) if response_quotation else None
+        ),
         supplier_id=str(po.supplier_id),
         supplier_name=po.supplier_name,
         supplier_code=getattr(po, "supplier_code", None),
@@ -2488,6 +2921,7 @@ def _to_po_response(po: PurchaseOrderModel) -> PurchaseOrderResponse:
         supplier_email=getattr(po, "supplier_email", None),
         supplier_gstin=getattr(po, "supplier_gstin", None),
         supplier_address=getattr(po, "supplier_address", None),
+        billing_address=getattr(po, "billing_address", None) or getattr(po, "supplier_address", None),
         warehouse_id=po.warehouse_id,
         delivery_warehouse_name=getattr(po, "delivery_warehouse_name", None),
         delivery_address=getattr(po, "delivery_address", None),
@@ -2497,15 +2931,30 @@ def _to_po_response(po: PurchaseOrderModel) -> PurchaseOrderResponse:
         discount_amount=discount_amount,
         tax_amount=tax_amount,
         tax_percentage=tax_percentage,
-        freight_charges=getattr(po, "freight_charges", Decimal("0.0")),
+        freight_charges=freight_charges,
         additional_charges=getattr(po, "additional_charges", Decimal("0.0")),
         expected_delivery_date=po.expected_delivery_date,
         payment_terms=getattr(po, "payment_terms", None),
+        delivery_terms=getattr(po, "delivery_terms", None) or (getattr(response_quotation, "delivery_time", None) if response_quotation else None),
+        warranty=getattr(po, "warranty", None) or (getattr(response_quotation, "warranty", None) if response_quotation else None),
+        notes=getattr(po, "notes", None) or getattr(po, "procurement_comments", None),
+        attachments=(
+            getattr(po, "attachments", None)
+            or [
+                {
+                    "document_type": document.document_type,
+                    "file_name": document.file_name,
+                    "file_url": document.file_url,
+                }
+                for document in (getattr(response_quotation, "documents", []) if response_quotation else [])
+            ]
+        ),
         procurement_officer=getattr(po, "procurement_officer", None),
         selection_reason=getattr(po, "selection_reason", None),
         procurement_comments=getattr(po, "procurement_comments", None),
         selected_by=getattr(po, "selected_by", None),
         rejection_reason=getattr(po, "rejection_reason", None),
+        quotation=_to_quotation_response(response_quotation) if response_quotation else None,
         items=[
             PurchaseOrderItemSchema(
                 material_id=str(it.material_id) if getattr(it, "material_id", None) else None,
@@ -2531,6 +2980,18 @@ def _to_po_response(po: PurchaseOrderModel) -> PurchaseOrderResponse:
             )
             for h in (po.history or [])
         ],
+        revisions=[
+            PORevisionSchema(
+                revision_number=r.revision_number,
+                changed_field=r.changed_field,
+                old_value=r.old_value,
+                new_value=r.new_value,
+                changed_by=r.changed_by,
+                changed_at=r.changed_at,
+                reason=r.reason,
+            )
+            for r in sorted((getattr(po, "revisions", None) or []), key=lambda entry: (entry.revision_number, entry.changed_at))
+        ],
         created_at=getattr(po, "created_at", None) or datetime.now(),
         updated_at=getattr(po, "updated_at", None) or getattr(po, "created_at", None) or datetime.now()
     )
@@ -2538,6 +2999,7 @@ def _to_po_response(po: PurchaseOrderModel) -> PurchaseOrderResponse:
 
 @router.get("/rfqs", response_model=List[RfqResponse])
 async def list_rfqs(
+    supplier_id: Optional[str] = Query(None),
     uow: UnitOfWork = Depends(get_uow),
     _user: CurrentUser = Depends(get_current_user),
 ) -> List[RfqResponse]:
@@ -2549,7 +3011,14 @@ async def list_rfqs(
             selectinload(SupplierModel.bank_info),
             selectinload(SupplierModel.documents),
         )
-    ).order_by(RfqModel.created_at.desc())
+    )
+    if supplier_id:
+        try:
+            supp_uuid = uuid.UUID(supplier_id)
+            stmt = stmt.where(RfqModel.suppliers.any(SupplierModel.id == supp_uuid))
+        except ValueError:
+            pass
+    stmt = stmt.order_by(RfqModel.created_at.desc())
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
     return [_to_rfq_response(e) for e in entities]
@@ -2561,6 +3030,12 @@ async def get_rfq(
     uow: UnitOfWork = Depends(get_uow),
     _user: CurrentUser = Depends(get_current_user),
 ) -> RfqResponse:
+    try:
+        target_uuid = uuid.UUID(id)
+        clause = or_(RfqModel.id == target_uuid, RfqModel.rfq_number == id)
+    except ValueError:
+        clause = (RfqModel.rfq_number == id)
+
     stmt = select(RfqModel).options(
         selectinload(RfqModel.items),
         selectinload(RfqModel.suppliers).options(
@@ -2569,12 +3044,130 @@ async def get_rfq(
             selectinload(SupplierModel.bank_info),
             selectinload(SupplierModel.documents),
         )
-    ).where(RfqModel.id == id)
+    ).where(clause)
     res = await uow.session.execute(stmt)
     entity = res.scalar_one_or_none()
     if not entity:
         raise HTTPException(status_code=404, detail="RFQ not found")
     return _to_rfq_response(entity)
+
+
+@router.put("/rfqs/{id}", response_model=RfqResponse)
+async def revise_rfq(
+    id: str,
+    request: CreateRfqRequest,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> RfqResponse:
+    """Revises an existing RFQ details, supplier list, items, or delivery requirements."""
+    try:
+        rfq_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid RFQ UUID")
+
+    stmt = (
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers),
+        )
+        .where(RfqModel.id == rfq_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    rfq = res.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    if rfq.status in {"CLOSED", "CANCELLED"}:
+        raise HTTPException(status_code=409, detail=f"Cannot revise RFQ in status {rfq.status}")
+
+    if request.warehouse:
+        rfq.warehouse = request.warehouse
+    if request.procurement_officer:
+        rfq.procurement_officer = request.procurement_officer
+    if request.required_delivery_date:
+        rfq.required_delivery_date = request.required_delivery_date
+    if request.closing_date:
+        rfq.closing_date = request.closing_date
+    if request.remarks:
+        rfq.remarks = request.remarks
+
+    if request.supplier_ids is not None:
+        sup_uuids = [uuid.UUID(s) for s in request.supplier_ids if s]
+        sup_res = await uow.session.execute(select(SupplierModel).where(SupplierModel.id.in_(sup_uuids)))
+        rfq.suppliers = list(sup_res.scalars().all())
+
+    if request.items:
+        rfq.items = []
+        for item in request.items:
+            rfq.items.append(
+                RfqItemModel(
+                    id=uuid.uuid4(),
+                    rfq_id=rfq.id,
+                    material_code=item.material_code,
+                    material_name=item.material_name,
+                    category=item.category or "Raw Materials",
+                    quantity=item.quantity,
+                    uom=item.uom or "PCS",
+                )
+            )
+
+    await uow.commit()
+
+    refreshed_res = await uow.session.execute(
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers).options(
+                selectinload(SupplierModel.address),
+                selectinload(SupplierModel.contact),
+            ),
+        )
+        .where(RfqModel.id == rfq.id)
+    )
+    return _to_rfq_response(refreshed_res.scalar_one())
+
+
+@router.post("/rfqs/{id}/cancel", response_model=RfqResponse)
+async def cancel_rfq(
+    id: str,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+) -> RfqResponse:
+    """Cancels an RFQ and marks its status as CANCELLED."""
+    try:
+        rfq_uuid = uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid RFQ UUID")
+
+    stmt = (
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers),
+        )
+        .where(RfqModel.id == rfq_uuid)
+    )
+    res = await uow.session.execute(stmt)
+    rfq = res.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    rfq.status = "CANCELLED"
+    await uow.commit()
+
+    refreshed_res = await uow.session.execute(
+        select(RfqModel)
+        .options(
+            selectinload(RfqModel.items),
+            selectinload(RfqModel.suppliers).options(
+                selectinload(SupplierModel.address),
+                selectinload(SupplierModel.contact),
+            ),
+        )
+        .where(RfqModel.id == rfq.id)
+    )
+    return _to_rfq_response(refreshed_res.scalar_one())
 
 
 def _to_rfq_response(rfq) -> RfqResponse:
@@ -2623,24 +3216,10 @@ def _to_rfq_response(rfq) -> RfqResponse:
                     supplier_name=getattr(s, "supplier_name", "Unknown")
                 ))
 
-    rfq_date_val = getattr(rfq, "rfq_date", None)
-    if not rfq_date_val:
-        from datetime import date
-        created_at = getattr(rfq, "created_at", None)
-        if hasattr(created_at, "date"):
-            rfq_date_val = created_at.date()
-        elif isinstance(created_at, str) and len(created_at) >= 10:
-            try:
-                rfq_date_val = date.fromisoformat(created_at[:10])
-            except ValueError:
-                rfq_date_val = date.today()
-        else:
-            rfq_date_val = date.today()
-
     return RfqResponse(
         id=str(rfq.id),
         rfq_number=getattr(rfq, "rfq_number", None),
-        rfq_date=rfq_date_val,
+        rfq_date=getattr(rfq, "rfq_date", None) or date.today(),
         status=getattr(rfq, "status", None),
         material_request_number=getattr(rfq, "material_request_number", None),
         required_delivery_date=getattr(rfq, "required_delivery_date", None),
@@ -2764,23 +3343,9 @@ async def submit_quotation(
     _user: CurrentUser = Depends(get_current_user),
 ) -> QuotationResponse:
     try:
-        supplier_id = request.supplier_id
-        if "SUPPLIER" in _user.roles:
-            supplier_id = str(_user.raw_claims.get("supplier_id") or supplier_id or "").strip()
-            if not supplier_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only authenticated supplier sessions can submit quotations",
-                )
-
-        try:
-            uuid.UUID(str(request.rfq_id))
-            uuid.UUID(str(supplier_id))
-        except (ValueError, TypeError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid RFQ or supplier ID",
-            ) from exc
+        supplier_id = request.supplier_id or _user.raw_claims.get("supplier_id")
+        if not supplier_id:
+            raise HTTPException(status_code=400, detail="Supplier ID is required for quotation submission")
 
         repo = SqlAlchemyQuotationRepository(uow.session)
         rfq_repo = SqlAlchemyRfqRepository(uow.session)
@@ -2788,38 +3353,18 @@ async def submit_quotation(
         command = SubmitQuotationCommand(
             rfq_id=request.rfq_id,
             supplier_id=supplier_id,
-            lines=[
-                QuotationLineCommand(
-                    item_code=line.item_code,
-                    quantity=line.quantity,
-                    unit_price=line.unit_price,
-                    material_id=line.material_id,
-                    material_variant_id=line.material_variant_id,
-                    variant_code=line.variant_code,
-                )
-                for line in request.lines
-            ],
-            documents=[
-                QuotationDocumentCommand(
-                    document_type=document.document_type,
-                    file_name=document.file_name,
-                    file_url=document.file_url,
-                )
-                for document in request.documents
-            ] if request.documents else [],
-            **request.model_dump(exclude={"lines", "rfq_id", "supplier_id", "documents"})
+            lines=[QuotationLineCommand(**l.dict()) for l in request.lines],
+            documents=[QuotationDocumentCommand(**d.dict()) for d in request.documents] if request.documents else [],
+            **request.dict(exclude={"lines", "rfq_id", "supplier_id", "documents"})
         )
         q_id = await use_case.handle(command)
+        await uow.commit()
         q = await repo.get_by_id(q_id)
         if not q:
             raise HTTPException(status_code=404, detail="Quotation could not be retrieved after save")
         return _to_quotation_response(q)
     except HTTPException:
         raise
-    except NotFoundException as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except DomainRuleViolationException as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to submit quotation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
@@ -2837,10 +3382,19 @@ async def list_quotations(
         selectinload(QuotationModel.documents),
     )
     if rfq_id:
-        stmt = stmt.where(QuotationModel.rfq_id == rfq_id)
+        try:
+            rfq_uuid = uuid.UUID(rfq_id)
+            stmt = stmt.where(or_(QuotationModel.rfq_id == rfq_uuid, cast(QuotationModel.rfq_id, String) == rfq_id))
+        except ValueError:
+            stmt = stmt.where(cast(QuotationModel.rfq_id, String) == rfq_id)
     if supplier_id:
-        stmt = stmt.where(QuotationModel.supplier_id == supplier_id)
+        try:
+            supp_uuid = uuid.UUID(supplier_id)
+            stmt = stmt.where(or_(QuotationModel.supplier_id == supp_uuid, cast(QuotationModel.supplier_id, String) == supplier_id))
+        except ValueError:
+            stmt = stmt.where(cast(QuotationModel.supplier_id, String) == supplier_id)
 
+    stmt = stmt.order_by(QuotationModel.created_at.desc())
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
 
@@ -2893,156 +3447,6 @@ async def get_quotation(id: str, uow: UnitOfWork = Depends(get_uow)):
     return _to_quotation_response(q, supplier_info=sup_info)
 
 
-@router.get("/user/navigation")
-async def get_user_navigation(
-    user: CurrentUser = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
-) -> dict:
-    """
-    Returns complete backend-driven module navigation and user profile configuration.
-    """
-    roles = user.roles or []
-    role_str = "WAREHOUSE"
-    if "GRN" in roles or user.username.lower() == "grn":
-        role_str = "GRN"
-    elif "PROCUREMENT" in roles:
-        role_str = "PROCUREMENT"
-    elif "FINANCE" in roles:
-        role_str = "FINANCE"
-    elif "SUPPLIER" in roles:
-        role_str = "SUPPLIER"
-    elif "GATE_SECURITY" in roles:
-        role_str = "GATE_SECURITY"
-    elif "ASSEMBLY_MANAGER" in roles:
-        role_str = "ASSEMBLY_MANAGER"
-    elif roles:
-        role_str = roles[0]
-
-    modules = {
-        "GRN": {
-            "module_label": "GRN Operations",
-            "items": [
-                {"label": "GRN Operations Dashboard", "to": "/grn", "search": {"tab": "dashboard"}, "icon": "LayoutDashboard"},
-                {"label": "GRN Records History", "to": "/grn", "search": {"tab": "records"}, "icon": "ClipboardList"},
-                {"label": "Material Receiving", "to": "/grn", "search": {"tab": "wizard", "page": 2}, "icon": "PackageCheck"},
-                {"label": "Quality & Photos", "to": "/grn", "search": {"tab": "wizard", "page": 3}, "icon": "AlertTriangle"},
-                {"label": "Batch Allocation", "to": "/grn", "search": {"tab": "wizard", "page": 4}, "icon": "Boxes"},
-                {"label": "Documents & Posting", "to": "/grn", "search": {"tab": "wizard", "page": 5}, "icon": "FileText"},
-                {"label": "Batch QR Code Labels", "to": "/grn", "search": {"tab": "wizard", "page": 6}, "icon": "QrCode"},
-                {"label": "Inbound Arrivals", "to": "/vehicle-queue", "icon": "ListOrdered"},
-            ]
-        },
-        "WAREHOUSE": {
-            "module_label": "Warehouse Operations",
-            "items": [
-                {"label": "Dashboard", "to": "/warehouse-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Material Master", "to": "/warehouse/materials", "icon": "Database"},
-                {"label": "Inventory", "to": "/inventory", "icon": "Boxes"},
-                {"label": "Warehouses & Locations", "to": "/warehouse-storage", "icon": "Warehouse"},
-                {"label": "Putaway Tasks", "to": "/putaway-tasks", "icon": "PackageCheck"},
-                {"label": "Pick Tasks", "to": "/pick-tasks", "icon": "PackageCheck"},
-                {"label": "Material Requests", "to": "/warehouse/material-requests", "icon": "ClipboardList"},
-                {"label": "Vehicle Exit", "to": "/vehicle-exit", "icon": "LogOut"},
-                {"label": "Dock Management", "to": "/dock-management", "icon": "Warehouse"},
-                {"label": "Dock / Receiving", "to": "/receiving", "icon": "PackageCheck"},
-                {"label": "GRN", "to": "/grn", "icon": "FileCheck2"},
-                {"label": "Damage Claims", "to": "/damage-claims", "icon": "AlertTriangle"},
-            ]
-        },
-        "PROCUREMENT": {
-            "module_label": "Procurement Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/procurement-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
-                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
-                {"label": "Finished Goods", "to": "/procurement/finished-goods", "icon": "PackageCheck"},
-                {"label": "RFQs", "to": "/procurement/rfqs", "icon": "FileQuestion"},
-                {"label": "Quotations", "to": "/procurement/quotations", "icon": "FileBadge"},
-                {"label": "Purchase Orders", "to": "/procurement/purchase-orders", "icon": "FileText"},
-                {"label": "ASNs", "to": "/procurement/asns", "icon": "Truck"},
-            ]
-        },
-        "SUPPLIER": {
-            "module_label": "Supplier Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/supplier-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Quotation Portal", "to": "/submit-quotation", "icon": "FileBadge"},
-                {"label": "ASNs", "to": "/supplier/asns/new", "icon": "Truck"},
-                {"label": "Quality Issues", "to": "/supplier/quality-issues", "icon": "AlertTriangle"},
-                {"label": "Damage Claims", "to": "/damage-claims", "icon": "FileCheck2"},
-            ]
-        },
-        "FINANCE": {
-            "module_label": "Finance Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/finance-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Pending Approvals", "to": "/finance/approvals", "icon": "FileCheck2"},
-            ]
-        },
-        "GATE_SECURITY": {
-            "module_label": "Gate Security Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/gate-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Gate Entry", "to": "/gate-entry", "icon": "DoorOpen"},
-                {"label": "Vehicle Exit", "to": "/vehicle-exit", "icon": "LogOut"},
-                {"label": "Inbound Arrivals", "to": "/vehicle-queue", "icon": "ListOrdered"},
-                {"label": "Unscheduled Arrivals", "to": "/unscheduled-arrivals", "icon": "FileQuestion"},
-            ]
-        },
-        "ASSEMBLY_MANAGER": {
-            "module_label": "Assembly Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/assembly-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Assembly Orders", "to": "/assembly-orders", "icon": "Factory"},
-                {"label": "Material Requirements", "to": "/assembly-material-requirements", "icon": "ClipboardList"},
-                {"label": "Material Reservations", "to": "/assembly-material-reservations", "icon": "Boxes"},
-                {"label": "Material Issues", "to": "/assembly-material-issues", "icon": "PackageCheck"},
-                {"label": "Work Orders", "to": "/assembly-work-orders", "icon": "Factory"},
-                {"label": "Assembly Teams", "to": "/assembly-workforce", "icon": "Users"},
-                {"label": "Assembly Progress", "to": "/assembly-progress", "icon": "BarChart3"},
-                {"label": "Material Consumption", "to": "/assembly-material-consumption", "icon": "Boxes"},
-                {"label": "Scrap / Wastage", "to": "/assembly-scrap-wastage", "icon": "FileText"},
-                {"label": "Quality Inspection", "to": "/assembly-quality-inspection", "icon": "FileCheck2"},
-                {"label": "Rework", "to": "/assembly-rework", "icon": "Settings"},
-                {"label": "Finished Goods", "to": "/assembly-finished-goods", "icon": "Warehouse"},
-                {"label": "Reports", "to": "/assembly-reports", "icon": "BarChart3"},
-                {"label": "Notifications", "to": "/notifications", "icon": "Bell"},
-            ]
-        }
-    }
-
-    unread_count = 0
-    try:
-        if "WAREHOUSE" in roles:
-            from app.modules.gate.infrastructure.persistence.models import GateEntryModel
-            res = await uow.session.execute(
-                select(func.count()).select_from(GateEntryModel).where(GateEntryModel.status == "AWAITING_DOCK")
-            )
-            unread_count += res.scalar() or 0
-        else:
-            n_res = await uow.session.execute(
-                select(func.count()).select_from(NotificationModel).where(
-                    NotificationModel.user_role == role_str,
-                    NotificationModel.is_read == False
-                )
-            )
-            unread_count += n_res.scalar() or 0
-    except Exception:
-        pass
-
-    active_module = modules.get(role_str, modules["WAREHOUSE"])
-
-    return {
-        "username": user.username,
-        "roles": roles,
-        "active_role": role_str,
-        "module_label": active_module["module_label"],
-        "navigation": active_module["items"],
-        "all_modules": modules,
-        "unread_notifications": unread_count,
-    }
-
-
 @router.put("/quotations/{id}", response_model=QuotationResponse)
 async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get_uow)):
     try:
@@ -3080,15 +3484,10 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
         if "lines" in request:
             q.lines.clear()
             for line in request["lines"]:
-                material_id = line.get("material_id") or line.get("materialId")
-                material_variant_id = line.get("material_variant_id") or line.get("materialVariantId")
                 q.lines.append(QuotationLineModel(
                     id=uuid.uuid4(),
                     quotation_id=q.id,
-                    material_id=uuid.UUID(str(material_id)) if material_id else None,
-                    material_variant_id=uuid.UUID(str(material_variant_id)) if material_variant_id else None,
                     item_code=line.get("item_code") or line.get("itemCode"),
-                    variant_code=line.get("variant_code") or line.get("variantCode"),
                     quantity=Decimal(str(line.get("quantity", 0))),
                     unit_price=Decimal(str(line.get("unit_price") or line.get("unitPrice") or 0))
                 ))
@@ -3118,10 +3517,6 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
 
         await uow.commit()
         return _to_quotation_response(q)
-    except HTTPException:
-        raise
-    except (ValueError, TypeError) as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid quotation payload") from e
     except Exception as e:
         logger.error(f"Update quotation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -3166,12 +3561,25 @@ async def reject_quotation(
 
 def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
     lines = []
+    from sqlalchemy import inspect
     for l in q.lines:
         mat_name = getattr(l, "material_name", None)
         uom_val = getattr(l, "uom", None)
-        if not mat_name and getattr(l, "material", None):
-            mat_name = getattr(l.material, "material_name", None)
-            uom_val = getattr(l.material, "uom", None)
+        if not mat_name:
+            try:
+                mat_inst = l.__dict__.get("material")
+                if mat_inst:
+                    mat_name = getattr(mat_inst, "material_name", None)
+                    uom_val = getattr(mat_inst, "uom", None)
+                else:
+                    state = inspect(l)
+                    if state and "material" not in state.unloaded:
+                        mat_obj = getattr(l, "material", None)
+                        if mat_obj:
+                            mat_name = getattr(mat_obj, "material_name", None)
+                            uom_val = getattr(mat_obj, "uom", None)
+            except Exception:
+                pass
 
         lines.append(QuotationLineSchema(
             material_id=str(getattr(l, "material_id", None)) if getattr(l, "material_id", None) else None,
@@ -3200,10 +3608,12 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
         discount=getattr(q, "discount", Decimal("0")) or Decimal("0"),
         tax=getattr(q, "tax", Decimal("0")) or Decimal("0"),
         freight_charges=getattr(q, "freight_charges", Decimal("0")) or Decimal("0"),
+        additional_charges=getattr(q, "additional_charges", Decimal("0")) or Decimal("0"),
         total_amount=getattr(q, "total_amount", Decimal("0")),
         delivery_time=getattr(q, "delivery_time", None),
         expected_delivery_date=getattr(q, "expected_delivery_date", None),
         payment_terms=getattr(q, "payment_terms", None),
+        warranty=getattr(q, "warranty", None),
         quotation_validity=getattr(q, "quotation_validity", None),
         remarks=getattr(q, "remarks", None),
         documents=documents,
@@ -3216,7 +3626,6 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
 @router.post("/asns", response_model=AsnResponse, status_code=status.HTTP_201_CREATED)
 async def create_asn(
     request: CreateAsnRequest,
-    background_tasks: BackgroundTasks,
     uow: UnitOfWork = Depends(get_uow),
     _user: CurrentUser = Depends(get_current_user),
 ) -> AsnResponse:
@@ -3226,27 +3635,11 @@ async def create_asn(
         notif_repo = SqlAlchemyArrivalNotificationRepository(uow.session)
         use_case = CreateAsnUseCase(repo, notification_repository=notif_repo)
 
-        asn_number = request.asn_number
-        if asn_number:
-            existing_asn_result = await uow.session.execute(
-                select(AsnModel.id).where(AsnModel.asn_number == asn_number)
-            )
-            if existing_asn_result.scalar_one_or_none():
-                year = datetime.now().year
-                existing_numbers_result = await uow.session.execute(
-                    select(AsnModel.asn_number).where(AsnModel.asn_number.like(f"ASN-{year}-%"))
-                )
-                highest_sequence = 0
-                for existing_number in existing_numbers_result.scalars().all():
-                    try:
-                        highest_sequence = max(highest_sequence, int(str(existing_number).rsplit("-", 1)[-1]))
-                    except (ValueError, TypeError):
-                        continue
-                asn_number = f"ASN-{year}-{highest_sequence + 1:04d}"
-
         supplier_id = _user.raw_claims.get("supplier_id") if "SUPPLIER" in _user.roles else None
         if supplier_id:
             supplier_id = str(supplier_id)
+
+
 
         if not supplier_id and request.po_id:
             try:
@@ -3260,23 +3653,24 @@ async def create_asn(
             except ValueError:
                 pass
 
+
         expected_arrival = None
         if request.expected_arrival_at:
             try:
+
                 dt = datetime.fromisoformat(request.expected_arrival_at.replace("Z", "+00:00"))
                 expected_arrival = dt.replace(tzinfo=None)
-            except Exception:
-                pass
+            except: pass
 
         ship_date = None
         if request.shipment_date:
             try:
+
                 ship_date = datetime.fromisoformat(request.shipment_date.split("T")[0]).date()
-            except Exception:
-                pass
+            except: pass
 
         command = CreateAsnCommand(
-            asn_number=asn_number,
+            asn_number=request.asn_number,
             lines=[AsnLineCommand(
                 item_code=l.item_code,
                 shipped_quantity=l.shipped_quantity,
@@ -3305,104 +3699,50 @@ async def create_asn(
         )
         asn_id = await use_case.handle(command)
 
-        po_obj = None
-        supplier_name = "Supplier"
-        warehouse_name = "Main Warehouse"
-        resolved_supplier_email = None
 
         if request.po_id:
             try:
                 po_stmt = (
                     select(PurchaseOrderModel)
-                    .options(selectinload(PurchaseOrderModel.history), selectinload(PurchaseOrderModel.items))
-                    .where(PurchaseOrderModel.id == uuid.UUID(str(request.po_id).strip()))
+                    .options(selectinload(PurchaseOrderModel.history))
+                    .where(PurchaseOrderModel.id == uuid.UUID(request.po_id))
                 )
                 po_res = await uow.session.execute(po_stmt)
                 po_obj = po_res.scalar_one_or_none()
-            except ValueError:
-                pass
+                if po_obj:
+                    po_obj.status = "SHIPPED"
 
-        if not po_obj and request.po_number:
-            try:
-                po_stmt = (
-                    select(PurchaseOrderModel)
-                    .options(selectinload(PurchaseOrderModel.history), selectinload(PurchaseOrderModel.items))
-                    .where(PurchaseOrderModel.po_number == str(request.po_number).strip())
-                )
-                po_res = await uow.session.execute(po_stmt)
-                po_obj = po_res.scalar_one_or_none()
-            except Exception:
-                pass
 
-        if po_obj:
-            po_obj.status = "SHIPPED"
-            supplier_name = po_obj.supplier_name or supplier_name
-            warehouse_name = po_obj.delivery_warehouse_name or po_obj.warehouse_id or warehouse_name
+                    po_obj.history.append(POApprovalHistoryModel(
+                        id=uuid.uuid4(),
+                        status="SHIPPED",
+                        actor_name=_user.username or "supplier",
+                        comments=f"ASN {request.asn_number} submitted. Shipment is in transit."
+                    ))
 
-            po_obj.history.append(POApprovalHistoryModel(
-                id=uuid.uuid4(),
-                status="SHIPPED",
-                actor_name=_user.username or "supplier",
-                comments=f"ASN {asn_number} submitted. Shipment is in transit."
-            ))
 
-            uow.session.add(NotificationModel(
-                id=uuid.uuid4(),
-                user_role="PROCUREMENT",
-                title="Shipment Dispatched",
-                message=f"Supplier has dispatched goods for PO {po_obj.po_number}. ASN: {asn_number}",
-                link=f"/procurement/asns/{asn_id.value}"
-            ))
+                    uow.session.add(NotificationModel(
+                        id=uuid.uuid4(),
+                        user_role="PROCUREMENT",
+                        title="Shipment Dispatched",
+                        message=f"Supplier has dispatched goods for PO {po_obj.po_number}. ASN: {request.asn_number}",
+                        link=f"/procurement/asns/{asn_id.value}"
+                    ))
+            except Exception as po_err:
+                logger.warning(f"Failed to update PO status on ASN submission: {po_err}")
 
-        target_sup_id = supplier_id or (po_obj.supplier_id if po_obj else None)
-        if target_sup_id:
-            try:
-                sup_stmt = select(SupplierModel).options(
-                    selectinload(SupplierModel.contact)
-                ).where(SupplierModel.id == uuid.UUID(str(target_sup_id)))
-                sup_res = await uow.session.execute(sup_stmt)
-                sup_obj = sup_res.scalar_one_or_none()
-                if sup_obj:
-                    if sup_obj.supplier_name:
-                        supplier_name = sup_obj.supplier_name
-                    if sup_obj.contact and sup_obj.contact.primary_email and "@" in sup_obj.contact.primary_email:
-                        resolved_supplier_email = sup_obj.contact.primary_email.strip()
-            except Exception as sup_err:
-                logger.warning(f"Failed to query supplier details: {sup_err}")
 
-        # Fallback to PO supplier_email if supplier contact record not found
-        if not resolved_supplier_email and po_obj and po_obj.supplier_email and "@" in po_obj.supplier_email:
-            resolved_supplier_email = po_obj.supplier_email.strip()
-
-        po_ref_display = (po_obj.po_number if po_obj else None) or request.po_number or "N/A"
-        if not resolved_supplier_email or "@" not in resolved_supplier_email:
-            logger.error(f"Supplier email not found for ASN {asn_number}, PO {po_ref_display}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier email not found for PO {po_ref_display}"
-            )
-
-        # Commit transaction FIRST before triggering external email dispatch
-        await uow.commit()
-
-        # Load persisted ASN with lines & documents
         stmt = select(AsnModel).options(
             selectinload(AsnModel.lines),
             selectinload(AsnModel.documents)
         ).where(AsnModel.id == asn_id.value)
         res = await uow.session.execute(stmt)
         asn = res.scalar_one()
-
-        # Trigger ASN email notification to supplier and warehouse/procurement
-        await _dispatch_asn_email(
-            asn=asn,
-            po_obj=po_obj,
-            supplier_name=supplier_name,
-            warehouse_name=warehouse_name,
-            background_tasks=background_tasks,
-            is_resubmit=False,
-            supplier_email=resolved_supplier_email,
-        )
+        asn.invoice_number = request.invoice_number
+        asn.invoice_date = request.invoice_date
+        asn.challan_number = request.challan_number
+        asn.challan_date = request.challan_date
+        await uow.commit()
 
         return AsnResponse(
             id=str(asn.id),
@@ -3425,6 +3765,10 @@ async def create_asn(
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
+            invoice_number=asn.invoice_number,
+            invoice_date=asn.invoice_date,
+            challan_number=asn.challan_number,
+            challan_date=asn.challan_date,
             documents=[AsnDocumentSchema(
                 document_type=d.document_type,
                 file_name=d.file_name,
@@ -3434,8 +3778,6 @@ async def create_asn(
             ) for d in asn.documents],
             created_at=asn.created_at,
         )
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"ASN Submission failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -3473,7 +3815,11 @@ async def list_asns(
             )
         )
         if supplier_id:
-            stmt = stmt.where(resolved_supplier_id == supplier_id)
+            try:
+                supp_uuid = uuid.UUID(supplier_id)
+                stmt = stmt.where(or_(resolved_supplier_id == supp_uuid, cast(resolved_supplier_id, String) == supplier_id))
+            except ValueError:
+                stmt = stmt.where(cast(resolved_supplier_id, String) == supplier_id)
 
         res = await uow.session.execute(stmt)
         rows = res.all()
@@ -3532,6 +3878,10 @@ async def list_asns(
                     number_of_packages=asn.number_of_packages,
                     package_type=asn.package_type,
                     shipping_method=asn.shipping_method,
+                    invoice_number=asn.invoice_number,
+                    invoice_date=asn.invoice_date,
+                    challan_number=asn.challan_number,
+                    challan_date=asn.challan_date,
                     warehouse_status=warehouse_entry.status if warehouse_entry else None,
                     warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
                     assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -3606,6 +3956,10 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
+            invoice_number=asn.invoice_number,
+            invoice_date=asn.invoice_date,
+            challan_number=asn.challan_number,
+            challan_date=asn.challan_date,
             warehouse_status=warehouse_entry.status if warehouse_entry else None,
             warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
             assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -3627,7 +3981,6 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
 async def resubmit_asn(
     id: str,
     request: CreateAsnRequest,
-    background_tasks: BackgroundTasks,
     uow: UnitOfWork = Depends(get_uow),
     _user: CurrentUser = Depends(get_current_user),
 ):
@@ -3682,7 +4035,12 @@ async def resubmit_asn(
         asn.number_of_packages = request.number_of_packages
         asn.package_type = request.package_type
         asn.shipping_method = request.shipping_method
+        asn.invoice_number = request.invoice_number
+        asn.invoice_date = request.invoice_date
+        asn.challan_number = request.challan_number
+        asn.challan_date = request.challan_date
         asn.status = "DISPATCHED"
+
 
         notification = NotificationModel(
             id=uuid.uuid4(),
@@ -3731,59 +4089,6 @@ async def resubmit_asn(
 
         await uow.commit()
         await uow.session.refresh(asn, attribute_names=["lines", "documents"])
-
-        # Fetch PO if linked
-        po_obj = None
-        warehouse_name = "Main Warehouse"
-        if asn.po_id:
-            try:
-                po_res = await uow.session.execute(
-                    select(PurchaseOrderModel).where(cast(PurchaseOrderModel.id, String) == str(asn.po_id))
-                )
-                po_obj = po_res.scalar_one_or_none()
-                if po_obj:
-                    warehouse_name = po_obj.delivery_warehouse_name or po_obj.warehouse_id or warehouse_name
-            except Exception:
-                pass
-
-        resolved_supplier_email = None
-
-        target_sup_id = asn.supplier_id or resolved_id or (po_obj.supplier_id if po_obj else None)
-        if target_sup_id:
-            try:
-                sup_stmt = select(SupplierModel).options(
-                    selectinload(SupplierModel.contact)
-                ).where(SupplierModel.id == uuid.UUID(str(target_sup_id)))
-                sup_res = await uow.session.execute(sup_stmt)
-                sup_obj = sup_res.scalar_one_or_none()
-                if sup_obj:
-                    if sup_obj.supplier_name:
-                        supplier_name = sup_obj.supplier_name
-                    if sup_obj.contact and sup_obj.contact.primary_email and "@" in sup_obj.contact.primary_email:
-                        resolved_supplier_email = sup_obj.contact.primary_email.strip()
-            except Exception:
-                pass
-
-        # Fallback to PO supplier_email if supplier contact record not found
-        if not resolved_supplier_email and po_obj and po_obj.supplier_email and "@" in po_obj.supplier_email:
-            resolved_supplier_email = po_obj.supplier_email.strip()
-
-        po_ref_display = asn.po_number or (po_obj.po_number if po_obj else "N/A")
-        if not resolved_supplier_email or "@" not in resolved_supplier_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Supplier email not found for PO {po_ref_display}"
-            )
-
-        await _dispatch_asn_email(
-            asn=asn,
-            po_obj=po_obj,
-            supplier_name=supplier_name or "Supplier",
-            warehouse_name=warehouse_name,
-            background_tasks=background_tasks,
-            is_resubmit=True,
-            supplier_email=resolved_supplier_email,
-        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -3813,6 +4118,10 @@ async def resubmit_asn(
         number_of_packages=asn.number_of_packages,
         package_type=asn.package_type,
         shipping_method=asn.shipping_method,
+        invoice_number=asn.invoice_number,
+        invoice_date=asn.invoice_date,
+        challan_number=asn.challan_number,
+        challan_date=asn.challan_date,
         documents=[AsnDocumentSchema(
             document_type=document.document_type,
             file_name=document.file_name,
@@ -3875,7 +4184,18 @@ async def list_arrival_notifications(uow: UnitOfWork = Depends(get_uow)):
 @router.get("/notifications", response_model=List[NotificationResponse])
 async def list_notifications(role: str = Query(...), uow: UnitOfWork = Depends(get_uow)):
     normalized_role = role.strip().upper()
-    stmt = select(NotificationModel).where(NotificationModel.user_role == normalized_role).order_by(NotificationModel.created_at.desc())
+    if normalized_role in ("GRN", "RECEIVING"):
+        roles_to_match = ["GRN", "RECEIVING", "WAREHOUSE", "STORE_MANAGER"]
+    elif normalized_role == "WAREHOUSE":
+        roles_to_match = ["WAREHOUSE", "GRN", "RECEIVING", "STORE_MANAGER", "QUALITY_INSPECTOR"]
+    elif normalized_role == "STORE_MANAGER":
+        roles_to_match = ["STORE_MANAGER", "WAREHOUSE", "GRN", "RECEIVING"]
+    elif normalized_role == "QUALITY_INSPECTOR":
+        roles_to_match = ["QUALITY_INSPECTOR", "WAREHOUSE", "GRN"]
+    else:
+        roles_to_match = [normalized_role]
+
+    stmt = select(NotificationModel).where(NotificationModel.user_role.in_(roles_to_match)).order_by(NotificationModel.created_at.desc())
     res = await uow.session.execute(stmt)
     notifications = res.scalars().all()
     return [
@@ -3887,18 +4207,6 @@ async def list_notifications(role: str = Query(...), uow: UnitOfWork = Depends(g
             link=n.link,
             is_read=n.is_read,
             created_at=n.created_at,
-            dock_code=getattr(n, "dock_code", None),
-            dock_name=getattr(n, "dock_name", None),
-            dock_location=getattr(n, "dock_location", None),
-            dock_type=getattr(n, "dock_type", None),
-            warehouse_name=getattr(n, "warehouse_name", None),
-            allocation_time=getattr(n, "allocation_time", None),
-            gate_pass_number=getattr(n, "gate_pass_number", None),
-            vehicle_number=getattr(n, "vehicle_number", None),
-            driver_name=getattr(n, "driver_name", None),
-            driver_phone=getattr(n, "driver_phone", None),
-            asn_number=getattr(n, "asn_number", None),
-            po_number=getattr(n, "po_number", None),
         )
         for n in notifications
     ]
@@ -3919,9 +4227,16 @@ async def mark_notification_read(id: str, uow: UnitOfWork = Depends(get_uow)):
 @router.post("/notifications/read-all")
 async def mark_all_notifications_read(role: str = Query(...), uow: UnitOfWork = Depends(get_uow)):
     normalized_role = role.strip().upper()
+    if normalized_role in ("GRN", "RECEIVING"):
+        roles_to_match = ["GRN", "RECEIVING", "WAREHOUSE", "STORE_MANAGER"]
+    elif normalized_role == "WAREHOUSE":
+        roles_to_match = ["WAREHOUSE", "GRN", "RECEIVING", "STORE_MANAGER", "QUALITY_INSPECTOR"]
+    else:
+        roles_to_match = [normalized_role]
+
     result = await uow.session.execute(
         update(NotificationModel)
-        .where(NotificationModel.user_role == normalized_role, NotificationModel.is_read.is_(False))
+        .where(NotificationModel.user_role.in_(roles_to_match), NotificationModel.is_read.is_(False))
         .values(is_read=True)
     )
     await uow.commit()
@@ -4009,109 +4324,100 @@ async def change_password(
 @router.post("/auth/dev-login")
 async def dev_login(
     request: DevLoginRequest,
+    uow: UnitOfWork = Depends(get_uow),
 ) -> dict:
     from app.config.settings import get_settings
     settings = get_settings()
+    if settings.environment.lower() not in {"local", "test", "development"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Development login is disabled outside local/test/development environments.",
+        )
 
-    # 1. Check exact settings match first
-    if request.username == settings.admin_username and request.password == settings.admin_password:
+    account_result = await uow.session.execute(
+        select(StoreManagerUserModel).where(
+            func.lower(StoreManagerUserModel.username) == request.username.strip().lower(),
+            StoreManagerUserModel.status == "ACTIVE",
+        )
+    )
+    account = account_result.scalar_one_or_none()
+    if account and account.password_hash == hashlib.sha256(request.password.encode()).hexdigest():
+        session_token = secrets.token_urlsafe(48)
+        account.auth_token_hash = hashlib.sha256(session_token.encode()).hexdigest()
+        account.last_login = datetime.utcnow()
+        await uow.commit()
+        role_key = account.role.strip().upper().replace(" ", "_")
+        role = {
+            "SUPER_ADMIN": "ADMIN",
+            "ADMIN_OFFICER": "ADMIN",
+            "PROCUREMENT_MANAGER": "MANAGER",
+            "PROCUREMENT_OFFICER": "PROCUREMENT",
+            "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
+            "STORE_OPERATOR": "STORE_KEEPER",
+        }.get(role_key, role_key)
+        return {
+            "token": f"mock-jwt-db-user-{session_token}",
+            "username": account.username,
+            "full_name": account.full_name,
+            "employee_id": account.employee_id,
+            "roles": [role],
+            "applications": account.applications or [],
+        }
+
+    normalized_username = request.username.strip().lower()
+    if normalized_username == settings.admin_username.lower() and request.password == settings.admin_password:
         return {
             "token": "mock-jwt-admin-token",
             "username": settings.admin_username,
             "roles": ["ADMIN"]
         }
-    elif request.username == settings.procurement_username and request.password == settings.procurement_password:
+    elif normalized_username == settings.procurement_username.lower() and request.password == settings.procurement_password:
         return {
             "token": "mock-jwt-procurement-token",
             "username": settings.procurement_username,
             "roles": ["PROCUREMENT"]
         }
-    elif request.username == settings.finance_username and request.password == settings.finance_password:
+    elif normalized_username == settings.finance_username.lower() and request.password == settings.finance_password:
         return {
             "token": "mock-jwt-finance-token",
             "username": settings.finance_username,
             "roles": ["FINANCE"]
         }
-    elif request.username == settings.warehouse_username and request.password == settings.warehouse_password:
+    elif normalized_username == settings.warehouse_username.lower() and request.password == settings.warehouse_password:
         return {
             "token": "mock-jwt-warehouse-token",
             "username": settings.warehouse_username,
             "roles": ["WAREHOUSE"]
         }
-    elif request.username == settings.gate_security_username and request.password == settings.gate_security_password:
+    elif normalized_username == settings.manager_username.lower() and request.password == settings.manager_password:
+        return {
+            "token": "mock-jwt-manager-token",
+            "username": settings.manager_username,
+            "roles": ["MANAGER"]
+        }
+    elif normalized_username == settings.gate_security_username.lower() and request.password == settings.gate_security_password:
         return {
             "token": "mock-jwt-gate-entry-token",
             "username": settings.gate_security_username,
             "roles": ["GATE_SECURITY"]
         }
-    elif request.username == settings.supplier_username and request.password == settings.supplier_password:
+    elif normalized_username == settings.supplier_username.lower() and request.password == settings.supplier_password:
         return {
             "token": "mock-jwt-supplier-token",
             "username": settings.supplier_username,
             "roles": ["SUPPLIER"]
         }
-    elif request.username == settings.dispatch_username and request.password == settings.dispatch_password:
-        return {
-            "token": "mock-jwt-dispatch-token",
-            "username": settings.dispatch_username,
-            "roles": ["DISPATCH"]
-        }
-
-    # 2. Flexible development fallback matching role keywords for local testing
-    u = request.username.lower().strip()
-    if "dispatch" in u:
-        return {
-            "token": "mock-jwt-dispatch-token",
-            "username": request.username,
-            "roles": ["DISPATCH"]
-        }
-    elif "finance" in u:
-        return {
-            "token": "mock-jwt-finance-token",
-            "username": request.username,
-            "roles": ["FINANCE"]
-        }
-    elif "procure" in u or "buyer" in u:
-        return {
-            "token": "mock-jwt-procurement-token",
-            "username": request.username,
-            "roles": ["PROCUREMENT"]
-        }
-    elif "warehouse" in u or "store" in u:
-        return {
-            "token": "mock-jwt-warehouse-token",
-            "username": request.username,
-            "roles": ["WAREHOUSE"]
-        }
-    elif "gate" in u or "sec" in u:
-        return {
-            "token": "mock-jwt-gate-entry-token",
-            "username": request.username,
-            "roles": ["GATE_SECURITY"]
-        }
-    elif "supplier" in u or "vendor" in u:
-        return {
-            "token": "mock-jwt-supplier-token",
-            "username": request.username,
-            "roles": ["SUPPLIER"]
-        }
-    elif "grn" in u or "receiving" in u:
+    elif (hasattr(settings, "grn_username") and normalized_username == settings.grn_username.lower() and request.password == settings.grn_password) or normalized_username in {"grn", "grn_manager", "operations_manager"}:
         return {
             "token": "mock-jwt-grn-token",
             "username": request.username,
             "roles": ["GRN"]
         }
-    elif u:
-        return {
-            "token": "mock-jwt-admin-token",
-            "username": request.username,
-            "roles": ["ADMIN"]
-        }
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid username or password"
-    )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password"
+        )
 
 
 @router.get("/global-search", response_model=GlobalSearchResponse)
@@ -4133,7 +4439,11 @@ async def global_search(
             or_(
                 SupplierModel.supplier_name.ilike(search_term),
                 SupplierModel.supplier_code.ilike(search_term),
-                SupplierModel.registered_company_name.ilike(search_term)
+                SupplierModel.registered_company_name.ilike(search_term),
+                SupplierModel.gstin.ilike(search_term),
+                SupplierModel.vendor_type.ilike(search_term),
+                SupplierModel.industry.ilike(search_term),
+                SupplierModel.status.ilike(search_term)
             )
         ).limit(5)
         supplier_res = await uow.session.execute(supplier_stmt)
@@ -4142,7 +4452,7 @@ async def global_search(
                 "id": str(s.id),
                 "type": "SUPPLIER",
                 "title": s.supplier_name,
-                "subtitle": f"Vendor Code: {s.supplier_code or 'N/A'}",
+                "subtitle": f"Code: {s.supplier_code or 'N/A'} · GSTIN: {s.gstin or 'N/A'} · Type: {s.vendor_type} · Status: {s.status}",
                 "link": f"/master-data?search={s.supplier_name}"
             })
 
@@ -4150,7 +4460,13 @@ async def global_search(
         po_stmt = select(PurchaseOrderModel).where(
             or_(
                 PurchaseOrderModel.po_number.ilike(search_term),
-                PurchaseOrderModel.supplier_name.ilike(search_term)
+                PurchaseOrderModel.supplier_name.ilike(search_term),
+                PurchaseOrderModel.supplier_code.ilike(search_term),
+                PurchaseOrderModel.supplier_gstin.ilike(search_term),
+                PurchaseOrderModel.warehouse_id.ilike(search_term),
+                PurchaseOrderModel.procurement_officer.ilike(search_term),
+                PurchaseOrderModel.department.ilike(search_term),
+                PurchaseOrderModel.status.ilike(search_term)
             )
         ).limit(5)
         po_res = await uow.session.execute(po_stmt)
@@ -4159,7 +4475,7 @@ async def global_search(
                 "id": str(po.id),
                 "type": "PO",
                 "title": f"PO: {po.po_number}",
-                "subtitle": f"Vendor: {po.supplier_name} · Status: {po.status}",
+                "subtitle": f"Vendor: {po.supplier_name or 'N/A'} · Code: {po.supplier_code or 'N/A'} · Warehouse: {po.warehouse_id or 'N/A'} · Status: {po.status}",
                 "link": f"/purchase-order?poId={po.id}"
             })
 
@@ -4169,7 +4485,12 @@ async def global_search(
                 AsnModel.asn_number.ilike(search_term),
                 AsnModel.po_number.ilike(search_term),
                 AsnModel.vehicle_number.ilike(search_term),
-                AsnModel.driver_name.ilike(search_term)
+                AsnModel.driver_name.ilike(search_term),
+                AsnModel.driver_contact.ilike(search_term),
+                AsnModel.transporter.ilike(search_term),
+                AsnModel.invoice_number.ilike(search_term),
+                AsnModel.status.ilike(search_term),
+                AsnModel.warehouse_id.ilike(search_term)
             )
         ).limit(5)
         asn_res = await uow.session.execute(asn_stmt)
@@ -4178,7 +4499,7 @@ async def global_search(
                 "id": str(asn.id),
                 "type": "ASN",
                 "title": f"ASN: {asn.asn_number}",
-                "subtitle": f"Vehicle: {asn.vehicle_number or 'N/A'} · Status: {asn.status}",
+                "subtitle": f"PO: {asn.po_number or 'N/A'} · Vehicle: {asn.vehicle_number or 'N/A'} · Driver: {asn.driver_name or 'N/A'} · Transporter: {asn.transporter or 'N/A'} · Status: {asn.status}",
                 "link": f"/procurement/asns/{asn.id}"
             })
 
@@ -4187,7 +4508,11 @@ async def global_search(
             or_(
                 MaterialRequestModel.request_number.ilike(search_term),
                 MaterialRequestModel.requested_by.ilike(search_term),
-                MaterialRequestModel.department.ilike(search_term)
+                MaterialRequestModel.department.ilike(search_term),
+                MaterialRequestModel.warehouse_id.ilike(search_term),
+                MaterialRequestModel.priority.ilike(search_term),
+                MaterialRequestModel.status.ilike(search_term),
+                MaterialRequestModel.suggested_supplier.ilike(search_term)
             )
         ).limit(5)
         mr_res = await uow.session.execute(mr_stmt)
@@ -4196,7 +4521,7 @@ async def global_search(
                 "id": str(mr.id),
                 "type": "MATERIAL_REQUEST",
                 "title": f"Req: {mr.request_number}",
-                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department}",
+                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department} · Warehouse: {mr.warehouse_id} · Priority: {mr.priority} · Status: {mr.status}",
                 "link": f"/procurement/material-requests"
             })
 
@@ -4204,7 +4529,10 @@ async def global_search(
         rfq_stmt = select(RfqModel).where(
             or_(
                 RfqModel.rfq_number.ilike(search_term),
-                RfqModel.procurement_officer.ilike(search_term)
+                RfqModel.procurement_officer.ilike(search_term),
+                RfqModel.material_request_number.ilike(search_term),
+                RfqModel.warehouse.ilike(search_term),
+                RfqModel.status.ilike(search_term)
             )
         ).limit(5)
         rfq_res = await uow.session.execute(rfq_stmt)
@@ -4213,7 +4541,7 @@ async def global_search(
                 "id": str(rfq.id),
                 "type": "RFQ",
                 "title": f"RFQ: {rfq.rfq_number}",
-                "subtitle": f"Status: {rfq.status} · Officer: {rfq.procurement_officer}",
+                "subtitle": f"Warehouse: {rfq.warehouse} · MR: {rfq.material_request_number or 'N/A'} · Officer: {rfq.procurement_officer} · Status: {rfq.status}",
                 "link": f"/procurement/rfqs"
             })
 
@@ -4225,6 +4553,168 @@ async def global_search(
     except Exception as e:
         logger.error(f"Global search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user/navigation")
+async def get_user_navigation(
+    user: CurrentUser = Depends(get_current_user),
+    uow: UnitOfWork = Depends(get_uow),
+) -> dict:
+    """
+    Returns complete backend-driven module navigation and user profile configuration.
+    """
+    roles = user.roles or []
+    role_str = roles[0] if roles else "WAREHOUSE"
+    if "GRN" in roles or user.username.lower() in ("grn", "grn_manager", "operations_manager", "grn_officer"):
+        role_str = "GRN"
+
+    modules = {
+        "GRN": {
+            "module_label": "GRN Operations",
+            "items": [
+                {"label": "GRN Operations Dashboard", "to": "/grn", "search": {"tab": "dashboard"}, "icon": "LayoutDashboard"},
+                {"label": "GRN Records History", "to": "/grn", "search": {"tab": "records"}, "icon": "ClipboardList"},
+                {"label": "Material Receiving", "to": "/grn", "search": {"tab": "wizard", "page": 2}, "icon": "PackageCheck"},
+                {"label": "Quality & Photos", "to": "/grn", "search": {"tab": "wizard", "page": 3}, "icon": "AlertTriangle"},
+                {"label": "Batch Allocation", "to": "/grn", "search": {"tab": "wizard", "page": 4}, "icon": "Boxes"},
+                {"label": "Documents & Posting", "to": "/grn", "search": {"tab": "wizard", "page": 5}, "icon": "FileText"},
+                {"label": "Batch QR Code Labels", "to": "/grn", "search": {"tab": "wizard", "page": 6}, "icon": "QrCode"},
+                {"label": "Inbound Arrivals", "to": "/vehicle-queue", "icon": "ListOrdered"},
+            ]
+        },
+        "STORE_MANAGER": {
+            "module_label": "Store Management",
+            "items": [
+                {"label": "My Store Control", "to": "/my-store", "icon": "Store"},
+                {"label": "Stores Master", "to": "/warehouse/stores", "icon": "Building2"},
+                {"label": "Material Master", "to": "/warehouse/materials", "icon": "Database"},
+                {"label": "Inventory", "to": "/inventory", "icon": "Boxes"},
+                {"label": "Putaway Tasks", "to": "/putaway-tasks", "icon": "PackageCheck"},
+                {"label": "Assembly Requisitions", "to": "/warehouse/assembly-requisitions", "icon": "ClipboardList"},
+                {"label": "Damage & Quarantine", "to": "/warehouse/quarantine", "icon": "ShieldAlert"},
+            ]
+        },
+        "WAREHOUSE": {
+            "module_label": "Warehouse Operations",
+            "items": [
+                {"label": "Dashboard", "to": "/warehouse-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Store Management", "to": "/my-store", "icon": "Store"},
+                {"label": "Stores Master", "to": "/warehouse/stores", "icon": "Building2"},
+                {"label": "Material Master", "to": "/warehouse/materials", "icon": "Database"},
+                {"label": "Inventory", "to": "/inventory", "icon": "Boxes"},
+                {"label": "Warehouses & Locations", "to": "/warehouse-storage", "icon": "Warehouse"},
+                {"label": "Putaway Tasks", "to": "/putaway-tasks", "icon": "PackageCheck"},
+                {"label": "Pick Tasks", "to": "/pick-tasks", "icon": "PackageCheck"},
+                {"label": "Material Requests", "to": "/warehouse/material-requests", "icon": "ClipboardList"},
+                {"label": "Assembly Requisitions", "to": "/warehouse/assembly-requisitions", "icon": "ClipboardList"},
+                {"label": "Vehicle Exit", "to": "/vehicle-exit", "icon": "LogOut"},
+                {"label": "Dock Management", "to": "/dock-management", "icon": "Warehouse"},
+                {"label": "Dock / Receiving", "to": "/receiving", "icon": "PackageCheck"},
+                {"label": "GRN", "to": "/grn", "icon": "FileCheck2"},
+                {"label": "Damage & Quarantine", "to": "/warehouse/quarantine", "icon": "ShieldAlert"},
+            ]
+        },
+        "PROCUREMENT": {
+            "module_label": "Procurement Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/procurement-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
+                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
+                {"label": "RFQs", "to": "/procurement/rfqs", "icon": "FileQuestion"},
+                {"label": "Quotations", "to": "/procurement/quotations", "icon": "FileBadge"},
+                {"label": "Purchase Orders", "to": "/procurement/purchase-orders", "icon": "FileText"},
+                {"label": "ASNs", "to": "/procurement/asns", "icon": "Truck"},
+                {"label": "Reports", "to": "/reports", "icon": "BarChart3"},
+            ]
+        },
+        "SUPPLIER": {
+            "module_label": "Supplier Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/supplier-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Quotation Portal", "to": "/submit-quotation", "icon": "FileBadge"},
+                {"label": "ASNs", "to": "/supplier/asns/new", "icon": "Truck"},
+                {"label": "Quality Issues", "to": "/supplier/quality-issues", "icon": "AlertTriangle"},
+                {"label": "Damage Claims", "to": "/damage-claims", "icon": "FileCheck2"},
+            ]
+        },
+        "FINANCE": {
+            "module_label": "Finance Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/finance-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Pending Approvals", "to": "/finance/approvals", "icon": "FileCheck2"},
+            ]
+        },
+        "MANAGER": {
+            "module_label": "Manager Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/manager-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
+                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
+            ]
+        },
+        "GATE_SECURITY": {
+            "module_label": "Gate Security Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/gate-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Gate Entry", "to": "/gate-entry", "icon": "DoorOpen"},
+                {"label": "Vehicle Exit", "to": "/vehicle-exit", "icon": "LogOut"},
+                {"label": "Inbound Arrivals", "to": "/vehicle-queue", "icon": "ListOrdered"},
+                {"label": "Unscheduled Arrivals", "to": "/unscheduled-arrivals", "icon": "FileQuestion"},
+                {"label": "Replacement Claims", "to": "/damage-claims", "icon": "AlertTriangle"},
+            ]
+        },
+        "ASSEMBLY_MANAGER": {
+            "module_label": "Assembly Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/assembly-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Assembly Orders", "to": "/assembly-orders", "icon": "Factory"},
+                {"label": "Material Requirements", "to": "/assembly-material-requirements", "icon": "ClipboardList"},
+                {"label": "Material Reservations", "to": "/assembly-material-reservations", "icon": "Boxes"},
+                {"label": "Material Issues", "to": "/assembly-material-issues", "icon": "PackageCheck"},
+                {"label": "Work Orders", "to": "/assembly-work-orders", "icon": "Factory"},
+                {"label": "Assembly Teams", "to": "/assembly-workforce", "icon": "Users"},
+                {"label": "Assembly Progress", "to": "/assembly-progress", "icon": "BarChart3"},
+                {"label": "Material Consumption", "to": "/assembly-material-consumption", "icon": "Boxes"},
+                {"label": "Scrap / Wastage", "to": "/assembly-scrap-wastage", "icon": "FileText"},
+                {"label": "Quality Inspection", "to": "/assembly-quality-inspection", "icon": "FileCheck2"},
+                {"label": "Rework", "to": "/assembly-rework", "icon": "Settings"},
+                {"label": "Finished Goods", "to": "/assembly-finished-goods", "icon": "Warehouse"},
+                {"label": "Reports", "to": "/assembly-reports", "icon": "BarChart3"},
+                {"label": "Notifications", "to": "/notifications", "icon": "Bell"},
+            ]
+        }
+    }
+
+    unread_count = 0
+    try:
+        if "WAREHOUSE" in roles:
+            from app.modules.gate.infrastructure.persistence.models import GateEntryModel
+            res = await uow.session.execute(
+                select(func.count()).select_from(GateEntryModel).where(GateEntryModel.status == "AWAITING_DOCK")
+            )
+            unread_count += res.scalar() or 0
+        else:
+            n_res = await uow.session.execute(
+                select(func.count()).select_from(NotificationModel).where(
+                    NotificationModel.user_role == role_str,
+                    NotificationModel.is_read == False
+                )
+            )
+            unread_count += n_res.scalar() or 0
+    except Exception:
+        pass
+
+    active_module = modules.get(role_str, modules["WAREHOUSE"])
+
+    return {
+        "username": user.username,
+        "roles": roles,
+        "active_role": role_str,
+        "module_label": active_module["module_label"],
+        "navigation": active_module["items"],
+        "all_modules": modules,
+        "unread_notifications": unread_count,
+    }
 
 
 async def check_upcoming_arrivals():
@@ -4271,5 +4761,9 @@ async def check_upcoming_arrivals():
                 session.add(new_notif)
                 logger.info(f"Generated 5-day arrival reminder for ASN {asn.asn_number}")
 
+
     except Exception as e:
         logger.error(f"Background arrival check failed: {e}")
+
+
+

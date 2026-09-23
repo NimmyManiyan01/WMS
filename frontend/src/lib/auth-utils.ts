@@ -5,10 +5,20 @@ export interface UserInfo {
   username: string;
   roles: string[];
   supplierId?: string;
+  store_id?: string;
+  store_code?: string;
+  storeId?: string;
+  storeCode?: string;
+  employee_id?: string;
+  full_name?: string;
 }
 
 const AUTH_TOKEN_KEY = "auth_token";
 const USER_INFO_KEY = "user_info";
+
+function normalizeRole(role: string): string {
+  return role.trim().toUpperCase();
+}
 
 function getActiveStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -51,7 +61,10 @@ export function getUserInfo(): UserInfo | null {
       return null;
     }
 
-    return user as UserInfo;
+    return {
+      ...user,
+      roles: user.roles.map(normalizeRole),
+    } as UserInfo;
   } catch {
     return null;
   }
@@ -60,8 +73,70 @@ export function getUserInfo(): UserInfo | null {
 export function hasRole(roles: string[] | string): boolean {
   const user = getUserInfo();
   if (!user) return false;
-  const requiredRoles = Array.isArray(roles) ? roles : [roles];
-  return requiredRoles.some((role) => user.roles.includes(role));
+  const userRoles = user.roles.map(normalizeRole);
+  if (userRoles.includes("ADMIN") || userRoles.includes("SUPERUSER")) return true;
+  const requiredRoles = (Array.isArray(roles) ? roles : [roles]).map(normalizeRole);
+  return requiredRoles.some((role) => userRoles.includes(role));
+}
+
+export function getRequiredRolesForPath(pathname: string): string[] | null {
+  if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
+  if (pathname === "/manager-dashboard") return ["MANAGER", "ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/procurement") ||
+    pathname === "/master-data" ||
+    pathname === "/new-supplier"
+  )
+    return ["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
+  if (pathname.startsWith("/finance")) return ["FINANCE", "ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/supplier") ||
+    pathname === "/supplier-dashboard" ||
+    pathname === "/submit-quotation"
+  )
+    return ["SUPPLIER", "PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
+  if (pathname.startsWith("/assembly"))
+    return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
+  if (
+    pathname === "/gate-dashboard" ||
+    pathname === "/gate-entry" ||
+    pathname === "/vehicle-queue" ||
+    pathname === "/vehicle-exit" ||
+    pathname === "/unscheduled-arrivals"
+  )
+    return ["GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"];
+  if (pathname === "/grn" || pathname === "/receiving")
+    return ["GRN", "GRN_MANAGER", "RECEIVING", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  if (
+    pathname.startsWith("/warehouse") ||
+    pathname === "/warehouse-dashboard" ||
+    pathname === "/dock-management" ||
+    pathname === "/dock-master" ||
+    pathname === "/inventory" ||
+    pathname === "/putaway-tasks" ||
+    pathname === "/pick-tasks" ||
+    pathname === "/reports" ||
+    pathname === "/damage-claims"
+  )
+    return [
+      "WAREHOUSE",
+      "WAREHOUSE_MANAGER",
+      "STORE_MANAGER",
+      "STORE_KEEPER",
+      "ADMIN",
+      "SUPERUSER",
+    ];
+  if (pathname === "/my-store")
+    return ["STORE_MANAGER", "STORE_KEEPER", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  return null;
+}
+
+export function requireRouteAccess(pathname: string): void {
+  requireAuth();
+  const requiredRoles = getRequiredRolesForPath(pathname);
+  if (requiredRoles && !hasRole(requiredRoles)) {
+    throw redirect({ to: getDefaultRouteForUser(getUserInfo()) as any });
+  }
 }
 
 export function isAuthenticated(): boolean {
@@ -87,13 +162,26 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 }
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
-  if (user?.roles.includes("GRN") || user?.username?.toLowerCase() === "grn" || user?.username?.toLowerCase() === "grn_officer") return "/grn";
-  if (user?.roles.includes("FINANCE")) return "/finance-dashboard";
-  if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
-  if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
-  if (user?.roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (user?.roles.includes("ASSEMBLY_MANAGER")) return "/assembly-dashboard";
-  if (user?.roles.includes("DISPATCH") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
+  const roles = user?.roles.map(normalizeRole) ?? [];
+  if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) return "/admin/users";
+  if (roles.includes("MANAGER")) return "/manager-dashboard";
+  if (roles.includes("FINANCE")) return "/finance-dashboard";
+  if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
+  if (roles.includes("GATE_SECURITY")) return "/gate-entry";
+  if (roles.includes("SUPPLIER")) return "/submit-quotation";
+  if (roles.includes("ASSEMBLY_MANAGER")) return "/assembly-dashboard";
+  if (roles.includes("STORE_MANAGER") || roles.includes("STORE_KEEPER")) return "/my-store";
+  if (
+    roles.includes("GRN") ||
+    roles.includes("GRN_MANAGER") ||
+    roles.includes("OPERATIONS_MANAGER") ||
+    roles.includes("OPERATIONS") ||
+    roles.includes("RECEIVING") ||
+    user?.username?.toLowerCase() === "grn" ||
+    user?.username?.toLowerCase()?.includes("grn")
+  ) {
+    return "/grn";
+  }
   return "/warehouse-dashboard";
 }
 
@@ -113,7 +201,10 @@ export function requireRole(roles: string[] | string) {
   if (typeof window === "undefined") return;
   requireAuth();
   if (!hasRole(roles)) {
+    // If they are authenticated but don't have the role, send them to their primary dashboard
     const user = getUserInfo();
+    const primaryRole = user?.roles[0];
+
     throw redirect({ to: getDefaultRouteForUser(user) as any });
   }
 }

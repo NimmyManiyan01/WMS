@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from pydantic import Field, field_validator
 
@@ -36,6 +36,10 @@ class NotificationResponse(ApiModel):
     driver_phone: Optional[str] = None
     asn_number: Optional[str] = None
     po_number: Optional[str] = None
+    grn_number: Optional[str] = None
+    supplier_name: Optional[str] = None
+    notification_type: Optional[str] = None
+    payload_json: Optional[str] = None
 
 
 
@@ -85,6 +89,12 @@ class SupplierResponse(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: List[str] = []
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
+    rating: Optional[Decimal] = None
+    performance_score: Optional[Decimal] = None
+    purchase_order_count: int = 0
+    purchase_value: Decimal = Decimal("0")
     address: Optional[SupplierAddressResponse] = None
     contact: Optional[SupplierContactResponse] = None
     bank_info: Optional[SupplierBankInfoResponse] = None
@@ -141,6 +151,8 @@ class CreateSupplierRequest(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: List[str] = []
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
     address: Optional[AddressRequest] = None
     contact: Optional[ContactRequest] = None
     bank_info: Optional[BankInfoRequest] = None
@@ -157,10 +169,17 @@ class UpdateSupplierRequest(ApiModel):
     industry: Optional[str] = None
     gstin: Optional[str] = None
     main_materials: Optional[List[str]] = None
+    payment_terms: Optional[str] = None
+    credit_period_days: Optional[int] = None
     address: Optional[AddressRequest] = None
     contact: Optional[ContactRequest] = None
     bank_info: Optional[BankInfoRequest] = None
     documents: Optional[List[DocumentRequest]] = None
+    remarks: Optional[str] = None
+
+
+class SupplierStatusRequest(ApiModel):
+    status: str
     remarks: Optional[str] = None
 
 
@@ -234,9 +253,11 @@ class SubmitQuotationRequest(ApiModel):
     discount: Decimal = Field(default=Decimal("0.0"), ge=0)
     tax: Decimal = Field(default=Decimal("0.0"), ge=0, le=100)
     freight_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
+    additional_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
     documents: List[QuotationDocumentSchema] = []
@@ -251,10 +272,12 @@ class QuotationResponse(ApiModel):
     discount: Optional[Decimal] = None
     tax: Optional[Decimal] = None
     freight_charges: Optional[Decimal] = None
+    additional_charges: Optional[Decimal] = None
     total_amount: Optional[Decimal] = None
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
     documents: List[QuotationDocumentSchema] = []
@@ -296,6 +319,10 @@ class CreateAsnRequest(ApiModel):
     number_of_packages: Optional[int] = None
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    challan_number: Optional[str] = None
+    challan_date: Optional[date] = None
     status: Optional[str] = "SUBMITTED"
     documents: List[AsnDocumentSchema] = []
 
@@ -318,6 +345,10 @@ class AsnResponse(ApiModel):
     number_of_packages: Optional[int] = None
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    challan_number: Optional[str] = None
+    challan_date: Optional[date] = None
     documents: List[AsnDocumentSchema] = []
     warehouse_status: Optional[str] = None
     warehouse_status_updated_at: Optional[datetime] = None
@@ -332,6 +363,30 @@ class POApprovalHistorySchema(ApiModel):
     actor_name: str
     comments: Optional[str] = None
     created_at: datetime
+
+
+class PORevisionSchema(ApiModel):
+    revision_number: int
+    changed_field: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    changed_by: str
+    changed_at: datetime
+    reason: str
+
+
+class PurchaseOrderAmendmentLine(ApiModel):
+    material_code: str
+    quantity: Optional[Decimal] = None
+    unit_price: Optional[Decimal] = None
+    discount: Optional[Decimal] = None
+    tax: Optional[Decimal] = None
+
+
+class PurchaseOrderAmendmentRequest(ApiModel):
+    reason: str = Field(..., min_length=1)
+    changes: dict[str, Any] = {}
+    items: List[PurchaseOrderAmendmentLine] = []
 
 
 class PurchaseOrderItemSchema(ApiModel):
@@ -353,13 +408,20 @@ class PurchaseOrderResponse(ApiModel):
     po_number: str
     po_date: date
     status: str
+    revision_number: int = 1
     rfq_id: Optional[str] = None
     supplier_id: Optional[str] = None
+    quotation_id: Optional[str] = None
     supplier_name: Optional[str] = None
     warehouse_id: Optional[str] = None
     total_amount: Decimal
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    delivery_terms: Optional[str] = None
+    warranty: Optional[str] = None
+    billing_address: Optional[str] = None
+    notes: Optional[str] = None
+    attachments: List[dict] = []
     procurement_officer: Optional[str] = None
     department: Optional[str] = None
     supplier_code: Optional[str] = None
@@ -382,8 +444,10 @@ class PurchaseOrderResponse(ApiModel):
     selection_date: Optional[datetime] = None
     selected_by: Optional[str] = None
     rejection_reason: Optional[str] = None
+    quotation: Optional[QuotationResponse] = None
     items: List[PurchaseOrderItemSchema] = []
     history: List[POApprovalHistorySchema] = []
+    revisions: List[PORevisionSchema] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -413,6 +477,7 @@ class MaterialRequestItemSchema(ApiModel):
     material_code: Optional[str] = None
     variant_code: Optional[str] = None
     material_name: Optional[str] = None
+    category: Optional[str] = None
     quantity: Decimal = Field(..., gt=0, description="Quantity must be strictly greater than zero")
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
 
@@ -437,8 +502,11 @@ class CreateMaterialRequest(ApiModel):
     warehouse_id: str = Field(..., min_length=1, description="Warehouse identifier")
     department: str = Field(..., min_length=1, description="Department name")
     requested_by: str = Field(..., min_length=1, description="Requester user name")
+    priority: Optional[str] = "MEDIUM"
     required_date: date
     remarks: Optional[str] = None
+    suggested_supplier: Optional[str] = None
+    attachments: List[dict] = []
     items: List[MaterialRequestItemSchema] = Field(..., min_length=1, description="Requested materials list")
 
     @field_validator("items")
@@ -459,6 +527,7 @@ class CreateMaterialRequest(ApiModel):
 
 class SupplierSelectionRequest(ApiModel):
     supplier_id: str
+    quotation_id: Optional[str] = None
     selection_reason: str
     selection_comments: Optional[str] = None
 
@@ -470,10 +539,21 @@ class MaterialRequestResponse(ApiModel):
     department: str
     requested_by: str
     status: str
+    priority: str = "MEDIUM"
     required_date: date
     remarks: Optional[str] = None
+    suggested_supplier: Optional[str] = None
+    attachments: List[dict] = []
+    approval_history: List[dict] = []
     items: List[MaterialRequestItemSchema] = []
     created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class MaterialRequestStatusRequest(ApiModel):
+    status: str
+    comments: Optional[str] = None
+    actor: Optional[str] = None
 
 
 class CreateFinishedGoodsRequest(ApiModel):
@@ -560,6 +640,17 @@ class ProcurementStatsResponse(ApiModel):
     active_suppliers: int
     total_suppliers: int
     open_pos: int
+    pending_material_requests: int = 0
+    pending_material_request_sources: List[str] = []
+    pending_supplier_registrations: int = 0
+    expiring_supplier_documents: int = 0
+    pending_approvals: int = 0
+    pending_quotations: int = 0
+    awaiting_supplier_confirmation: int = 0
+    overdue_pos: int = 0
+    partially_received_pos: int = 0
+    rfqs_closing_today: int = 0
+    asns_expected_today: int = 0
     compliance_rate: Optional[float] = None
     compliance_target: float
     total_po_value: Decimal
@@ -640,4 +731,5 @@ class PoDamagedGoodsResponse(ApiModel):
     procurement_notification_status: str = "Sent"
     materials: List[DamagedMaterialItemSchema] = []
     notification_history: List[NotificationHistoryItemSchema] = []
+
 

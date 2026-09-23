@@ -6,14 +6,14 @@
 import QRCode from "qrcode";
 
 export const BUSINESS_API_URL =
-  (typeof import.meta !== "undefined" && (import.meta.env?.VITE_BUSINESS_SERVICE_URL || import.meta.env?.VITE_BUSINESS_API_URL)) ||
+  (typeof import.meta !== "undefined" &&
+    (import.meta.env?.VITE_BUSINESS_API_URL || import.meta.env?.VITE_BUSINESS_SERVICE_URL)) ||
   (typeof window !== "undefined"
     ? window.location.hostname.includes("loca.lt")
       ? "https://wms-mobile-backend-8000.loca.lt"
       : `${window.location.protocol}//${window.location.hostname}:8000`
     : "http://localhost:8000");
-
-import { clearAuthSession, getAuthToken, storeAuthSession } from "./auth-utils";
+import { clearAuthSession, getAuthToken, storeAuthSession, getUserInfo } from "./auth-utils";
 function getApiErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== "object") return fallback;
 
@@ -38,6 +38,21 @@ function getApiErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+export function resolveMediaUrl(path?: string | null): string {
+  if (!path) return "";
+  const trimmed = path.trim();
+  if (
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://")
+  ) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${BUSINESS_API_URL}${cleanPath}`;
+}
+
 /**
  * PostgreSQL Decimal values are serialized by the API as strings (for example,
  * "1.0000"). Convert only quantity-shaped response fields to numbers so every
@@ -58,8 +73,8 @@ function normalizeQuantityValues(value: unknown, key = ""): unknown {
     );
   }
 
-  const isQuantityField = /(?:^|_)(?:qty|quantity|quantities)$/i.test(key) ||
-    /(?:Qty|Quantity|Quantities)$/.test(key);
+  const isQuantityField =
+    /(?:^|_)(?:qty|quantity|quantities)$/i.test(key) || /(?:Qty|Quantity|Quantities)$/.test(key);
   if (isQuantityField && typeof value === "string" && value.trim() !== "") {
     const numericValue = Number(value);
     return Number.isFinite(numericValue) ? numericValue : value;
@@ -87,6 +102,30 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     headers.set("Authorization", "Bearer local_dev_mock_token");
   }
 
+  // Inject user roles and store context headers from session when available
+  try {
+    const userInfo = getUserInfo();
+    if (userInfo) {
+      if (userInfo.roles && userInfo.roles.length > 0 && !headers.has("X-User-Roles")) {
+        headers.set("X-User-Roles", userInfo.roles.join(","));
+      }
+      if ((userInfo.store_id || userInfo.storeId) && !headers.has("X-Store-Id")) {
+        headers.set("X-Store-Id", userInfo.store_id || userInfo.storeId!);
+      }
+      if ((userInfo.store_code || userInfo.storeCode) && !headers.has("X-Store-Code")) {
+        headers.set("X-Store-Code", userInfo.store_code || userInfo.storeCode!);
+      }
+      if (userInfo.username && !headers.has("X-User-Name")) {
+        headers.set("X-User-Name", userInfo.username);
+      }
+      if (userInfo.employee_id && !headers.has("X-Employee-Id")) {
+        headers.set("X-Employee-Id", userInfo.employee_id);
+      }
+    }
+  } catch {
+    // Ignore if running in non-browser context
+  }
+
   const response = await fetch(url, {
     ...options,
     headers,
@@ -101,7 +140,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     } catch {
       errorMessage = errorText || errorMessage;
     }
-    throw new Error(errorMessage);
+    const httpError = new Error(errorMessage) as Error & { status?: number };
+    httpError.status = response.status;
+    throw httpError;
   }
 
   // Successful DELETE requests commonly return 204 with no response body.
@@ -130,6 +171,7 @@ export const api = {
     roles: string[];
     supplierId?: string;
     mustChangePassword?: boolean;
+    applications?: string[];
   }> {
     if (username.startsWith("supplier_")) {
       const response = await request<any>(
@@ -150,8 +192,6 @@ export const api = {
       storeAuthSession(supplierUser, rememberMe);
       return supplierUser;
     }
-
-    // Call dev-login on the backend to validate credentials against configured .env variables
     try {
       const response = await request<any>(`${BUSINESS_API_URL}/api/v1/procurement/auth/dev-login`, {
         method: "POST",
@@ -161,22 +201,44 @@ export const api = {
       const devUser = {
         token: response.token,
         username: response.username,
-        roles: response.roles,
+        roles: response.roles || [],
+        employee_id: response.employee_id,
+        full_name: response.full_name,
+        store_id: response.store_id,
+        store_code: response.store_code,
+        applications: response.applications || [],
       };
       storeAuthSession(devUser, rememberMe);
       return devUser;
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const status =
+        typeof e === "object" && e !== null && "status" in e
+          ? Number((e as { status?: number }).status)
+          : undefined;
+
+      if (status === 401 || status === 403) {
+        throw e;
+      }
+
+      if (!(e instanceof TypeError)) {
+        throw e;
+      }
+
       console.warn("Dev server login failed, falling back to client-side mock:", e.message);
       const isProcurement = username.toLowerCase().includes("procurement");
       const isFinance = username.toLowerCase().includes("finance");
       const isWarehouse = username.toLowerCase().includes("warehouse");
       const isGate = username.toLowerCase().includes("gate");
-      const isGrn = username.toLowerCase().includes("grn") || username.toLowerCase().includes("receiving");
+      const isGrn =
+        username.toLowerCase().includes("grn") || username.toLowerCase().includes("receiving");
       const isAssembly = username.toLowerCase().includes("assembly");
-      const isDispatch = username.toLowerCase().includes("dispatch");
+      const isStore = username.toLowerCase().includes("store");
+      const isManager = username.toLowerCase().includes("manager") && !isAssembly && !isStore;
       const mockUser = {
         token: isFinance
           ? "mock-jwt-finance-token"
+          : isManager
+            ? "mock-jwt-manager-token"
           : isProcurement
             ? "mock-jwt-procurement-token"
             : isWarehouse
@@ -187,12 +249,14 @@ export const api = {
                   ? "mock-jwt-grn-token"
                   : isAssembly
                     ? "mock-jwt-assembly-manager-token"
-                    : isDispatch
-                      ? "mock-jwt-dispatch-token"
+                    : isStore
+                      ? "mock-jwt-store-manager-token"
                       : "mock-jwt-admin-token",
         username,
         roles: isFinance
           ? ["FINANCE"]
+          : isManager
+            ? ["MANAGER"]
           : isProcurement
             ? ["PROCUREMENT"]
             : isWarehouse
@@ -203,9 +267,12 @@ export const api = {
                   ? ["GRN"]
                   : isAssembly
                     ? ["ASSEMBLY_MANAGER"]
-                    : isDispatch
-                      ? ["DISPATCH"]
+                    : isStore
+                      ? ["STORE_MANAGER"]
                       : ["ADMIN"],
+        employee_id: "EMP-DEV-01",
+        full_name: username,
+        store_code: isStore ? "STR-001" : undefined,
       };
       storeAuthSession(mockUser, rememberMe);
       return mockUser;
@@ -246,94 +313,123 @@ export const api = {
     });
   },
 
-  async getDocks(statusOrParams?: string | { dock_type?: string; status?: string }, type?: string): Promise<any[]> {
+  async getDocks(
+    statusOrParams?: string | { dock_type?: string; status?: string },
+    type?: string,
+  ): Promise<any[]> {
     const query = new URLSearchParams();
     if (typeof statusOrParams === "object" && statusOrParams !== null) {
-      if (statusOrParams.dock_type && statusOrParams.dock_type !== "ALL") query.append("dock_type", statusOrParams.dock_type);
-      if (statusOrParams.status && statusOrParams.status !== "ALL") query.append("status", statusOrParams.status);
+      if (statusOrParams.dock_type && statusOrParams.dock_type !== "ALL")
+        query.set("dock_type", statusOrParams.dock_type);
+      if (statusOrParams.status && statusOrParams.status !== "ALL")
+        query.set("status", statusOrParams.status);
     } else {
-      if (statusOrParams && statusOrParams !== "ALL") query.append("status", statusOrParams);
-      if (type && type !== "ALL") query.append("dock_type", type);
+      if (statusOrParams && statusOrParams !== "ALL") query.set("status", statusOrParams);
+      if (type && type !== "ALL") query.set("dock_type", type);
     }
-    const qs = query.toString();
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/docks${qs ? `?${qs}` : ""}`);
-  },
-
-  async getDockOverviewMetrics(): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/docks/availability`);
-  },
-
-  async getPendingAllocations(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocation-requests/pending`);
-  },
-
-  async getDockTypes(): Promise<string[]> {
-    return request<string[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-types`);
-  },
-
-  async createDock(payload: {
-    dock_code: string;
-    dock_name: string;
-    dock_type?: string;
-    location?: string;
-    description?: string;
-    status?: string;
-  }): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/docks`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
-  async getDockAllocationRequests(statusFilter?: string): Promise<any[]> {
-    const query = statusFilter && statusFilter !== "ALL" ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocation-requests${query}`);
+    const qStr = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/docks${qStr}`);
   },
   async getDockHistory(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-history`);
   },
-  async allocateDock(allocationRequestId: string, dockId: string): Promise<any> {
+  async getDockTypes(): Promise<string[]> {
+    return request<string[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-types`);
+  },
+  async getDockOverviewMetrics(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/docks/availability`);
+  },
+  async getPendingAllocations(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocation-requests/pending`);
+  },
+  async getDockAllocationRequests(): Promise<any[]> {
+    return this.getPendingAllocations();
+  },
+  async allocateDock(
+    allocationRequestId: string,
+    dockId: string,
+    storeManagerIdOrOpts?:
+      | string
+      | {
+          storeManagerId?: string;
+          storeManagerUsername?: string;
+          storeManagerName?: string;
+        },
+    storeManagerUsername?: string,
+    storeManagerName?: string,
+  ): Promise<any> {
+    let smId: string | null = null;
+    let smUsername: string | null = null;
+    let smName: string | null = null;
+
+    if (storeManagerIdOrOpts && typeof storeManagerIdOrOpts === "object") {
+      smId = storeManagerIdOrOpts.storeManagerId || null;
+      smUsername = storeManagerIdOrOpts.storeManagerUsername || null;
+      smName = storeManagerIdOrOpts.storeManagerName || null;
+    } else {
+      smId = (storeManagerIdOrOpts as string) || null;
+      smUsername = storeManagerUsername || null;
+      smName = storeManagerName || null;
+    }
+
     return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ allocation_request_id: allocationRequestId, dock_id: dockId }),
+      body: JSON.stringify({
+        allocation_request_id: allocationRequestId,
+        dock_id: dockId,
+        store_manager_id: smId,
+        store_manager_username: smUsername,
+        store_manager_name: smName,
+      }),
     });
   },
-  async reassignDock(allocationRequestId: string, newDockId: string, reason?: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${allocationRequestId}/reassign`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ new_dock_id: newDockId, reason }),
-    });
+  async markVehicleArrived(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(id)}/arrive`,
+      {
+        method: "POST",
+      },
+    );
   },
-  async markVehicleArrived(allocationRequestId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${allocationRequestId}/arrive`, {
-      method: "POST",
-    });
-  },
-  async startReceiving(allocationRequestId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${allocationRequestId}/start-receiving`, {
-      method: "POST",
-    });
-  },
-  async completeDockReceiving(allocationRequestId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(allocationRequestId)}/complete`, {
-      method: "POST",
-    });
+
+  async reassignDock(
+    allocationRequestId: string,
+    newDockId: string,
+    reason?: string,
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${allocationRequestId}/reassign`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          new_dock_id: newDockId,
+          reason: reason || "Manual reassignment by manager",
+        }),
+      },
+    );
   },
   async releaseDock(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(id)}/release`, {
-      method: "POST",
-    });
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(id)}/release`,
+      {
+        method: "POST",
+      },
+    );
   },
   async releaseDockAssignment(allocationRequestId: string): Promise<any> {
     return this.releaseDock(allocationRequestId);
   },
   async cancelDockAllocation(allocationRequestId: string, reason?: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(allocationRequestId)}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/warehouse/dock-allocations/${encodeURIComponent(allocationRequestId)}/cancel`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      },
+    );
   },
   async createDock(payload: {
     dock_code?: string;
@@ -365,18 +461,20 @@ export const api = {
   },
   async updateDock(
     dockIdOrNumber: string,
-    payload: {
-      dock_code?: string;
-      dock_number?: string;
-      dock_name?: string;
-      dock_type?: string;
-      location?: string;
-      description?: string;
-      status?: string;
-      is_active?: boolean;
-      warehouse_id?: string;
-      capacity?: number;
-    } | any,
+    payload:
+      | {
+          dock_code?: string;
+          dock_number?: string;
+          dock_name?: string;
+          dock_type?: string;
+          location?: string;
+          description?: string;
+          status?: string;
+          is_active?: boolean;
+          warehouse_id?: string;
+          capacity?: number;
+        }
+      | any,
   ): Promise<any> {
     return request<any>(
       `${BUSINESS_API_URL}/api/v1/warehouse/docks/${encodeURIComponent(dockIdOrNumber)}`,
@@ -397,10 +495,10 @@ export const api = {
       },
     );
   },
-  async assignDock(gateEntryId: string, dockId: string): Promise<any> {
+  async assignDock(gateEntryId: string, dockId: string, storeId?: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/assign-dock`, {
       method: "POST",
-      body: JSON.stringify({ dock_id: dockId }),
+      body: JSON.stringify({ dock_id: dockId, store_id: storeId }),
     });
   },
 
@@ -459,7 +557,13 @@ export const api = {
 
   async createDamageReport(
     gateEntryId: string,
-    data: { itemCode: string; damagedQuantity: number; damageReason: string; remarks?: string; photos: File[] },
+    data: {
+      itemCode: string;
+      damagedQuantity: number;
+      damageReason: string;
+      remarks?: string;
+      photos: File[];
+    },
   ): Promise<any> {
     const form = new FormData();
     form.append("item_code", data.itemCode);
@@ -487,20 +591,75 @@ export const api = {
   },
 
   async createSupplierDamageClaim(reportId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/gate-entries/quality/damage-reports/${reportId}/claims`, { method: "POST" });
+    return request<any>(
+      `${BUSINESS_API_URL}/api/gate-entries/quality/damage-reports/${reportId}/claims`,
+      { method: "POST" },
+    );
   },
 
-  async getDamageClaims(): Promise<any[]> { return request<any[]>(`${BUSINESS_API_URL}/api/damage-claims`); },
-  async respondToDamageClaim(id: string, data: any): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/respond`, { method: "POST", body: JSON.stringify(data) }); },
-  async createReplacementShipment(id: string, data: any): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/replacement-shipments`, { method: "POST", body: JSON.stringify(data) }); },
-  async replacementGateEntry(id: string, vehicle_number: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/gate-entry`, { method: "POST", body: JSON.stringify({ vehicle_number }) }); },
-  async receiveReplacement(id: string, received_quantity: number): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/receive`, { method: "POST", body: JSON.stringify({ received_quantity }) }); },
-  async inspectReplacement(id: string, accepted_quantity: number, damaged_quantity: number): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/inspect`, { method: "POST", body: JSON.stringify({ accepted_quantity, damaged_quantity }) }); },
-  async putawayReplacement(id: string, location: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/putaway`, { method: "POST", body: JSON.stringify({ location }) }); },
-  async postReplacementInventory(id: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/post-inventory`, { method: "POST" }); },
-  async createSupplierReturn(id: string, vehicle_number: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/returns`, { method: "POST", body: JSON.stringify({ vehicle_number }) }); },
-  async completeSupplierReturn(id: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/returns/${id}/gate-exit`, { method: "POST" }); },
-  async closeDamageClaim(id: string): Promise<any> { return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/close`, { method: "POST" }); },
+  async getDamageClaims(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/damage-claims`);
+  },
+  async respondToDamageClaim(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/respond`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async createReplacementShipment(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/replacement-shipments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async replacementGateEntry(id: string, vehicle_number: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/gate-entry`,
+      { method: "POST", body: JSON.stringify({ vehicle_number }) },
+    );
+  },
+  async receiveReplacement(id: string, received_quantity: number): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/receive`,
+      { method: "POST", body: JSON.stringify({ received_quantity }) },
+    );
+  },
+  async inspectReplacement(
+    id: string,
+    accepted_quantity: number,
+    damaged_quantity: number,
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/inspect`,
+      { method: "POST", body: JSON.stringify({ accepted_quantity, damaged_quantity }) },
+    );
+  },
+  async putawayReplacement(id: string, location: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/putaway`,
+      { method: "POST", body: JSON.stringify({ location }) },
+    );
+  },
+  async postReplacementInventory(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/damage-claims/replacement-shipments/${id}/post-inventory`,
+      { method: "POST" },
+    );
+  },
+  async createSupplierReturn(id: string, vehicle_number: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/returns`, {
+      method: "POST",
+      body: JSON.stringify({ vehicle_number }),
+    });
+  },
+  async completeSupplierReturn(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/damage-claims/returns/${id}/gate-exit`, {
+      method: "POST",
+    });
+  },
+  async closeDamageClaim(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/damage-claims/${id}/close`, { method: "POST" });
+  },
 
   async generateHandlingUnits(gateEntryId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/handling-units`, {
@@ -529,23 +688,34 @@ export const api = {
   },
 
   async getQualityIssues(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/gate-entries/quality/issues`, { cache: "no-store" });
-  },
-
-  async forwardQualityIssue(gateEntryId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/gate-entries/quality/issues/${gateEntryId}/forward`, {
-      method: "POST",
+    return request<any[]>(`${BUSINESS_API_URL}/api/gate-entries/quality/issues`, {
+      cache: "no-store",
     });
   },
 
+  async forwardQualityIssue(gateEntryId: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/gate-entries/quality/issues/${gateEntryId}/forward`,
+      {
+        method: "POST",
+      },
+    );
+  },
 
   async completeReceiving(gateEntryId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/complete-receiving`, {
       method: "POST",
     });
   },
-  async releaseDock(gateEntryId: string): Promise<any> {
+
+  async releaseGateDock(gateEntryId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/release-dock`, {
+      method: "POST",
+    });
+  },
+
+  async markInboundVehicleExited(gateEntryId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/vehicle-exited`, {
       method: "POST",
     });
   },
@@ -580,105 +750,69 @@ export const api = {
       method: "POST",
     });
   },
-  async getGrnDrafts(status?: string, search?: string): Promise<any[]> {
+
+  async getOutboundDispatchQueue(status?: string, search?: string): Promise<any[]> {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
     if (search) params.set("search", search);
-    const query = params.toString();
-    const url = `${BUSINESS_API_URL}/api/gate-entries/grn-drafts${query ? `?${query}` : ""}`;
-    const res = await request<any>(url);
-    return Array.isArray(res) ? res : res?.items || [];
+    const queryStr = params.toString() ? `?${params.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/dispatch/queue${queryStr}`);
   },
 
-  async postGrn(grnId: string, verificationNotes?: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}/complete`, {
+  async getOutboundDispatch(dispatchId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}`);
+  },
+
+  async confirmOutboundGateExit(
+    dispatchId: string,
+    payload: { vehicle_verified: boolean; driver_verified: boolean; remarks?: string; vehicle_photo_base64?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/gate-exit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ verification_notes: verificationNotes }),
-    });
-  },
-
-  async getInventoryTransactions(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/gate-entries/inventory-transactions`);
-  },
-
-  async getPutawayTasks(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/storage/putaway-tasks`);
-  },
-
-  async getStorageLocations(warehouseId?: string, includeInactive = false): Promise<any[]> {
-    const query = warehouseId ? `?warehouse_id=${encodeURIComponent(warehouseId)}` : "";
-    const separator = query ? "&" : "?";
-    return request<any[]>(
-      `${BUSINESS_API_URL}/api/storage/putaway-tasks/locations${query}${separator}include_inactive=${includeInactive}`,
-    );
-  },
-
-  async createStorageLocation(payload: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/locations`, {
-      method: "POST",
       body: JSON.stringify(payload),
     });
   },
 
-  async updateStorageLocation(locationId: string, payload: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/locations/${locationId}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async getInventoryLocationBalances(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/inventory-locations`);
-  },
-
-  async getHandlingUnit(scanValue: string): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/storage/putaway-tasks/handling-units/${encodeURIComponent(scanValue)}`,
-    );
-  },
-
-  async assignPutawayLocation(taskId: string, locationId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/${taskId}/location`, {
-      method: "PUT",
-      body: JSON.stringify({ location_id: locationId }),
-    });
-  },
-
-  async assignPutawayOperator(taskId: string, operator: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/${taskId}/operator`, {
-      method: "PUT",
-      body: JSON.stringify({ operator }),
-    });
-  },
-
-  async startPutaway(taskId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/${taskId}/start`, {
-      method: "POST",
-    });
-  },
-
-  async completePutaway(
-    taskId: string,
+  async reportOutboundGateExitMismatch(
+    dispatchId: string,
     payload: {
-      material_scan: string;
-      location_scan: string;
-      material_code: string;
-      material_name: string;
-      source_location: string;
-      destination_location: string;
-      quantity: number;
-      batch_lot?: string;
-      serial_number?: string;
-      container_pallet?: string;
+      verification_result: string;
+      mismatch_reason: string;
+      actual_vehicle?: string;
+      actual_driver?: string;
     },
   ): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/${taskId}/complete`, {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/report-mismatch`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   },
 
+  async resolveOutboundGateExitMismatch(
+    dispatchId: string,
+    payload: {
+      resolution_action: string;
+      resolution_notes: string;
+      new_vehicle_number?: string;
+      new_driver_name?: string;
+      new_driver_phone?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/resolve-mismatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async seedSampleDispatches(force = false): Promise<any> {
+    const url = `${BUSINESS_API_URL}/api/v1/dispatch/seed-sample${force ? "?force=true" : ""}`;
+    return request<any>(url, {
+      method: "POST",
+    });
+  },
   async getDashboardStats(): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/dashboard/stats`);
   },
@@ -771,11 +905,14 @@ export const api = {
         if (passHtml.includes('<div class="pass-number">')) {
           // Find the end of the div and replace its contents or the whole div
           // For simplicity with string replacement, we'll just target the placeholder text if found
-          const placeholderText = '(Auto-generated)';
+          const placeholderText = "(Auto-generated)";
           if (passHtml.includes(placeholderText)) {
-             passHtml = passHtml.replace(/<div class="pass-number">[\s\S]*?<\/div>/, qrHtml);
+            passHtml = passHtml.replace(/<div class="pass-number">[\s\S]*?<\/div>/, qrHtml);
           } else {
-             passHtml = passHtml.replace('<div class="pass-number">', `${qrHtml}<div class="pass-number">`);
+            passHtml = passHtml.replace(
+              '<div class="pass-number">',
+              `${qrHtml}<div class="pass-number">`,
+            );
           }
         }
       } catch (qrErr) {
@@ -811,33 +948,6 @@ export const api = {
         documentImageBase64: base64Image,
         poNumberOverride: poNumberOverride,
       }),
-    });
-  },
-
-  async getGrn(grnId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}`);
-  },
-  async getGrnContext(input?: string | { poNumber?: string; poId?: string; gateEntryId?: string }, poId?: string, gateEntryId?: string): Promise<any> {
-    const params = new URLSearchParams();
-    if (typeof input === "object" && input !== null) {
-      if (input.poNumber) params.set("po_number", input.poNumber);
-      if (input.poId) params.set("po_id", input.poId);
-      if (input.gateEntryId) params.set("gate_entry_id", input.gateEntryId);
-    } else if (typeof input === "string") {
-      params.set("po_number", input);
-      if (poId) params.set("po_id", poId);
-      if (gateEntryId) params.set("gate_entry_id", gateEntryId);
-    }
-    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/context?${params.toString()}`);
-  },
-
-  async confirmGrn(poId: string, lines: { itemCode: string; quantity: number }[]): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ po_id: poId, lines }),
     });
   },
 
@@ -935,6 +1045,14 @@ export const api = {
     });
   },
 
+  async updateSupplierStatus(id: string, status: string, remarks?: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/suppliers/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, remarks }),
+    });
+  },
+
   async createSupplier(data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/suppliers`, {
       method: "POST",
@@ -944,9 +1062,14 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
-
-  async getMaterialRequests(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests`);
+  async getMaterialRequests(department?: string): Promise<any[]> {
+    const q = department ? `?department=${encodeURIComponent(department)}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests${q}`);
+  },
+  async getMaterialRequest(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/material-requests/${encodeURIComponent(id)}`,
+    );
   },
 
   async createMaterialRequest(data: any): Promise<any> {
@@ -956,19 +1079,35 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
-
-  async getFinishedGoodsRequests(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests`);
+  async getAssemblyRequisitions(department?: string, status?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (department) params.append("department", department);
+    if (status) params.append("status", status);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly-requisitions${qs}`);
   },
-
-  async createFinishedGoodsRequest(data: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests`, {
+  async getAssemblyRequisition(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(id)}`,
+    );
+  },
+  async createAssemblyRequisition(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/assembly-requisitions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
   },
-
+  async assignAssemblyRequisitionStore(id: string, storeId: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(id)}/assign-store`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_id: storeId }),
+      },
+    );
+  },
   async updateMaterialRequest(id: string, data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}`, {
       method: "PUT",
@@ -981,6 +1120,39 @@ export const api = {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}/process`, {
       method: "POST",
     });
+  },
+
+  async updateMaterialRequestStatus(
+    id: string,
+    status: string,
+    comments?: string,
+    actor?: string,
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, comments, actor }),
+    });
+  },
+
+  async getMatchingSuppliersForMaterialRequest(id: string): Promise<any[]> {
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/v1/procurement/material-requests/${encodeURIComponent(id)}/matching-suppliers`,
+    );
+  },
+
+  async sendMaterialRequestToSupplier(
+    id: string,
+    data?: { supplier_id?: string; notes?: string },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/material-requests/${encodeURIComponent(id)}/send-to-supplier`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data || {}),
+      },
+    );
   },
 
   async getPickTasks(): Promise<any[]> {
@@ -1066,6 +1238,20 @@ export const api = {
     });
   },
 
+  async cancelRfq(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs/${id}/cancel`, {
+      method: "POST",
+    });
+  },
+
+  async updateRfq(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
   async getVendorTypes(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/vendor-types`);
   },
@@ -1146,7 +1332,9 @@ export const api = {
 
   async getArrivalNotifications(): Promise<any[]> {
     try {
-      const data = await request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications`);
+      const data = await request<any[]>(
+        `${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications`,
+      );
       return Array.isArray(data) ? data : [];
     } catch {
       return [];
@@ -1209,17 +1397,19 @@ export const api = {
   },
 
   async getPurchaseOrders(
-    searchOrOptions?: string | { search?: string; supplierId?: string },
+    searchOrParams?: string | { search?: string; supplierId?: string },
     signal?: AbortSignal,
   ): Promise<any[]> {
-    const options = typeof searchOrOptions === "string" ? { search: searchOrOptions } : searchOrOptions;
+    let url = `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders`;
     const params = new URLSearchParams();
-    if (options?.search) params.set("search", options.search);
-    if (options?.supplierId) params.set("supplier_id", options.supplierId);
-    const query = params.toString();
-    const url = query
-      ? `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders?${query}`
-      : `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders`;
+    if (typeof searchOrParams === "string" && searchOrParams) {
+      params.append("search", searchOrParams);
+    } else if (typeof searchOrParams === "object" && searchOrParams) {
+      if (searchOrParams.search) params.append("search", searchOrParams.search);
+      if (searchOrParams.supplierId) params.append("supplier_id", searchOrParams.supplierId);
+    }
+    const qStr = params.toString();
+    if (qStr) url += `?${qStr}`;
     return request<any[]>(url, { cache: "no-store", signal });
   },
 
@@ -1273,8 +1463,12 @@ export const api = {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+    setTimeout(() => {
+      try {
+        window.URL.revokeObjectURL(url);
+        if (a.parentNode) document.body.removeChild(a);
+      } catch {}
+    }, 2000);
   },
 
   async getFinanceApprovals(): Promise<any[]> {
@@ -1312,29 +1506,60 @@ export const api = {
     );
   },
 
-  async getNotifications(role: string): Promise<any[]> {
-    try {
-      const data = await request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/notifications?role=${role}`);
-      return Array.isArray(data) ? data : [];
-    } catch {
-      return [];
-    }
+  async acknowledgePurchaseOrder(id: string, comments?: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/purchase-orders/${id}/acknowledge`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comments }),
+      },
+    );
+  },
+
+  async amendPurchaseOrder(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/purchase-orders/${id}/amend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async getNotifications(
+    role: string,
+    filters?: { store_code?: string; store_id?: string },
+  ): Promise<any[]> {
+    const params = new URLSearchParams({ role });
+    if (filters?.store_code) params.append("store_code", filters.store_code);
+    if (filters?.store_id) params.append("store_id", filters.store_id);
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/v1/procurement/notifications?${params.toString()}`,
+    );
   },
 
   async markNotificationRead(id: string): Promise<any> {
-    try {
-      return await request<any>(`${BUSINESS_API_URL}/api/v1/procurement/notifications/${id}/read`, {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/notifications/${id}/read`, {
+      method: "POST",
+    });
+  },
+  async markAllNotificationsRead(
+    role: string,
+    filters?: { store_code?: string; store_id?: string },
+  ): Promise<any> {
+    const params = new URLSearchParams({ role });
+    if (filters?.store_code) params.append("store_code", filters.store_code);
+    if (filters?.store_id) params.append("store_id", filters.store_id);
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/notifications/read-all?${params.toString()}`,
+      {
         method: "POST",
-      });
-    } catch {
-      return { success: true };
-    }
+      },
+    );
   },
 
-  async markAllNotificationsRead(role: string): Promise<any> {
+  async markArrivalNotificationRead(id: string): Promise<any> {
     try {
       return await request<any>(
-        `${BUSINESS_API_URL}/api/v1/procurement/notifications/read-all?role=${encodeURIComponent(role)}`,
+        `${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications/${id}/read`,
         {
           method: "POST",
         },
@@ -1344,21 +1569,14 @@ export const api = {
     }
   },
 
-  async markArrivalNotificationRead(id: string): Promise<any> {
-    try {
-      return await request<any>(`${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications/${id}/read`, {
-        method: "POST",
-      });
-    } catch {
-      return { success: true };
-    }
-  },
-
   async markAllArrivalNotificationsRead(): Promise<any> {
     try {
-      return await request<any>(`${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications/read-all`, {
-        method: "POST",
-      });
+      return await request<any>(
+        `${BUSINESS_API_URL}/api/v1/procurement/arrival-notifications/read-all`,
+        {
+          method: "POST",
+        },
+      );
     } catch {
       return { success: true };
     }
@@ -1473,6 +1691,9 @@ export const api = {
     );
   },
 
+  // ============================
+  // WAREHOUSE MATERIAL MASTER
+  // ============================
   async getMaterials(filters?: {
     search?: string;
     category?: string;
@@ -1494,15 +1715,11 @@ export const api = {
 
     const query = params.toString();
 
-    return request<any[]>(
-      `${BUSINESS_API_URL}/api/v1/materials${query ? `?${query}` : ""}`,
-    );
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/materials${query ? `?${query}` : ""}`);
   },
 
   async getMaterial(id: string): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}`,
-    );
+    return request<any>(`${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}`);
   },
 
   async createMaterial(data: {
@@ -1514,81 +1731,40 @@ export const api = {
     status?: string;
     variants?: any[];
   }): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
+    return request<any>(`${BUSINESS_API_URL}/api/v1/materials`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-    );
-  },
-  async updateMaterial(
-    id: string,
-    data: any,
-  ): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      },
-    );
+      body: JSON.stringify(data),
+    });
   },
 
-  async updateMaterialStatus(
-    id: string,
-    status: string,
-  ): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}/status`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status }),
+  async updateMaterial(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify(data),
+    });
   },
 
-  async addMaterialVariant(
-    materialId: string,
-    data: any,
-  ): Promise<any> {
+  async updateMaterialStatus(id: string, status: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(id)}/status`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async addMaterialVariant(materialId: string, data: any): Promise<any> {
     return request<any>(
       `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(materialId)}/variants`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      },
-    );
-  },
-
-  async createMaterialVariant(
-    materialId: string,
-    data: any,
-  ): Promise<any> {
-    return this.addMaterialVariant(materialId, data);
-  },
-
-  async updateMaterialVariant(
-    materialId: string,
-    variantId: string,
-    data: any,
-  ): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(materialId)}/variants/${encodeURIComponent(variantId)}`,
-      {
-        method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
@@ -1622,6 +1798,23 @@ export const api = {
     );
   },
 
+  async createMaterialVariant(materialId: string, data: any): Promise<any> {
+    return this.addMaterialVariant(materialId, data);
+  },
+
+  async updateMaterialVariant(materialId: string, variantId: string, data: any): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(materialId)}/variants/${encodeURIComponent(variantId)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+
   async getAssemblyTeams(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/teams`);
   },
@@ -1646,118 +1839,6 @@ export const api = {
     });
   },
 
-  async getDispatches(status?: string): Promise<{ items: any[]; total: number }> {
-    const url = status ? `${BUSINESS_API_URL}/api/dispatches?status=${encodeURIComponent(status)}` : `${BUSINESS_API_URL}/api/dispatches`;
-    return request<{ items: any[]; total: number }>(url, { cache: "no-store" });
-  },
-  async getDispatch(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}`, { cache: "no-store" });
-  },
-  async createDispatch(data: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  },
-  async reserveDispatchStock(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/reserve-stock`, { method: "POST" });
-  },
-  async startDispatchPicking(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/picking`, { method: "POST" });
-  },
-  async pickDispatchItems(id: string, items: any[]): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pick-items`, {
-      method: "POST",
-      body: JSON.stringify({ items }),
-    });
-  },
-  async startDispatchPacking(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pack`, { method: "POST" });
-  },
-  async packDispatchItems(id: string, items: any[]): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pack-items`, {
-      method: "POST",
-      body: JSON.stringify({ items }),
-    });
-  },
-  async allocateDispatchDriver(id: string, driverId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/driver`, {
-      method: "POST",
-      body: JSON.stringify({ driver_id: driverId }),
-    });
-  },
-  async allocateDispatchVehicle(id: string, vehicleId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/vehicle`, {
-      method: "POST",
-      body: JSON.stringify({ vehicle_id: vehicleId }),
-    });
-  },
-  async assignDispatchRoute(id: string, routeCode: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/route`, {
-      method: "POST",
-      body: JSON.stringify({ route_code: routeCode }),
-    });
-  },
-  async startDispatchLoading(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/loading/start`, { method: "POST" });
-  },
-  async verifyDispatchLoading(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/loading/verify`, { method: "POST" });
-  },
-  async verifyDispatchFinal(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/verify`, { method: "POST" });
-  },
-  async dispatchOrder(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/dispatch`, { method: "POST" });
-  },
-  async transitDispatch(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/transit`, { method: "POST" });
-  },
-  async deliverDispatch(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/deliver`, { method: "POST" });
-  },
-  async cancelDispatch(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/cancel`, { method: "POST" });
-  },
-  async returnDispatch(id: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/return`, { method: "POST" });
-  },
-  async getDispatchesReadyForGateExit(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/dispatches/ready-for-gate-exit`, { cache: "no-store" });
-  },
-  async getDispatchKpis(): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/dispatches/kpis`, { cache: "no-store" });
-  },
-  async getDrivers(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/drivers`, { cache: "no-store" });
-  },
-  async createDriver(data: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/drivers`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  },
-  async getVehicles(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/vehicles`, { cache: "no-store" });
-  },
-  async createVehicle(data: any): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/vehicles`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  },
-
-  async getUserNavigation(): Promise<{
-    username: string;
-    roles: string[];
-    active_role: string;
-    module_label: string;
-    navigation: Array<{ label: string; to: string; search?: Record<string, unknown>; icon: string }>;
-    unread_notifications: number;
-  }> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/user/navigation`);
-  },
-
   async updateMaterialVariantStatus(
     materialId: string,
     variantId: string,
@@ -1775,10 +1856,7 @@ export const api = {
     );
   },
 
-  async deleteMaterialVariant(
-    materialId: string,
-    variantId: string,
-  ): Promise<any> {
+  async deleteMaterialVariant(materialId: string, variantId: string): Promise<any> {
     return request<any>(
       `${BUSINESS_API_URL}/api/v1/materials/${encodeURIComponent(materialId)}/variants/${encodeURIComponent(variantId)}`,
       {
@@ -1788,28 +1866,565 @@ export const api = {
   },
 
   async getMaterialCategories(): Promise<string[]> {
-    return request<string[]>(
-      `${BUSINESS_API_URL}/api/v1/materials/categories`,
-    );
+    return request<string[]>(`${BUSINESS_API_URL}/api/v1/materials/categories`);
   },
 
   async getMaterialUoms(): Promise<string[]> {
-    return request<string[]>(
-      `${BUSINESS_API_URL}/api/v1/materials/uoms`,
-    );
+    return request<string[]>(`${BUSINESS_API_URL}/api/v1/materials/uoms`);
   },
 
   async getNextMaterialCode(category?: string): Promise<{
     suggested_material_code: string;
     suggested_variant_code: string;
   }> {
-    const query = category
-      ? `?category=${encodeURIComponent(category)}`
-      : "";
+    const query = category ? `?category=${encodeURIComponent(category)}` : "";
 
+    return request<any>(`${BUSINESS_API_URL}/api/v1/materials/next-code${query}`);
+  },
+  async getStores(filters?: {
+    search?: string;
+    status?: string;
+    warehouse_id?: string;
+  }): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (filters?.search) params.append("search", filters.search);
+    if (filters?.status) params.append("status", filters.status);
+    if (filters?.warehouse_id) params.append("warehouse_id", filters.warehouse_id);
+    const query = params.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/stores${query ? `?${query}` : ""}`);
+  },
+  async getStoreMasterList(filters?: {
+    search?: string;
+    status?: string;
+    warehouse_id?: string;
+  }): Promise<any[]> {
+    return this.getStores(filters);
+  },
+  async getStore(idOrCode: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(idOrCode)}`);
+  },
+  async getMyStore(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/me`);
+  },
+  async getStoreDashboardMetrics(storeId?: string): Promise<any> {
+    const endpoint = storeId
+      ? `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(storeId)}/dashboard-metrics`
+      : `${BUSINESS_API_URL}/api/v1/stores/me/dashboard-metrics`;
+    return request<any>(endpoint);
+  },
+  async getStoreManagers(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/stores/managers`);
+  },
+  async getNextStoreCode(): Promise<{ suggested_store_code: string }> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/next-code`);
+  },
+  async createStore(data: {
+    store_name: string;
+    description?: string;
+    warehouse_id?: string;
+    store_manager_id?: string;
+    store_manager_name?: string;
+    status?: string;
+    store_code?: string;
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async updateStore(
+    idOrCode: string,
+    data: {
+      store_name?: string;
+      description?: string;
+      warehouse_id?: string;
+      store_manager_id?: string;
+      store_manager_name?: string;
+      status?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(idOrCode)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async updateStoreStatus(idOrCode: string, status: string): Promise<any> {
     return request<any>(
-      `${BUSINESS_API_URL}/api/v1/materials/next-code${query}`,
+      `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(idOrCode)}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
     );
+  },
+  async deleteStore(idOrCode: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(idOrCode)}`, {
+      method: "DELETE",
+    });
+  },
+  async getStoreHierarchy(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/stores/hierarchy/all`);
+  },
+  async getStoreZones(storeIdOrCode: string, status?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    const query = params.toString();
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(storeIdOrCode)}/zones${query ? `?${query}` : ""}`,
+    );
+  },
+  async getNextZoneCode(storeIdOrCode: string): Promise<{ suggested_zone_code: string }> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(storeIdOrCode)}/zones/next-code`,
+    );
+  },
+  async createZone(
+    storeIdOrCode: string,
+    data: {
+      zone_name: string;
+      description?: string;
+      zone_code?: string;
+      status?: string;
+    },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(storeIdOrCode)}/zones`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+  async getZone(zoneId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}`);
+  },
+  async updateZone(
+    zoneId: string,
+    data: {
+      zone_name?: string;
+      description?: string;
+      status?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async updateZoneStatus(zoneId: string, status: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  },
+  async createStoreManager(data: {
+    full_name: string;
+    employee_id: string;
+    username: string;
+    email: string;
+    password: string;
+    store_id: string;
+    status?: string;
+    role?: string;
+    applications?: string[];
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/stores/managers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async updateStoreManager(
+    managerId: string,
+    data: {
+      full_name?: string;
+      email?: string;
+      password?: string;
+      store_id?: string;
+      status?: string;
+      role?: string;
+      applications?: string[];
+    },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/stores/managers/${encodeURIComponent(managerId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+  async updateStoreManagerStatus(managerId: string, status: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/stores/managers/${encodeURIComponent(managerId)}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
+    );
+  },
+  async getZoneQR(zoneId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}/qr`);
+  },
+  async lookupZoneByQR(scanValue: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/scan-lookup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan_value: scanValue }),
+    });
+  },
+  async getStoreBins(storeIdOrCode: string, status?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    const query = params.toString();
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/v1/stores/${encodeURIComponent(storeIdOrCode)}/bins${query ? `?${query}` : ""}`,
+    );
+  },
+  async getZoneBins(zoneId: string, status?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    const query = params.toString();
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}/bins${query ? `?${query}` : ""}`,
+    );
+  },
+  async getNextBinCode(zoneId: string): Promise<{ suggested_bin_code: string }> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}/bins/next-code`,
+    );
+  },
+  async createBin(
+    zoneId: string,
+    data: {
+      bin_name: string;
+      bin_code?: string;
+      rack?: string;
+      shelf?: string;
+      capacity?: number;
+      status?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/zones/${encodeURIComponent(zoneId)}/bins`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async getBin(binId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/bins/${encodeURIComponent(binId)}`);
+  },
+  async updateBin(
+    binId: string,
+    data: {
+      bin_name?: string;
+      rack?: string;
+      shelf?: string;
+      capacity?: number;
+      status?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/bins/${encodeURIComponent(binId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async updateBinStatus(binId: string, status: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/bins/${encodeURIComponent(binId)}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  },
+  async getBinQR(binId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/bins/${encodeURIComponent(binId)}/qr`);
+  },
+  async getBinMaterials(binIdOrCode: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/bins/${encodeURIComponent(binIdOrCode)}/materials`,
+    );
+  },
+  async performTakeaway(payload: {
+    bin_scan: string;
+    material_scan: string;
+    quantity: number;
+    remarks?: string;
+    reference_document?: string;
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/inventory/takeaway`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+  async getMovementHistory(params?: {
+    movement_type?: string;
+    material_code?: string;
+    store_id?: string;
+    bin_id?: string;
+    start_date?: string;
+    end_date?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params) {
+      if (params.movement_type && params.movement_type !== "ALL")
+        query.append("movement_type", params.movement_type);
+      if (params.material_code) query.append("material_code", params.material_code);
+      if (params.store_id && params.store_id !== "ALL") query.append("store_id", params.store_id);
+      if (params.bin_id) query.append("bin_id", params.bin_id);
+      if (params.start_date) query.append("start_date", params.start_date);
+      if (params.end_date) query.append("end_date", params.end_date);
+      if (params.search) query.append("search", params.search);
+      if (params.limit !== undefined) query.append("limit", String(params.limit));
+      if (params.offset !== undefined) query.append("offset", String(params.offset));
+    }
+    const qStr = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/inventory/movement-history${qStr}`);
+  },
+  async lookupBinByQR(scanValue: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/bins/scan-lookup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan_value: scanValue }),
+    });
+  },
+  async getPutawayTasks(storeId?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (storeId) params.append("store_id", storeId);
+    const q = params.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/putaway-tasks${q ? `?${q}` : ""}`);
+  },
+  async getPutawayTask(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/${encodeURIComponent(id)}`);
+  },
+  async assignPutawayLocation(
+    taskId: string,
+    locationId?: string,
+    storeId?: string,
+    zoneId?: string,
+    binId?: string,
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/putaway-tasks/${encodeURIComponent(taskId)}/location`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location_id: locationId || undefined,
+          store_id: storeId || undefined,
+          zone_id: zoneId || undefined,
+          bin_id: binId || undefined,
+        }),
+      },
+    );
+  },
+  async startPutaway(taskId: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/putaway-tasks/${encodeURIComponent(taskId)}/start`,
+      {
+        method: "POST",
+      },
+    );
+  },
+  async completePutaway(
+    taskId: string,
+    data: {
+      material_scan: string;
+      location_scan: string;
+      quantity: number;
+    },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/putaway-tasks/${encodeURIComponent(taskId)}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+  async resolveGrnQr(qrCode: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/resolve-grn-qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ qr_code: qrCode }),
+    });
+  },
+  async resolveBinQr(binScan: string, storeId?: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/resolve-bin-qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bin_scan: binScan, store_id: storeId || undefined }),
+    });
+  },
+  async executePutaway(data: {
+    task_id?: string;
+    grn_qr_code: string;
+    bin_qr_code: string;
+    quantity: number;
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/execute-putaway`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async getHandlingUnit(scanValue: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/putaway-tasks/handling-units/${encodeURIComponent(scanValue)}`,
+    );
+  },
+  async getStorageLocations(warehouseId?: string): Promise<any[]> {
+    const q = warehouseId ? `?warehouse_id=${encodeURIComponent(warehouseId)}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/locations${q}`);
+  },
+  async getInventoryLocationBalances(materialCode?: string, storeId?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (materialCode) params.append("material_code", materialCode);
+    if (storeId) params.append("store_id", storeId);
+    const q = params.toString() ? `?${params.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/inventory-locations${q}`);
+  },
+  async getWarehouseInventorySummary(params?: {
+    material_code?: string;
+    store_id?: string;
+    zone_id?: string;
+    status_filter?: string;
+    search?: string;
+  }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params?.material_code) query.append("material_code", params.material_code);
+    if (params?.store_id && params.store_id !== "ALL") query.append("store_id", params.store_id);
+    if (params?.zone_id && params.zone_id !== "ALL") query.append("zone_id", params.zone_id);
+    if (params?.status_filter && params.status_filter !== "ALL")
+      query.append("status_filter", params.status_filter);
+    if (params?.search) query.append("search", params.search);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/inventory/warehouse-summary${qs}`);
+  },
+  async getStockLedger(params?: {
+    material_code?: string;
+    store_id?: string;
+    zone_id?: string;
+    transaction_type?: string;
+    start_date?: string;
+    end_date?: string;
+    search?: string;
+  }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params?.material_code) query.append("material_code", params.material_code);
+    if (params?.store_id && params.store_id !== "ALL") query.append("store_id", params.store_id);
+    if (params?.zone_id && params.zone_id !== "ALL") query.append("zone_id", params.zone_id);
+    if (params?.transaction_type && params.transaction_type !== "ALL")
+      query.append("transaction_type", params.transaction_type);
+    if (params?.start_date) query.append("start_date", params.start_date);
+    if (params?.end_date) query.append("end_date", params.end_date);
+    if (params?.search) query.append("search", params.search);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/inventory/ledger${qs}`);
+  },
+  async getInventoryStats(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/inventory/stats`);
+  },
+  async getWarehouseDashboardMetrics(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/inventory/dashboard-metrics`);
+  },
+  async getQuarantineRecords(params?: {
+    status?: string;
+    material?: string;
+    grn?: string;
+    search?: string;
+  }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== "ALL") query.append("status", params.status);
+    if (params?.material) query.append("material", params.material);
+    if (params?.grn) query.append("grn", params.grn);
+    if (params?.search) query.append("search", params.search);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/quarantine${qs}`);
+  },
+  async getQuarantineRecord(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/quarantine/${encodeURIComponent(id)}`);
+  },
+  async reviewQuarantineRecord(
+    id: string,
+    data: { disposition: string; remarks?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/quarantine/${encodeURIComponent(id)}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+  async getPickupTasks(params?: {
+    store_code?: string;
+    status?: string;
+    department?: string;
+  }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params?.store_code) query.append("store_code", params.store_code);
+    if (params?.status && params.status !== "ALL") query.append("status", params.status);
+    if (params?.department) query.append("department", params.department);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/storage/pickup-tasks${qs}`);
+  },
+  async getPickupTask(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/pickup-tasks/${encodeURIComponent(id)}`);
+  },
+  async startPickupTask(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/pickup-tasks/${encodeURIComponent(id)}/start`,
+      {
+        method: "POST",
+      },
+    );
+  },
+  async completePickupTask(
+    id: string,
+    data: { material_scan: string; zone_scan: string; quantity: number },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/storage/pickup-tasks/${encodeURIComponent(id)}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+
+  // ============================
+  // GRN / RECEIVING
+  // ============================
+  async getGrns(params?: {
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ total: number; items: any[] }> {
+    const q = new URLSearchParams();
+    if (params?.status && params.status !== "ALL") q.append("status", params.status);
+    if (params?.search && params.search.trim()) q.append("search", params.search.trim());
+    if (params?.limit !== undefined) q.append("limit", String(params.limit));
+    if (params?.offset !== undefined) q.append("offset", String(params.offset));
+    const qs = q.toString() ? `?${q.toString()}` : "";
+    return request<{ total: number; items: any[] }>(`${BUSINESS_API_URL}/api/receiving/grn${qs}`);
+  },
+  async getGrnDrafts(status?: string, search?: string): Promise<any[]> {
+    const res = await this.getGrns({ status, search, limit: 100 });
+    return res.items || [];
   },
   async createGrnHeader(data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/header`, {
@@ -1826,14 +2441,17 @@ export const api = {
     });
   },
   async uploadDamageEvidence(grnLineId: string, formData: FormData): Promise<any> {
-    const token = localStorage.getItem("auth_token");
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${BUSINESS_API_URL}/api/receiving/grn/lines/${grnLineId}/damage-evidence`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
+    const res = await fetch(
+      `${BUSINESS_API_URL}/api/receiving/grn/lines/${grnLineId}/damage-evidence`,
+      {
+        method: "POST",
+        headers,
+        body: formData,
+      },
+    );
     if (!res.ok) {
       const err = await res.text();
       throw new Error(err || "Failed to upload damage evidence");
@@ -1855,13 +2473,16 @@ export const api = {
     });
   },
   async generateDamageQrs(grnId: string): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/receiving/grn/${encodeURIComponent(grnId)}/damage-qrs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/receiving/grn/${encodeURIComponent(grnId)}/damage-qrs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   },
   async uploadGrnDocument(grnId: string, formData: FormData): Promise<any> {
-    const token = localStorage.getItem("auth_token");
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}/documents`, {
@@ -1882,10 +2503,81 @@ export const api = {
       body: JSON.stringify({ verification_notes }),
     });
   },
+  async postGrn(grnId: string, verificationNotes?: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verification_notes: verificationNotes }),
+    });
+  },
   async getGrnDetail(grnId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}`);
   },
-  async notifyVendorDamage(grnId: string, payload: { supplier_email?: string; custom_remarks?: string; notify_procurement?: boolean; damage_items?: any[]; photo_ids?: string[] }): Promise<any> {
+  async getGrn(grnId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}`);
+  },
+  async getGrnContext(
+    input?:
+      | string
+      | {
+          poNumber?: string;
+          poId?: string;
+          gateEntryId?: string;
+          vehicleNumber?: string;
+          receiptType?: string;
+        },
+    poId?: string,
+    gateEntryId?: string,
+  ): Promise<any> {
+    const params = new URLSearchParams();
+    if (typeof input === "object" && input !== null) {
+      if (input.poNumber) params.set("po_number", input.poNumber);
+      if (input.poId) params.set("po_id", input.poId);
+      if (input.gateEntryId) params.set("gate_entry_id", input.gateEntryId);
+      if (input.vehicleNumber) params.set("vehicle_number", input.vehicleNumber);
+      if (input.receiptType) params.set("receipt_type", input.receiptType);
+    } else if (typeof input === "string") {
+      params.set("po_number", input);
+      if (poId) params.set("po_id", poId);
+      if (gateEntryId) params.set("gate_entry_id", gateEntryId);
+    }
+    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/context?${params.toString()}`);
+  },
+  async confirmGrn(
+    poId: string,
+    lines: {
+      itemCode: string;
+      quantity: number;
+    }[],
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ po_id: poId, lines }),
+    });
+  },
+  async updateGrnStep(
+    grnId: string,
+    payload: { current_step: number; max_completed_step?: number },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}/step`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+  async notifyVendorDamage(
+    grnId: string,
+    payload: {
+      supplier_email?: string;
+      custom_remarks?: string;
+      notify_procurement?: boolean;
+      damage_items?: any[];
+      photo_ids?: string[];
+    },
+  ): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/receiving/grn/${grnId}/notify-vendor-damage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1901,5 +2593,8 @@ export const api = {
     suggested_variant_code: string;
   }> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/materials/${materialId}/next-variant-code`);
+  },
+  resolveMediaUrl(path?: string | null): string {
+    return resolveMediaUrl(path);
   },
 };

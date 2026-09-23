@@ -1,6 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Building2,
+  ClipboardList,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard, StatCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
@@ -14,25 +23,43 @@ export const Route = createFileRoute("/master-data")({
       {
         name: "description",
         content:
-          "Maintain vendors, vehicles, docks, materials and warehouse topology master records.",
+          "Maintain supplier master records used across procurement and receiving workflows.",
       },
       { property: "og:title", content: "Master Data · NexusWMS" },
-      { property: "og:description", content: "Vendor, vehicle, dock and material master records." },
+      { property: "og:description", content: "Supplier master records for procurement." },
     ],
   }),
   component: MasterData,
 });
 function MasterData() {
+  const location = useRouterState({ select: (state) => state.location });
+  const routeParams = new URLSearchParams(location.searchStr || "");
+  const currentModule = routeParams.get("module");
+  const routeStatus = routeParams.get("status");
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [procurementStats, setProcurementStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "blocked">("all");
+  const [statusFilter, setStatusFilter] = useState(() =>
+    routeStatus === "pending-approval" ? "pending approval" : "all",
+  );
   const loadSuppliers = async () => {
     setLoading(true);
     setError(null);
     try {
-      setSuppliers(await api.getSuppliers());
+      const [supplierData, requestData, statsData] = await Promise.all([
+        api.getSuppliers(),
+        api.getMaterialRequests().catch(() => []),
+        api.getProcurementStats().catch(() => null),
+      ]);
+      const fallbackPendingRequests = requestData.filter(
+        (request) => request.status === "Pending Approval",
+      ).length;
+      setSuppliers(supplierData);
+      setProcurementStats(statsData);
+      setPendingRequests(Number(statsData?.pendingMaterialRequests ?? fallbackPendingRequests));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load suppliers.");
     } finally {
@@ -42,11 +69,17 @@ function MasterData() {
   useEffect(() => {
     loadSuppliers();
   }, []);
+  useEffect(() => {
+    if (routeStatus === "pending-approval") {
+      setStatusFilter("pending approval");
+    }
+  }, [routeStatus]);
   const filteredSuppliers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return suppliers.filter((supplier) => {
       const matchesStatus =
-        statusFilter === "all" || (supplier.status || "Active").toLowerCase() === statusFilter;
+        statusFilter === "all" ||
+        (supplier.status || "Pending Approval").toLowerCase() === statusFilter;
       const matchesQuery =
         !normalizedQuery ||
         [supplier.supplierName, supplier.registeredCompanyName, supplier.category, supplier.gstin]
@@ -55,21 +88,55 @@ function MasterData() {
       return matchesStatus && matchesQuery;
     });
   }, [query, statusFilter, suppliers]);
+  const pendingSupplierRegistrations = Number(
+    procurementStats?.pendingSupplierRegistrations ??
+      suppliers.filter((supplier) => (supplier.status || "").toLowerCase().includes("pending"))
+        .length,
+  );
+  const expiringSupplierDocuments = Number(procurementStats?.expiringSupplierDocuments ?? 0);
+  const pendingRequestSources = Array.isArray(procurementStats?.pendingMaterialRequestSources)
+    ? procurementStats.pendingMaterialRequestSources
+    : [];
+  const pendingRequestSourceText =
+    pendingRequestSources.length > 0
+      ? `From ${pendingRequestSources.join(", ")}`
+      : pendingRequests > 0
+        ? "Source details unavailable"
+        : "No pending warehouse requests";
+  const pendingSupplierRegistrationText = `${pendingSupplierRegistrations} supplier registration${
+    pendingSupplierRegistrations === 1 ? "" : "s"
+  } awaiting approval`;
+  const expiringSupplierDocumentText = `${expiringSupplierDocuments} supplier document${
+    expiringSupplierDocuments === 1 ? "" : "s"
+  } expiring`;
   return (
     <AppShell
-      title="Master data"
-      subtitle="Manage the reference records used across warehouse and procurement operations"
+      title="Supplier Management"
+      subtitle="Manage suppliers used for procurement and warehouse operations"
       actions={
         <Button className="rounded-xl shadow-glow" asChild>
-          <Link to="/new-supplier">
-            <Plus className="size-4" /> New supplier
+          <Link
+            to="/new-supplier"
+            search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+          >
+            <Plus className="size-4" /> Add Supplier
           </Link>
         </Button>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="All suppliers"
+          label="Pending Requests"
+          value={loading ? "…" : String(pendingRequests)}
+          delta={pendingRequests > 0 ? "View Requests →" : "From Warehouse"}
+          icon={ClipboardList}
+          tone="warning"
+          to="/procurement/material-requests?status=manager-approval"
+          infoTooltip="Material requests from the warehouse that are waiting for manager approval."
+          showArrow
+        />
+        <StatCard
+          label="Total Suppliers"
           value={loading ? "…" : String(suppliers.length)}
           delta="Vendor master records"
           icon={Building2}
@@ -77,21 +144,24 @@ function MasterData() {
           to="/master-data"
         />
         <StatCard
-          label="Active suppliers"
+          label="Active Suppliers"
           value={
             loading
               ? "…"
               : String(
-                  suppliers.filter((supplier) => (supplier.status || "Active") === "Active").length,
+                  suppliers.filter(
+                    (supplier) => (supplier.status || "Pending Approval") === "Active",
+                  ).length,
                 )
           }
           delta="Available for operations"
           icon={Building2}
           tone="success"
           to="/master-data"
+          infoTooltip="Approved suppliers currently available for procurement operations."
         />
         <StatCard
-          label="Blocked suppliers"
+          label="Blocked Suppliers"
           value={
             loading
               ? "…"
@@ -101,7 +171,112 @@ function MasterData() {
           icon={Building2}
           tone="danger"
           to="/master-data"
+          infoTooltip="Suppliers currently unavailable for procurement operations."
         />
+      </div>
+
+      {/* ACTION REQUIRED OPERATIONAL SECTION */}
+      <div className="mb-6">
+        <SectionCard
+          title="Action Required"
+          description="High-priority procurement tasks requiring immediate review or authorization"
+          icon={AlertCircle}
+          actions={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl text-xs font-bold text-primary hover:text-primary"
+              asChild
+            >
+              <Link to="/procurement/material-requests">
+                View All <ArrowRight className="ml-1 size-3.5" />
+              </Link>
+            </Button>
+          }
+        >
+          <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+            {/* Task 1: Pending Material Requests */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-amber-500/10">
+                  <span className="size-2.5 rounded-full bg-amber-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {loading
+                      ? "..."
+                      : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting manager approval`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {loading ? "Loading sources..." : pendingRequestSourceText}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                asChild
+              >
+                <Link to="/procurement/material-requests?status=manager-approval">
+                  Review <ArrowRight className="ml-1.5 size-3.5" />
+                </Link>
+              </Button>
+            </div>
+
+            {/* Task 2: Pending Supplier Registrations */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-yellow-500/10">
+                  <span className="size-2.5 rounded-full bg-yellow-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {loading ? "..." : pendingSupplierRegistrationText}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {loading ? "Loading supplier approvals..." : "Supplier approval queue"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                onClick={() => setStatusFilter("pending approval")}
+              >
+                Review <ArrowRight className="ml-1.5 size-3.5" />
+              </Button>
+            </div>
+
+            {/* Task 3: Expiring Supplier Documents */}
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/20 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-rose-500/10">
+                  <span className="size-2.5 rounded-full bg-rose-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    {loading ? "..." : expiringSupplierDocumentText}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {loading ? "Loading document compliance..." : "Supplier document compliance"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
+                asChild
+              >
+                <Link to="/procurement/quality-issues">
+                  Review <ArrowRight className="ml-1.5 size-3.5" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </SectionCard>
       </div>
 
       <div className="mt-4">
@@ -134,10 +309,26 @@ function MasterData() {
             {[
               { id: "all", label: "All suppliers", count: suppliers.length },
               {
+                id: "draft",
+                label: "Draft",
+                count: suppliers.filter((supplier) => supplier.status === "Draft").length,
+              },
+              {
+                id: "pending approval",
+                label: "Pending Approval",
+                count: suppliers.filter(
+                  (supplier) => (supplier.status || "Pending Approval") === "Pending Approval",
+                ).length,
+              },
+              {
                 id: "active",
                 label: "Active",
-                count: suppliers.filter((supplier) => (supplier.status || "Active") === "Active")
-                  .length,
+                count: suppliers.filter((supplier) => supplier.status === "Active").length,
+              },
+              {
+                id: "suspended",
+                label: "Suspended",
+                count: suppliers.filter((supplier) => supplier.status === "Suspended").length,
               },
               {
                 id: "blocked",
@@ -149,7 +340,7 @@ function MasterData() {
                 key={item.id}
                 variant="outline"
                 size="sm"
-                onClick={() => setStatusFilter(item.id as typeof statusFilter)}
+                onClick={() => setStatusFilter(item.id)}
                 className={cn(
                   "rounded-full",
                   statusFilter === item.id &&
@@ -200,7 +391,10 @@ function MasterData() {
               </div>
               {!query && statusFilter === "all" && (
                 <Button size="sm" className="rounded-lg" asChild>
-                  <Link to="/new-supplier">
+                  <Link
+                    to="/new-supplier"
+                    search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+                  >
                     <Plus /> Add supplier
                   </Link>
                 </Button>
@@ -208,40 +402,80 @@ function MasterData() {
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto px-5">
-              <table className="w-full min-w-[680px] text-sm">
+              <table className="w-full min-w-[780px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="pb-3 font-medium">Supplier</th>
                     <th className="pb-3 font-medium">Category</th>
                     <th className="pb-3 font-medium">GSTIN</th>
+                    <th className="pb-3 font-medium">Contact</th>
+                    <th className="pb-3 font-medium">Last PO</th>
                     <th className="pb-3 font-medium">Status</th>
+                    <th className="pb-3 font-medium text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredSuppliers.map((supplier) => (
-                    <tr
-                      key={supplier.supplierId}
-                      className="border-b border-border/60 last:border-0"
-                    >
-                      <td className="py-3">
-                        <Link
-                          to="/supplier/$supplierId"
-                          params={{ supplierId: supplier.supplierId }}
-                          className="font-semibold text-primary hover:underline"
-                        >
-                          {supplier.supplierName}
-                        </Link>
-                        <p className="text-[11px] text-muted-foreground">
-                          {supplier.registeredCompanyName || supplier.supplierCode || supplier.supplierId}
-                        </p>
-                      </td>
-                      <td className="py-3 text-muted-foreground">{supplier.category || "—"}</td>
-                      <td className="py-3 font-mono text-xs">{supplier.gstin || "—"}</td>
-                      <td className="py-3">
-                        <StatusBadge status={supplier.status || "Active"} />
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-border/60">
+                  {filteredSuppliers.map((supplier) => {
+                    const phone =
+                      supplier.contact?.phone || supplier.phone || supplier.contactPhone || "—";
+                    const lastPo =
+                      supplier.lastPoNumber ||
+                      supplier.last_po_number ||
+                      supplier.latestPoNumber ||
+                      "—";
+                    return (
+                      <tr
+                        key={supplier.supplierId || supplier.id}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
+                        <td className="py-3">
+                          <Link
+                            to="/supplier/$supplierId"
+                            params={{ supplierId: supplier.supplierId || supplier.id }}
+                            search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+                            className="font-semibold text-primary hover:underline"
+                          >
+                            {supplier.supplierName || supplier.supplier_name}
+                          </Link>
+                          <p className="text-[11px] text-muted-foreground">
+                            {supplier.registeredCompanyName ||
+                              supplier.supplierCode ||
+                              supplier.supplier_code ||
+                              supplier.supplierId}
+                          </p>
+                        </td>
+                        <td className="py-3 text-muted-foreground font-medium">
+                          {Array.isArray(supplier.category)
+                            ? supplier.category.join(", ")
+                            : supplier.category || "—"}
+                        </td>
+                        <td className="py-3 font-mono text-xs">{supplier.gstin || "—"}</td>
+                        <td className="py-3 text-xs font-mono text-muted-foreground">{phone}</td>
+                        <td className="py-3 font-mono text-xs font-bold text-foreground">
+                          {lastPo}
+                        </td>
+                        <td className="py-3">
+                          <StatusBadge status={supplier.status || "Active"} />
+                        </td>
+                        <td className="py-3 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl h-8 text-xs font-bold"
+                            asChild
+                          >
+                            <Link
+                              to="/supplier/$supplierId"
+                              params={{ supplierId: supplier.supplierId || supplier.id }}
+                              search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+                            >
+                              View <ArrowRight className="ml-1 size-3.5" />
+                            </Link>
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

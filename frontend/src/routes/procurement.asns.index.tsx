@@ -11,10 +11,12 @@ import {
   FileText,
   RefreshCw,
   Download,
+  Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -177,6 +179,10 @@ function buildAsnPrintHtml(asn: any): string {
             <div class="box"><div class="label">Vehicle</div><div class="value">${escapeHtml(readField(asn, "vehicleNumber", "vehicle_number") || "N/A")}</div></div>
             <div class="box"><div class="label">Driver</div><div class="value">${escapeHtml(readField(asn, "driverName", "driver_name") || "N/A")}</div></div>
             <div class="box"><div class="label">Expected Arrival</div><div class="value">${escapeHtml(readField(asn, "expectedArrivalAt", "expected_arrival_at") ? new Date(readField(asn, "expectedArrivalAt", "expected_arrival_at")).toLocaleDateString() : "N/A")}</div></div>
+            <div class="box"><div class="label">Invoice</div><div class="value">${escapeHtml(readField(asn, "invoiceNumber", "invoice_number") || "N/A")}</div></div>
+            <div class="box"><div class="label">Invoice Date</div><div class="value">${escapeHtml(readField(asn, "invoiceDate", "invoice_date") ? new Date(readField(asn, "invoiceDate", "invoice_date")).toLocaleDateString() : "N/A")}</div></div>
+            <div class="box"><div class="label">Challan</div><div class="value">${escapeHtml(readField(asn, "challanNumber", "challan_number") || "N/A")}</div></div>
+            <div class="box"><div class="label">Challan Date</div><div class="value">${escapeHtml(readField(asn, "challanDate", "challan_date") ? new Date(readField(asn, "challanDate", "challan_date")).toLocaleDateString() : "N/A")}</div></div>
           </section>
           <h2>Shipment Lines</h2>
           <table>
@@ -263,6 +269,10 @@ function Asns() {
         asn.vehicle_number,
         asn.driverName,
         asn.driver_name,
+        asn.invoiceNumber,
+        asn.invoice_number,
+        asn.challanNumber,
+        asn.challan_number,
         status,
       ]
         .filter(Boolean)
@@ -322,7 +332,25 @@ function Asns() {
 
   return (
     <AppShell
-      title="Advanced Shipping Notices"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Advanced Shipping Notices</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="ASNs Info"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Info className="size-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 text-xs font-normal text-popover-foreground rounded-xl shadow-lg" align="start">
+              Advance Shipment Notices sent by suppliers before material arrives at the warehouse.
+            </PopoverContent>
+          </Popover>
+        </div>
+      }
       subtitle="Track incoming supplier shipments and vehicle arrivals"
       actions={
         <Button
@@ -437,6 +465,18 @@ function Asns() {
                         Pkg:{" "}
                         <span className="text-foreground font-bold">
                           {asn.numberOfPackages || 0}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        Invoice:{" "}
+                        <span className="text-foreground font-bold">
+                          {asn.invoiceNumber || asn.invoice_number || "N/A"}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        Challan:{" "}
+                        <span className="text-foreground font-bold">
+                          {asn.challanNumber || asn.challan_number || "N/A"}
                         </span>
                       </span>
                     </div>

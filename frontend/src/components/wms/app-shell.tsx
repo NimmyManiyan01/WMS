@@ -1,7 +1,6 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
-  DoorOpen,
   Truck,
   ListOrdered,
   Warehouse,
@@ -22,147 +21,136 @@ import {
   FileQuestion,
   FileBadge,
   Loader2,
-  Factory,
-  Users,
-  Menu,
-  AlertTriangle,
   ShieldCheck,
   Sliders,
-  PanelLeft,
   PanelLeftClose,
+  Menu,
+  AlertTriangle,
   QrCode,
+  PlusCircle,
+  Store,
+  ShieldAlert,
+  DoorOpen,
+  Factory,
+  Users,
   Inbox,
-  Package,
-  UserCheck,
-  Navigation,
-  MapPin,
-  CheckCircle2,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
-import { getUserInfo } from "@/lib/auth-utils";
 import { toast } from "sonner";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { getUserInfo } from "@/lib/auth-utils";
+import { SecureAssistant } from "@/components/wms/secure-assistant";
+
+type NavItem = {
+  label: string;
+  to: string;
+  icon: any;
+  badge?: ReactNode;
+};
 
 const grnNav = [
-  { label: "GRN Operations Dashboard", to: "/grn", search: { tab: "dashboard" }, icon: LayoutDashboard },
-  { label: "GRN Records History", to: "/grn", search: { tab: "records" }, icon: ClipboardList },
-  { label: "Material Receiving", to: "/grn", search: { tab: "wizard", page: 2 }, icon: PackageCheck },
-  { label: "Quality & Photos", to: "/grn", search: { tab: "wizard", page: 3 }, icon: AlertTriangle },
-  { label: "Batch Allocation", to: "/grn", search: { tab: "wizard", page: 4 }, icon: Boxes },
-  { label: "Documents & Posting", to: "/grn", search: { tab: "wizard", page: 5 }, icon: FileText },
-  { label: "Batch QR Code Labels", to: "/grn", search: { tab: "wizard", page: 6 }, icon: QrCode },
-  { label: "Inbound Arrivals", to: "/vehicle-queue", icon: ListOrdered },
+  { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
+  { label: "Create GRN", to: "/grn?tab=wizard", icon: PlusCircle },
+  { label: "Inbound Arrivals", to: "/vehicle-queue?module=grn", icon: Truck },
+  { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
+
+const storeManagerNav = [
+  { label: "My Store Control", to: "/my-store", icon: Store },
+  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
+  { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Inventory", to: "/inventory", icon: Boxes },
+  { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
+  { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
+  { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
+];
+
 const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
   { label: "Material Master", to: "/warehouse/materials", icon: Database },
-  { label: "Inventory", to: "/inventory", icon: Boxes },
-  { label: "Warehouses & Locations", to: "/warehouse-storage", icon: Warehouse },
-  { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
-  { label: "Pick Tasks", to: "/pick-tasks", icon: PackageCheck },
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
-  { label: "Dock / Receiving", to: "/receiving", icon: PackageCheck },
-  { label: "GRN", to: "/grn", icon: FileCheck2 },
-  { label: "Damage Claims", to: "/damage-claims", icon: AlertTriangle },
+  { label: "Store Management", to: "/my-store", icon: Store },
+  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
+  { label: "Inventory", to: "/inventory", icon: Boxes },
+  { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
+  { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
+  { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
+  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
+  { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
 const procurementNav = [
   { label: "Dashboard", to: "/procurement-dashboard", icon: LayoutDashboard },
   { label: "Suppliers", to: "/master-data", icon: Building2 },
   { label: "Material Requests", to: "/procurement/material-requests", icon: ClipboardList },
-  { label: "Finished Goods", to: "/procurement/finished-goods", icon: PackageCheck },
   { label: "RFQs", to: "/procurement/rfqs", icon: FileQuestion },
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
+  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const supplierNav = [
   { label: "Dashboard", to: "/supplier-dashboard", icon: LayoutDashboard },
   { label: "Quotation Portal", to: "/submit-quotation", icon: FileBadge },
   { label: "ASNs", to: "/supplier/asns/new", icon: Truck },
-  { label: "Quality Issues", to: "/supplier/quality-issues", icon: AlertTriangle },
-  { label: "Damage Claims", to: "/damage-claims", icon: FileCheck2 },
 ];
 
 const financeNav = [
   { label: "Dashboard", to: "/finance-dashboard", icon: LayoutDashboard },
   { label: "Pending Approvals", to: "/finance/approvals", icon: FileCheck2 },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
-const dispatchNav = [
-  { label: "Dashboard", to: "/dispatch", icon: LayoutDashboard },
-  { label: "Dispatch Orders", to: "/dispatch-orders", icon: ClipboardList },
-  { label: "Picking & Packing", to: "/dispatch-picking-packing", icon: PackageCheck },
-  { label: "Transport Allocation", to: "/dispatch-transport-allocation", icon: Truck },
-  { label: "Driver Master", to: "/dispatch-drivers", icon: Users },
-  { label: "Vehicle Master", to: "/dispatch-vehicles", icon: Warehouse },
-  { label: "Loading", to: "/dispatch-loading", icon: Navigation },
-  { label: "In Transit", to: "/dispatch-transit", icon: MapPin },
-  { label: "Delivery / POD", to: "/dispatch-pod", icon: CheckCircle2 },
-  { label: "Exceptions", to: "/dispatch-exceptions", icon: AlertTriangle },
-  { label: "Reports", to: "/dispatch-reports", icon: BarChart3 },
+const managerNav = [
+  { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
+  {
+    label: "Suppliers",
+    to: "/master-data?module=manager&status=pending-approval",
+    icon: Building2,
+  },
+  {
+    label: "Material Requests",
+    to: "/procurement/material-requests?module=manager&status=manager-approval",
+    icon: ClipboardList,
+  },
 ];
 
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
-  { label: "Gate Entry", to: "/gate-entry", icon: DoorOpen },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
-  { label: "Inbound Arrivals", to: "/vehicle-queue", icon: ListOrdered },
-  { label: "Unscheduled Arrivals", to: "/unscheduled-arrivals", icon: FileQuestion },
+  { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
+  { label: "Inbound Arrivals", to: "/vehicle-queue?module=gate", icon: ListOrdered },
+  { label: "Vehicle Exit", to: "/vehicle-exit?module=gate", icon: LogOut },
 ];
 
 const assemblyNav = [
   { label: "Dashboard", to: "/assembly-dashboard", icon: LayoutDashboard },
-  { label: "Assembly Orders", to: "/assembly-orders", icon: Factory },
+  { label: "Work Orders", to: "/assembly-work-orders", icon: ClipboardList },
+  { label: "Material Requests", to: "/assembly-material-requests", icon: ClipboardList },
   { label: "Material Requirements", to: "/assembly-material-requirements", icon: ClipboardList },
-  { label: "Material Reservations", to: "/assembly-material-reservations", icon: Boxes },
-  { label: "Material Issues", to: "/assembly-material-issues", icon: PackageCheck },
-  { label: "Work Orders", to: "/assembly-work-orders", icon: Factory },
-  { label: "Assembly Teams", to: "/assembly-workforce", icon: Users },
-  { label: "Assembly Progress", to: "/assembly-progress", icon: BarChart3 },
+  { label: "Material Reservations", to: "/assembly-material-reservations", icon: PackageCheck },
   { label: "Material Consumption", to: "/assembly-material-consumption", icon: Boxes },
-  { label: "Scrap / Wastage", to: "/assembly-scrap-wastage", icon: FileText },
-  { label: "Quality Inspection", to: "/assembly-quality-inspection", icon: FileCheck2 },
-  { label: "Rework", to: "/assembly-rework", icon: Settings },
-  { label: "Finished Goods", to: "/assembly-finished-goods", icon: Warehouse },
+  { label: "Material Issues", to: "/assembly-material-issues", icon: AlertTriangle },
+  { label: "Quality Inspection", to: "/assembly-quality-inspection", icon: ShieldCheck },
+  { label: "Finished Goods", to: "/assembly-finished-goods", icon: Factory },
+  { label: "Scrap & Wastage", to: "/assembly-scrap-wastage", icon: Trash2 },
+  { label: "Rework", to: "/assembly-rework", icon: Sliders },
+  { label: "Workforce", to: "/assembly-workforce", icon: Users },
   { label: "Reports", to: "/assembly-reports", icon: BarChart3 },
-  { label: "Notifications", to: "/notifications", icon: Bell },
 ];
 
-function isActiveRoute(path: string, target: string): boolean {
-  return path === target || path.startsWith(`${target}/`);
-}
-
-function isActiveNavItem(
-  path: string,
-  currentSearch: Record<string, unknown>,
-  item: { to: string; search?: Record<string, unknown> },
-  navItems: ReadonlyArray<{ to: string; search?: Record<string, unknown> }>,
-): boolean {
-  const itemPath = item.to.split("?")[0];
-  if (itemPath === "/dispatch") {
-    return path === "/dispatch";
-  }
-  if (path !== itemPath && !path.startsWith(`${itemPath}/`)) return false;
-
-  if (item.search) {
-    return Object.entries(item.search).every(([key, value]) => String(currentSearch[key] ?? "") === String(value));
-  }
-
-  // A base link and a filtered link can share a pathname. Keep the base link
-  // inactive while one of its sibling filters is selected.
-  const siblingSearchKeys = navItems
-    .filter((navItem) => navItem.to === item.to && navItem.search)
-    .flatMap((navItem) => Object.keys(navItem.search ?? {}));
-
-  return siblingSearchKeys.every((key) => currentSearch[key] == null);
-}
+const adminNav = [
+  { label: "User Management", to: "/admin/users", icon: Users },
+  { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
+  { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
+  { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
+];
 
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
@@ -189,11 +177,67 @@ const ICON_MAP: Record<string, any> = {
   QrCode,
   Bell,
   Inbox,
+  Store,
+  ShieldAlert,
+  PlusCircle,
 };
 
 function getIconComponent(iconName: any) {
   if (typeof iconName !== "string") return iconName || LayoutDashboard;
   return ICON_MAP[iconName] || LayoutDashboard;
+}
+
+function hasUserRole(user: { roles?: string[] } | null, role: string): boolean {
+  return Boolean(user?.roles?.includes(role));
+}
+
+function isGrnSession(user: { username?: string; roles?: string[] } | null): boolean {
+  const username = user?.username?.toLowerCase() ?? "";
+  return Boolean(
+    user?.roles?.some((role) =>
+      ["GRN", "GRN_MANAGER", "OPERATIONS_MANAGER", "OPERATIONS", "RECEIVING"].includes(role),
+    ) ||
+    username === "grn" ||
+    username.includes("grn"),
+  );
+}
+
+function getNotificationRole(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "SUPPLIER")) return "SUPPLIER";
+  if (hasUserRole(user, "FINANCE")) return "FINANCE";
+  if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
+  if (hasUserRole(user, "MANAGER")) return "MANAGER";
+  if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
+  if (isGrnSession(user)) return "GRN";
+  return "WAREHOUSE";
+}
+
+function getStrictRoleNav(user: { username?: string; roles?: string[] } | null): NavItem[] {
+  if (!user) return [];
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return adminNav;
+  if (hasUserRole(user, "PROCUREMENT")) return procurementNav;
+  if (hasUserRole(user, "MANAGER")) return managerNav;
+  if (hasUserRole(user, "SUPPLIER")) return supplierNav;
+  if (hasUserRole(user, "FINANCE")) return financeNav;
+  if (hasUserRole(user, "GATE_SECURITY") || hasUserRole(user, "GATE_OPERATOR"))
+    return gateSecurityNav;
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return assemblyNav;
+  if (hasUserRole(user, "STORE_MANAGER") || hasUserRole(user, "STORE_KEEPER"))
+    return storeManagerNav;
+  if (isGrnSession(user)) return grnNav;
+  return warehouseNav;
+}
+
+function getRoleLabel(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return "Administrator";
+  if (hasUserRole(user, "PROCUREMENT")) return "Procurement Manager";
+  if (hasUserRole(user, "MANAGER")) return "Manager";
+  if (hasUserRole(user, "FINANCE")) return "Finance Manager";
+  if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
+  if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
+  if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
+  if (isGrnSession(user)) return "GRN / Operations Manager";
+  return "Operations Manager";
 }
 
 export function AppShell({
@@ -203,34 +247,27 @@ export function AppShell({
   actions,
 }: {
   children: ReactNode;
-  title: string;
+  title: ReactNode;
   subtitle?: string;
   actions?: ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [backendNav, setBackendNav] = useState<any[] | null>(null);
-  const [backendModuleLabel, setBackendModuleLabel] = useState<string | null>(null);
-
-  const { path, currentSearch } = useRouterState({
-    select: (s) => ({
-      path: s.location.pathname,
-      currentSearch: s.location.search as Record<string, unknown>,
-    }),
-  });
-  const fullHref = path;
+  const location = useRouterState({ select: (s) => s.location });
+  const path = location.pathname;
+  const searchStr = location.searchStr || "";
+  const fullHref = path + searchStr;
   const navigate = useNavigate();
-  const [user, setUser] = useState<{ username?: string; roles?: string[] } | null>(null);
+  const [user, setUser] = useState<{
+    username?: string;
+    roles?: string[];
+  } | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-
-  // Global Search State
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchTerm.length >= 2) {
@@ -249,214 +286,186 @@ export function AppShell({
         setShowSearch(false);
       }
     }, 300);
-
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
-
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    setMounted(true);
     document.documentElement.classList.toggle("dark", dark);
-
-    // Load user only on client side to prevent hydration mismatch
-    try {
-      const savedUser = getUserInfo();
-      if (savedUser) {
-        const u = savedUser;
-        setUser(u);
-
-        // Fetch notifications for the user's role
-        const role = u.roles?.includes("SUPPLIER")
-          ? "SUPPLIER"
-          : u.roles?.includes("FINANCE")
-            ? "FINANCE"
-            : u.roles?.includes("PROCUREMENT")
-              ? "PROCUREMENT"
-              : u.roles?.includes("ASSEMBLY_MANAGER")
-                ? "ASSEMBLY_MANAGER"
-                : "WAREHOUSE";
-        const fetchNotifications = async () => {
-          try {
-            if (role === "WAREHOUSE") {
-              const data = await api.getArrivalNotifications();
-              setUnreadNotifications(
-                Array.isArray(data)
-                  ? data.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED").length
-                  : 0,
-              );
-            } else {
-              const data = await api.getNotifications(role);
-              setUnreadNotifications(
-                Array.isArray(data)
-                  ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length
-                  : 0,
-              );
-            }
-          } catch {
-            // Silently ignore during background polling
-          }
-        };
-        void fetchNotifications();
-        const interval = window.setInterval(fetchNotifications, 2000);
-        window.addEventListener("notifications:refresh", fetchNotifications);
-        window.addEventListener("focus", fetchNotifications);
-        cleanup = () => {
-          window.clearInterval(interval);
-          window.removeEventListener("notifications:refresh", fetchNotifications);
-          window.removeEventListener("focus", fetchNotifications);
-        };
-      }
-    } catch (e) {
-      console.error("Failed to parse user info", e);
-    }
-    return () => {
-      if (cleanup) cleanup();
-    };
   }, [dark]);
-
-  // Fetch dynamic module navigation and user profile from backend
   useEffect(() => {
-    let isMounted = true;
-    const fetchBackendNavigation = async () => {
+    const activeUser = getUserInfo();
+    setUser(activeUser);
+    if (!activeUser) return;
+
+    const role = getNotificationRole(activeUser);
+    const fetchNotifications = async () => {
       try {
-        const navData = await api.getUserNavigation();
-        if (isMounted && navData && Array.isArray(navData.navigation)) {
-          setBackendNav(
-            navData.navigation.map((item: any) => ({
-              ...item,
-              icon: getIconComponent(item.icon),
-            })),
+        if (role === "WAREHOUSE" || role === "GRN") {
+          const [arrivals, general] = await Promise.all([
+            api.getArrivalNotifications().catch(() => []),
+            api.getNotifications("GRN").catch(() => []),
+          ]);
+          const unreadArrivals = Array.isArray(arrivals)
+            ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED")
+                .length
+            : 0;
+          const unreadGeneral = Array.isArray(general)
+            ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
+            : 0;
+          setUnreadNotifications(unreadArrivals + unreadGeneral);
+        } else {
+          const data = await api.getNotifications(role);
+          setUnreadNotifications(
+            Array.isArray(data) ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length : 0,
           );
-          if (navData.module_label) setBackendModuleLabel(navData.module_label);
-          if (typeof navData.unread_notifications === "number") {
-            setUnreadNotifications(navData.unread_notifications);
-          }
         }
-      } catch (err) {
-        // Fallback to client-side nav resolution
+      } catch {
+        // Silently ignore during background polling
       }
     };
-    void fetchBackendNavigation();
+
+    void fetchNotifications();
+    const interval = window.setInterval(fetchNotifications, 2000);
+    window.addEventListener("notifications:refresh", fetchNotifications);
+    window.addEventListener("focus", fetchNotifications);
     return () => {
-      isMounted = false;
+      window.clearInterval(interval);
+      window.removeEventListener("notifications:refresh", fetchNotifications);
+      window.removeEventListener("focus", fetchNotifications);
     };
-  }, [path]);
-
-  const hasSupplierRole = mounted && !!user?.roles?.includes("SUPPLIER");
-  const hasFinanceRole = mounted && !!user?.roles?.includes("FINANCE");
-  const hasProcurementRole = mounted && !!user?.roles?.includes("PROCUREMENT");
-  const hasGateSecurityRole = mounted && !!user?.roles?.includes("GATE_SECURITY");
-  const hasAssemblyRole = mounted && !!user?.roles?.includes("ASSEMBLY_MANAGER");
-  const hasDispatchRole = mounted && (!!user?.roles?.includes("DISPATCH") || user?.username?.toLowerCase() === "dispatch");
-  const isGrnUser = mounted && (user?.roles?.includes("GRN") || user?.username?.toLowerCase() === "grn" || user?.username?.toLowerCase() === "grn_officer");
-  const isGrnRoute = path === "/grn" || path.startsWith("/grn");
-  const isProcurementRoute = path === "/procurement-dashboard" || path.startsWith("/procurement/");
-  const isSupplierRoute =
-    path === "/supplier-dashboard" ||
-    path === "/submit-quotation" ||
-    path.startsWith("/supplier/") ||
-    (path === "/damage-claims" && hasSupplierRole);
-  const isFinanceRoute = path === "/finance-dashboard" || path.startsWith("/finance/");
-  const isGateSecurityRoute =
-    path === "/gate-dashboard" ||
-    path === "/gate-entry" ||
-    (path === "/vehicle-exit" && hasGateSecurityRole) ||
-    path === "/vehicle-queue" ||
-    path === "/unscheduled-arrivals";
-  const isAssemblyRoute = path === "/assembly-dashboard" || path.startsWith("/assembly-orders") || path.startsWith("/assembly-workforce");
-  const isDispatchRoute = path === "/dispatch" || path.startsWith("/dispatch/") || path.startsWith("/dispatch-");
-  const isWarehouseRoute =
-    path === "/warehouse-dashboard" ||
-    [
-      "/inventory",
-      "/warehouse/materials",
-      "/warehouse/material-requests",
-      "/warehouse-storage",
-      "/putaway-tasks",
-      "/pick-tasks",
-      "/dock-management",
-      "/receiving",
-      "/notifications",
-    ].some((p) => path.startsWith(p)) ||
-    (path === "/vehicle-exit" && !hasGateSecurityRole) ||
-    (path === "/damage-claims" && !hasSupplierRole);
-
-  const routeNav = (isGrnUser || isGrnRoute)
-    ? grnNav
-    : isSupplierRoute
-      ? supplierNav
-      : isProcurementRoute
-        ? procurementNav
-        : isFinanceRoute
-          ? financeNav
-          : isGateSecurityRoute
-            ? gateSecurityNav
-            : isAssemblyRoute
-              ? assemblyNav
-              : isDispatchRoute
-                ? dispatchNav
-                : isWarehouseRoute
-                  ? warehouseNav
-                  : null;
-
-  const roleNav = isGrnUser
-    ? grnNav
-    : hasSupplierRole
-      ? supplierNav
-      : hasFinanceRole
-        ? financeNav
-        : hasProcurementRole
-          ? procurementNav
-          : hasGateSecurityRole
-            ? gateSecurityNav
-            : hasAssemblyRole
-              ? assemblyNav
-              : hasDispatchRole
-                ? dispatchNav
-                : warehouseNav;
-
-  const fallbackNav = routeNav ?? (mounted ? roleNav : warehouseNav);
-  const activeNav = (isGrnRoute || isGrnUser) ? grnNav : (routeNav ?? backendNav ?? fallbackNav);
-
-  const fallbackModuleLabel = (isGrnRoute || isGrnUser)
-    ? "GRN Operations"
-    : isSupplierRoute
-      ? "Supplier Portal"
-      : isProcurementRoute
-        ? "Procurement Portal"
-        : isFinanceRoute
-          ? "Finance Portal"
-          : isGateSecurityRoute
-            ? "Gate Security Portal"
-            : isAssemblyRoute
-              ? "Assembly Portal"
-              : "Warehouse navigation";
-  const activeModuleLabel = (isGrnRoute || isGrnUser)
-    ? "GRN Operations"
-    : routeNav
-      ? fallbackModuleLabel
-      : (backendModuleLabel ?? fallbackModuleLabel);
+  }, []);
+  const nav = getStrictRoleNav(user);
+  const navigationPending = false;
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [fullHref]);
   const handleLogout = () => {
     api.logout();
     toast.success("Logged out successfully");
     navigate({ to: "/login" });
   };
+  const isActiveNavItem = (to: string) => {
+    if (to.includes("?")) {
+      const [targetPath, targetQuery] = to.split("?");
+      const targetParams = new URLSearchParams(targetQuery);
+      const targetTab = targetParams.get("tab");
+      const targetPage = targetParams.get("page");
+      const targetModule = targetParams.get("module");
+      const currentParams = new URLSearchParams(searchStr);
+      const currentTab = currentParams.get("tab") || (path === "/grn" ? "dashboard" : "");
+      const currentPage = currentParams.get("page") || "";
+      const currentModule = currentParams.get("module") || "";
+      if (targetPage && targetTab) {
+        return path === targetPath && targetTab === currentTab && targetPage === currentPage;
+      }
+      if (targetTab) {
+        return (
+          path === targetPath &&
+          targetTab === currentTab &&
+          (!targetPage || !currentPage || targetTab !== "wizard")
+        );
+      }
+      if (targetModule) {
+        return (
+          path === targetPath &&
+          (targetModule === currentModule || (!currentModule && targetModule === "warehouse"))
+        );
+      }
+      return fullHref === to || (searchStr ? fullHref.startsWith(to) : to === "/grn?tab=dashboard");
+    }
+    return path === to || (to !== "/dashboard" && path.startsWith(to));
+  };
+  const desktopSidebarCollapsed = !sidebarHovered;
 
   return (
     <div className="flex min-h-screen w-full bg-background">
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close navigation menu"
+            className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <aside className="relative flex h-full w-[min(84vw,320px)] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
+            <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border/40 px-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
+                  <Warehouse className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold tracking-tight">NexusWMS</p>
+                  <p className="truncate text-[11px] text-muted-foreground">Pune DC - Plant 1200</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close navigation menu"
+                className="grid size-9 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                onClick={() => setMobileSidebarOpen(false)}
+              >
+                <PanelLeftClose className="size-[18px]" />
+              </button>
+            </div>
+
+            <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
+              {navigationPending &&
+                Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
+                ))}
+              {nav.map((item) => {
+                const active = isActiveNavItem(item.to);
+                return (
+                  <Link
+                    key={`${item.label}-${item.to}`}
+                    to={item.to}
+                    title={item.label}
+                    className={cn(
+                      "group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground transition-all",
+                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      active && "bg-primary-soft text-primary shadow-soft",
+                    )}
+                  >
+                    <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
+                    <span className="truncate">{item.label}</span>
+                    {(item as any).badge && (
+                      <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+                        {(item as any).badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="border-t border-sidebar-border p-3">
+              <button
+                suppressHydrationWarning
+                onClick={handleLogout}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
+              >
+                <LogOut className="size-[18px]" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       <aside
+        onMouseEnter={() => setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
         className={cn(
           "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-300 md:flex",
-          collapsed ? "w-[76px]" : "w-[264px]",
+          desktopSidebarCollapsed ? "w-[76px]" : "w-[264px]",
         )}
       >
         <div
           className={cn(
             "flex h-16 items-center border-b border-sidebar-border/40 transition-all",
-            collapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
+            desktopSidebarCollapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
           )}
         >
-          {!collapsed ? (
+          {!desktopSidebarCollapsed ? (
             <>
               <div className="flex items-center gap-3 min-w-0">
                 <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
@@ -476,25 +485,26 @@ export function AppShell({
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-          {activeNav.map((item) => {
-            const active = isActiveNavItem(path, currentSearch, item, activeNav);
-            const ItemIcon = typeof item.icon === "function" || (typeof item.icon === "object" && item.icon !== null) ? item.icon : getIconComponent(item.icon);
+          {navigationPending &&
+            Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
+            ))}
+          {nav.map((item) => {
+            const active = isActiveNavItem(item.to);
             return (
               <Link
                 key={`${item.label}-${item.to}`}
                 to={item.to}
-                search={item.search}
                 title={item.label}
-                aria-current={active ? "page" : undefined}
                 className={cn(
                   "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-all",
                   "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   active && "bg-primary-soft text-primary shadow-soft",
                 )}
               >
-                <ItemIcon className={cn("size-[18px] shrink-0", active && "text-primary")} />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-                {!collapsed && (item as any).badge && (
+                <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
+                {!desktopSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                {!desktopSidebarCollapsed && (item as any).badge && (
                   <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
                     {(item as any).badge}
                   </span>
@@ -506,89 +516,27 @@ export function AppShell({
 
         <div className="border-t border-sidebar-border p-3 space-y-1">
           <button
-            type="button"
-            suppressHydrationWarning
-            onClick={() => setCollapsed((value) => !value)}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent"
-          >
-            {collapsed ? (
-              <PanelLeft className="size-[18px] shrink-0" />
-            ) : (
-              <PanelLeftClose className="size-[18px] shrink-0" />
-            )}
-            {!collapsed && <span>Collapse</span>}
-          </button>
-          <button
-            type="button"
             suppressHydrationWarning
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
           >
             <LogOut className="size-[18px]" />
-            {!collapsed && <span>Logout</span>}
+            {!desktopSidebarCollapsed && <span>Logout</span>}
           </button>
         </div>
       </aside>
-
-      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-        <SheetContent side="left" className="flex w-[300px] flex-col gap-0 border-sidebar-border bg-sidebar p-0 sm:max-w-[320px]">
-          <SheetTitle className="sr-only">{activeModuleLabel}</SheetTitle>
-          <SheetDescription className="sr-only">Navigate within the current module</SheetDescription>
-          <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
-            <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-              <Warehouse className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-tight">NexusWMS</p>
-              <p className="text-[11px] text-muted-foreground">Pune DC · Plant 1200</p>
-            </div>
-          </div>
-          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-            {activeNav.map((item) => {
-              const active = isActiveNavItem(path, currentSearch, item, activeNav);
-              const ItemIcon = typeof item.icon === "function" || (typeof item.icon === "object" && item.icon !== null) ? item.icon : getIconComponent(item.icon);
-              return (
-                <Link
-                  key={`${item.label}-${item.to}`}
-                  to={item.to}
-                  search={item.search}
-                  onClick={() => setMobileMenuOpen(false)}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
-                    active && "bg-primary-soft text-primary",
-                  )}
-                >
-                  <ItemIcon className="size-[18px] shrink-0" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="border-t border-sidebar-border p-3">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive hover:bg-danger-soft"
-            >
-              <LogOut className="size-[18px]" /> Logout
-            </button>
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 glass-strong">
           <div className="flex h-16 items-center gap-3 px-4 lg:px-7">
             <button
               type="button"
-              onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation menu"
-              className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground shadow-sm md:hidden"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="group relative grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground md:hidden"
             >
-              <Menu className="size-5" />
+              <Warehouse className="size-4 transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+              <Menu className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </button>
             <div className="relative hidden max-w-md flex-1 items-center sm:flex">
               <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
@@ -604,7 +552,6 @@ export function AppShell({
                 {isSearching ? <Loader2 className="size-3 animate-spin" /> : "⌘K"}
               </kbd>
 
-              {/* Search Results Dropdown */}
               {showSearch && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)} />
@@ -654,7 +601,6 @@ export function AppShell({
 
             <div className="ml-auto flex items-center gap-1.5">
               <button
-                type="button"
                 suppressHydrationWarning
                 onClick={() => setDark((d) => !d)}
                 aria-label="Toggle dark mode"
@@ -680,20 +626,9 @@ export function AppShell({
                 </span>
                 <div className="hidden leading-tight lg:block">
                   <p className="text-xs font-semibold">{user?.username || "Admin Officer"}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {user?.roles?.includes("PROCUREMENT")
-                      ? "Procurement Manager"
-                      : user?.roles?.includes("FINANCE")
-                        ? "Finance Manager"
-                        : user?.roles?.includes("GATE_SECURITY")
-                          ? "Security Officer"
-                          : user?.roles?.includes("ASSEMBLY_MANAGER")
-                            ? "Assembly Manager"
-                          : "Operations Manager"}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground">{getRoleLabel(user)}</p>
                 </div>
                 <button
-                  type="button"
                   suppressHydrationWarning
                   onClick={handleLogout}
                   className="ml-2 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
@@ -718,12 +653,11 @@ export function AppShell({
             {children}
           </div>
         </main>
-
       </div>
+      <SecureAssistant />
     </div>
   );
 }
-
 export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     Waiting: "bg-warning-soft text-warning-foreground border-warning/30",
@@ -731,6 +665,15 @@ export function StatusBadge({ status }: { status: string }) {
     Blocked: "bg-danger-soft text-destructive border-destructive/25",
     Approved: "bg-success-soft text-success border-success/30",
     APPROVED: "bg-success-soft text-success border-success/30",
+    Draft: "bg-muted text-muted-foreground border-border",
+    Submitted: "bg-primary-soft text-primary border-primary/25",
+    "Pending Approval": "bg-warning-soft text-warning-foreground border-warning/30",
+    "Pending Procurement": "bg-warning-soft text-warning-foreground border-warning/30",
+    "Converted to RFQ": "bg-teal-soft text-teal border-teal/30",
+    "RFQ Created": "bg-teal-soft text-teal border-teal/30",
+    "PO Created": "bg-primary-soft text-primary border-primary/25",
+    Fulfilled: "bg-success-soft text-success border-success/30",
+    Closed: "bg-muted text-muted-foreground border-border",
     "Dock Assigned": "bg-teal-soft text-teal border-teal/30",
     Receiving: "bg-primary-soft text-primary border-primary/25",
     Completed: "bg-success-soft text-success border-success/30",
@@ -777,8 +720,9 @@ export function StatusBadge({ status }: { status: string }) {
     SENT: "bg-primary-soft text-primary border-primary/25",
     SHIPPED: "bg-teal-soft text-teal border-teal/30",
     DISPATCHED: "bg-teal-soft text-teal border-teal/30",
+    VEHICLE_EXITED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    "Vehicle Exited": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
   };
-
   const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active"].includes(status);
   let displayLabel = status.replace(/_/g, " ");
   if (displayLabel.toUpperCase() === "OCCUPIED") {
@@ -819,22 +763,14 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Vehicle:\s*([^\n]+)/i)?.[1]?.trim() ||
     "N/A";
   const driverName =
-    n?.driver_name ||
-    n?.driverName ||
-    msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
+    n?.driver_name || n?.driverName || msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
   const driverPhone =
     n?.driver_phone ||
     n?.driverPhone ||
     msg.match(/Driver Phone:\s*([^\n]+)/i)?.[1]?.trim() ||
     msg.match(/Phone:\s*([^\n]+)/i)?.[1]?.trim();
-  const asnNumber =
-    n?.asn_number ||
-    n?.asnNumber ||
-    msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
-  const poNumber =
-    n?.po_number ||
-    n?.poNumber ||
-    msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
+  const asnNumber = n?.asn_number || n?.asnNumber || msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
+  const poNumber = n?.po_number || n?.poNumber || msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
 
   const dockCode =
     n?.dock_code ||
@@ -853,10 +789,7 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Location:\s*([^\n]+)/i)?.[1]?.trim() ||
     "Receiving Bay - A";
   const dockType =
-    n?.dock_type ||
-    n?.dockType ||
-    msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() ||
-    "Inbound";
+    n?.dock_type || n?.dockType || msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() || "Inbound";
   const warehouseName =
     n?.warehouse_name ||
     n?.warehouseName ||
@@ -910,7 +843,7 @@ export function DockAllocationNotificationCard({ notification }: { notification:
   return (
     <div className="relative overflow-hidden rounded-2xl border border-teal-500/30 bg-teal-500/5 p-5 shadow-sm space-y-4 font-sans text-foreground">
       <div className="absolute left-0 top-0 h-full w-1 bg-teal-600 dark:bg-teal-400" />
-      
+
       {/* Header */}
       <div className="flex items-center justify-between border-b border-teal-500/20 pb-3">
         <div className="flex items-center gap-2.5">
@@ -924,7 +857,10 @@ export function DockAllocationNotificationCard({ notification }: { notification:
             <p className="text-xs text-muted-foreground">Vehicle assigned & dock allocated</p>
           </div>
         </div>
-        <Badge variant="outline" className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full">
+        <Badge
+          variant="outline"
+          className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full"
+        >
           Dock Allocated
         </Badge>
       </div>
@@ -980,7 +916,9 @@ export function DockAllocationNotificationCard({ notification }: { notification:
           <div className="space-y-1.5 pt-1 font-medium">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Code:</span>
-              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{details.dockCode}</span>
+              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
+                {details.dockCode}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Name:</span>

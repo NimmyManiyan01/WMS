@@ -12,7 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { isAuthenticated } from "../lib/auth-utils";
+import { requireRouteAccess } from "../lib/auth-utils";
 import { redirect } from "@tanstack/react-router";
 
 function NotFoundComponent() {
@@ -101,14 +101,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     // List of routes that don't require authentication
     const publicRoutes = new Set(["/login"]);
 
-    if (!publicRoutes.has(location.pathname) && !isAuthenticated()) {
-      throw redirect({
-        to: "/login",
-        search: {
-          redirect: `${location.pathname}${location.searchStr}${location.hash}`,
-        },
-      });
-    }
+    if (!publicRoutes.has(location.pathname)) requireRouteAccess(location.pathname);
   },
   shellComponent: RootShell,
   component: RootComponent,

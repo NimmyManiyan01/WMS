@@ -71,6 +71,10 @@ function AsnTracking() {
       transporter: asn.transporter || "",
       number_of_packages: asn.numberOfPackages ?? "",
       package_type: asn.packageType || "",
+      invoice_number: asn.invoiceNumber || "",
+      invoice_date: asn.invoiceDate || "",
+      challan_number: asn.challanNumber || "",
+      challan_date: asn.challanDate || "",
       lines: (asn.lines || []).map((line: any) => ({
         item_code: line.itemCode,
         material_name: line.materialName,
@@ -101,6 +105,10 @@ function AsnTracking() {
         transporter: editData.transporter,
         number_of_packages: parseInt(editData.number_of_packages) || 0,
         package_type: editData.package_type,
+        invoice_number: editData.invoice_number,
+        invoice_date: editData.invoice_date || null,
+        challan_number: editData.challan_number,
+        challan_date: editData.challan_date || null,
         status: "DISPATCHED",
         documents: (asn.documents || []).map((document: any) => ({
           document_type: document.documentType,
@@ -417,12 +425,14 @@ function AsnTracking() {
             <div className="space-y-4">
               {editing ? (
                 <>
-                  {[
-                    ["Transporter", "transporter", "text"],
-                    ["Vehicle Number", "vehicle_number", "text"],
-                    ["Package Count", "number_of_packages", "number"],
-                    ["Package Type", "package_type", "text"],
-                  ].map(([label, field, type]) => (
+                  {(
+                    [
+                      ["Transporter", "transporter", "text"],
+                      ["Vehicle Number", "vehicle_number", "text"],
+                      ["Package Count", "number_of_packages", "number"],
+                      ["Package Type", "package_type", "text"],
+                    ] as const
+                  ).map(([label, field, type]) => (
                     <div className="space-y-1.5" key={field}>
                       <Label>{label}</Label>
                       <Input
@@ -493,6 +503,66 @@ function AsnTracking() {
                   <Button className="w-full rounded-xl bg-success hover:bg-success/90 h-11 font-bold">
                     <Phone className="size-4 mr-2" /> Call Driver
                   </Button>
+                </>
+              )}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Invoice / Challan" icon={FileText}>
+            <div className="space-y-4">
+              {editing ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Invoice Number</Label>
+                    <Input
+                      value={editData.invoice_number}
+                      onChange={(event) =>
+                        setEditData({ ...editData, invoice_number: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Invoice Date</Label>
+                    <Input
+                      type="date"
+                      value={editData.invoice_date}
+                      onChange={(event) =>
+                        setEditData({ ...editData, invoice_date: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Challan Number</Label>
+                    <Input
+                      value={editData.challan_number}
+                      onChange={(event) =>
+                        setEditData({ ...editData, challan_number: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Challan Date</Label>
+                    <Input
+                      type="date"
+                      value={editData.challan_date}
+                      onChange={(event) =>
+                        setEditData({ ...editData, challan_date: event.target.value })
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Field label="Invoice Number" value={asn.invoiceNumber || "N/A"} mono />
+                  <Field
+                    label="Invoice Date"
+                    value={asn.invoiceDate ? new Date(asn.invoiceDate).toLocaleDateString() : "N/A"}
+                  />
+                  <Field label="Challan Number" value={asn.challanNumber || "N/A"} mono />
+                  <Field
+                    label="Challan Date"
+                    value={asn.challanDate ? new Date(asn.challanDate).toLocaleDateString() : "N/A"}
+                  />
                 </>
               )}
             </div>

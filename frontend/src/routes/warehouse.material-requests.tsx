@@ -14,6 +14,9 @@ import {
   Save,
   X,
   Check,
+  Info,
+  Send,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -21,20 +24,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api-client";
 import { getUserInfo } from "@/lib/auth-utils";
@@ -43,10 +54,14 @@ import { cn } from "@/lib/utils";
 
 function formatDisplayDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
-  const clean = String(dateStr).split("T")[0];
+  const str = String(dateStr);
+  const clean = str.includes("T") ? str.split("T")[0] : str;
+  if (!clean) return "—";
   const parts = clean.split("-");
-  if (parts.length === 3) {
-    const [year, month, day] = parts;
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2];
     const months = [
       "Jan",
       "Feb",
@@ -62,12 +77,17 @@ function formatDisplayDate(dateStr: string | null | undefined): string {
       "Dec",
     ];
     const mIdx = parseInt(month, 10) - 1;
-    if (mIdx >= 0 && mIdx < 12) {
+    if (mIdx >= 0 && mIdx < 12 && months[mIdx]) {
       return `${parseInt(day, 10)} ${months[mIdx]} ${year}`;
     }
   }
   return clean;
 }
+
+export const formatSpecCode = (code?: string): string => {
+  if (!code) return "";
+  return code.replace(/-V(\d+)$/i, "-S$1");
+};
 
 export const Route = createFileRoute("/warehouse/material-requests")({
   component: WarehouseMaterialRequests,
@@ -95,9 +115,7 @@ function MaterialMasterSearchCombobox({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const selectedMaterial = masterMaterials.find(
-    (m) => m.id === value || m.material_code === value,
-  );
+  const selectedMaterial = masterMaterials.find((m) => m.id === value || m.material_code === value);
 
   const filteredMaterials = useMemo(() => {
     if (!search.trim()) return masterMaterials;
@@ -219,9 +237,7 @@ function MaterialMasterSearchCombobox({
                   >
                     <div className="flex flex-col gap-0.5 min-w-0 pr-2">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-primary">
-                          {m.material_code}
-                        </span>
+                        <span className="font-mono font-bold text-primary">{m.material_code}</span>
                         <span className="font-medium text-foreground truncate">
                           {m.material_name}
                         </span>
@@ -234,7 +250,7 @@ function MaterialMasterSearchCombobox({
                         )}
                         {m.variants && m.variants.length > 0 && (
                           <span>
-                            {m.variants.length} variant{m.variants.length > 1 ? "s" : ""}
+                            {m.variants.length} specification{m.variants.length > 1 ? "s" : ""}
                           </span>
                         )}
                         {m.base_uom && <span>• {m.base_uom}</span>}
@@ -251,6 +267,7 @@ function MaterialMasterSearchCombobox({
     </Popover>
   );
 }
+
 function WarehouseMaterialRequests() {
   const [requests, setRequests] = useState<any[]>([]);
   const [masterMaterials, setMasterMaterials] = useState<any[]>([]);
@@ -259,6 +276,8 @@ function WarehouseMaterialRequests() {
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [activeSuppliers, setActiveSuppliers] = useState<any[]>([]);
   const [nextRequestNumber, setNextRequestNumber] = useState("");
   const [baseMaterialSequence, setBaseMaterialSequence] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
@@ -266,11 +285,14 @@ function WarehouseMaterialRequests() {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     request_number: "",
-    warehouse_id: "",
+    warehouse_id: "Main Warehouse",
     department: "Inventory",
     requested_by: "",
+    priority: "MEDIUM",
+    suggested_supplier: "",
     required_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     remarks: "",
+    attachments: [] as any[],
   });
   const [items, setItems] = useState<any[]>([
     {
@@ -289,9 +311,13 @@ function WarehouseMaterialRequests() {
       const [reqData, matData, locationData, uomData] = await Promise.all([
         api.getMaterialRequests(),
         api.getMaterials({ status: "Active" }).catch(() => []),
-        api.getStorageLocations(undefined, true).catch(() => []),
+        api.getStorageLocations().catch(() => []),
         api.getMaterialUoms().catch(() => []),
       ]);
+
+      api.getSuppliers({ status: "Active" })
+        .then((sups) => setActiveSuppliers(sups || []))
+        .catch(() => {});
       setRequests(reqData);
       setMasterMaterials(matData);
       const warehouseIds = [...new Set(locationData.map((row: any) => row.warehouse_id).filter(Boolean))] as string[];
@@ -299,7 +325,7 @@ function WarehouseMaterialRequests() {
       setUoms(uomData);
       setFormData((prev) => ({
         ...prev,
-        warehouse_id: prev.warehouse_id || warehouseIds[0] || "",
+        warehouse_id: prev.warehouse_id || "Main Warehouse",
       }));
     } catch (error) {
       toast.error("Failed to load requests");
@@ -346,6 +372,9 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     setItems(
       items.map((it, i) =>
@@ -355,8 +384,9 @@ function WarehouseMaterialRequests() {
               material_id: foundMat.id,
               material_variant_id: defaultVariant?.id || "",
               material_code: foundMat.material_code,
-              variant_code: defaultVariant?.variant_code || "",
+              variant_code: formatSpecCode(defaultVariant?.variant_code) || "",
               material_name: nameWithSpec,
+              category: matCat,
               uom: defaultVariant?.uom || foundMat.base_uom || "",
             }
           : it,
@@ -380,7 +410,7 @@ function WarehouseMaterialRequests() {
           ? {
               ...it,
               material_variant_id: foundVar.id,
-              variant_code: foundVar.variant_code,
+              variant_code: formatSpecCode(foundVar.variant_code),
               material_name: nameWithSpec,
               uom: foundVar.uom || foundMat.base_uom || "",
             }
@@ -417,14 +447,18 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     newItems[idx] = {
       ...newItems[idx],
       materialId: foundMat.id,
       materialVariantId: defaultVariant?.id || "",
       materialCode: foundMat.material_code,
-      variantCode: defaultVariant?.variant_code || "",
+      variantCode: formatSpecCode(defaultVariant?.variant_code) || "",
       materialName: nameWithSpec,
+      category: matCat,
       uom: defaultVariant?.uom || foundMat.base_uom || "",
     };
     setSelectedRequest({ ...selectedRequest, items: newItems });
@@ -447,7 +481,7 @@ function WarehouseMaterialRequests() {
     newItems[idx] = {
       ...newItems[idx],
       materialVariantId: foundVar.id,
-      variantCode: foundVar.variant_code,
+      variantCode: formatSpecCode(foundVar.variant_code),
       materialName: nameWithSpec,
       uom: foundVar.uom || foundMat.base_uom || "",
     };
@@ -473,7 +507,7 @@ function WarehouseMaterialRequests() {
     const newItems = selectedRequest.items.filter((_: any, i: number) => i !== idx);
     setSelectedRequest({ ...selectedRequest, items: newItems });
   };
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
     const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     if (!requester) {
@@ -488,14 +522,56 @@ function WarehouseMaterialRequests() {
       toast.error("Please fill in material description for all items");
       return;
     }
-    if (items.some((it) => !it.quantity || parseFloat(it.quantity) <= 0 || isNaN(parseFloat(it.quantity)))) {
+    if (
+      items.some(
+        (it) => !it.quantity || parseFloat(it.quantity) <= 0 || isNaN(parseFloat(it.quantity)),
+      )
+    ) {
       toast.error("Quantity must be strictly greater than 0 for all items");
       return;
     }
+    setShowConfirmModal(true);
+  };
+
+  const executeSubmitRequest = async () => {
+    const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     setSubmitting(true);
     try {
-      await api.createMaterialRequest({ ...formData, requested_by: requester, items });
+      const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+      const primaryCategory = itemCategories[0] || "Raw Materials";
+      const matchingSuppliers = activeSuppliers.filter((s: any) =>
+        Array.isArray(s.category)
+          ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+          : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+      );
+
+      let finalRemarks = formData.remarks.trim();
+      if (matchingSuppliers.length === 0) {
+        const note = `[Note to Procurement: No active suppliers found in master data for category '${primaryCategory}'. Sourcing & vendor onboarding required.]`;
+        finalRemarks = finalRemarks ? `${finalRemarks}\n${note}` : note;
+      }
+
+      const itemsToSubmit = items.map((it) => ({
+        ...it,
+        category: it.category || "Raw Materials",
+        variant_code: formatSpecCode(it.variant_code),
+      }));
+
+      await api.createMaterialRequest({
+        ...formData,
+        remarks: finalRemarks,
+        warehouse_id: formData.warehouse_id || "Main Warehouse",
+        requested_by: requester,
+        items: itemsToSubmit,
+      });
+
+      toast.success(
+        matchingSuppliers.length === 0
+          ? "Request submitted to Procurement (Vendor Sourcing Required)"
+          : "Material request submitted to Procurement",
+      );
       toast.success("Material request submitted to Procurement");
+      setShowConfirmModal(false);
       setIsCreating(false);
       setItems([
         {
@@ -508,7 +584,15 @@ function WarehouseMaterialRequests() {
           uom: "",
         },
       ]);
-      setFormData((prev) => ({ ...prev, request_number: "" }));
+      setFormData((prev) => ({
+        ...prev,
+        request_number: "",
+        warehouse_id: "Main Warehouse",
+        priority: "MEDIUM",
+        suggested_supplier: "",
+        attachments: [],
+      }));
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Failed to submit request: " + (error.message || "Unknown error"));
@@ -523,7 +607,11 @@ function WarehouseMaterialRequests() {
       setNextRequestNumber(requestNumber);
       setBaseMaterialSequence(nextMaterialSequence || 1);
       const initialCode = `MAT-${String(nextMaterialSequence || 1).padStart(3, "0")}`;
-      setFormData((prev) => ({ ...prev, request_number: requestNumber }));
+      setFormData((prev) => ({
+        ...prev,
+        request_number: requestNumber,
+        warehouse_id: "Main Warehouse",
+      }));
       setItems([
         {
           material_id: "",
@@ -546,7 +634,8 @@ function WarehouseMaterialRequests() {
       const matId =
         it.materialId ||
         it.material_id ||
-        masterMaterials.find((m) => m.material_code === (it.materialCode || it.material_code))?.id ||
+        masterMaterials.find((m) => m.material_code === (it.materialCode || it.material_code))
+          ?.id ||
         "";
       const foundMat = masterMaterials.find(
         (m) => m.id === matId || m.material_code === (it.materialCode || it.material_code),
@@ -554,9 +643,8 @@ function WarehouseMaterialRequests() {
       const varId =
         it.materialVariantId ||
         it.material_variant_id ||
-        foundMat?.variants?.find(
-          (v: any) => v.variant_code === (it.variantCode || it.variant_code),
-        )?.id ||
+        foundMat?.variants?.find((v: any) => v.variant_code === (it.variantCode || it.variant_code))
+          ?.id ||
         "";
       return {
         materialId: matId,
@@ -581,11 +669,7 @@ function WarehouseMaterialRequests() {
       toast.error("Please add at least one material item");
       return;
     }
-    if (
-      selectedRequest.items.some(
-        (it: any) => !(it.materialName || it.material_name)?.trim(),
-      )
-    ) {
+    if (selectedRequest.items.some((it: any) => !(it.materialName || it.material_name)?.trim())) {
       toast.error("Please fill in material description for all items");
       return;
     }
@@ -604,6 +688,9 @@ function WarehouseMaterialRequests() {
         warehouse_id: selectedRequest.warehouseId || selectedRequest.warehouse_id,
         department: selectedRequest.department,
         requested_by: selectedRequest.requestedBy || selectedRequest.requested_by,
+        priority: selectedRequest.priority || "MEDIUM",
+        suggested_supplier: selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || "",
+        attachments: selectedRequest.attachments || [],
         required_date: new Date(selectedRequest.requiredDate || selectedRequest.required_date)
           .toISOString()
           .split("T")[0],
@@ -622,6 +709,7 @@ function WarehouseMaterialRequests() {
       toast.success("Request updated successfully");
       setIsEditing(false);
       setIsRequestModalOpen(false);
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Update failed: " + (error.message || "Unknown error"));
@@ -629,9 +717,51 @@ function WarehouseMaterialRequests() {
       setSubmitting(false);
     }
   };
+
+  const changeStatus = async (nextStatus: string, comments?: string) => {
+    if (!selectedRequest) return;
+    try {
+      const updated = await api.updateMaterialRequestStatus(
+        selectedRequest.id,
+        nextStatus,
+        comments,
+        getUserInfo()?.username || "Warehouse Manager",
+      );
+      setSelectedRequest(updated);
+      setRequests((current) =>
+        current.map((req) => (req.id === selectedRequest.id ? updated : req)),
+      );
+      toast.success(`Material request moved to ${nextStatus}`);
+      window.dispatchEvent(new Event("material-requests:changed"));
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.message || "Unable to update material request status");
+    }
+  };
+
   return (
     <AppShell
-      title="Warehouse Material Requests"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Warehouse Material Requests</span>
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Material Requests Info"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                >
+                  <Info className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                View and process material requirements submitted by warehouse users for procurement.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      }
       subtitle="Request stocks and consumables from the procurement team"
       actions={
         <Button className="rounded-xl shadow-glow" onClick={startCreating}>
@@ -657,7 +787,7 @@ function WarehouseMaterialRequests() {
             </div>
           </CardHeader>
           <CardContent className="p-5 sm:p-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleOpenPreSubmitModal} className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Request Number</Label>
@@ -670,19 +800,11 @@ function WarehouseMaterialRequests() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Warehouse</Label>
-                  <Select
-                    value={formData.warehouse_id}
-                    onValueChange={(warehouse_id) => setFormData({ ...formData, warehouse_id })}
-                  >
-                    <SelectTrigger className="h-10 w-full rounded-xl bg-background text-sm">
-                      <SelectValue placeholder="Select warehouse" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {warehouses.map((warehouse) => (
-                        <SelectItem key={warehouse} value={warehouse}>{warehouse}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    value={formData.warehouse_id || "Main Warehouse"}
+                    readOnly
+                    className="h-10 rounded-xl bg-muted/50 text-sm font-medium"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Department</Label>
@@ -701,6 +823,24 @@ function WarehouseMaterialRequests() {
                     onChange={(e) => setFormData({ ...formData, required_date: e.target.value })}
                     className="h-10 rounded-xl text-sm"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Priority</Label>
+                  <Select
+                    value={formData.priority}
+                    onValueChange={(value) => setFormData({ ...formData, priority: value })}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl text-sm">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => (
+                        <SelectItem key={priority} value={priority}>
+                          {priority}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -726,73 +866,95 @@ function WarehouseMaterialRequests() {
                     return (
                       <div
                         key={idx}
-                        className="grid gap-x-3 gap-y-4 rounded-xl border border-border/70 bg-muted/10 p-4 md:grid-cols-2 xl:grid-cols-12 xl:items-start"
+                        className="grid gap-3 rounded-2xl border border-border/70 bg-muted/10 p-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-12 items-end transition-all shadow-xs"
                       >
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-3">
-                            <Label className="flex h-4 items-center text-xs font-medium">Material Master</Label>
-                            <MaterialMasterSearchCombobox
-                              value={item.material_id || "CUSTOM"}
-                              onSelect={(val) => {
-                                if (val === "CUSTOM") {
-                                  setItems(
-                                    items.map((it, i) =>
-                                      i === idx
-                                        ? {
-                                            ...it,
-                                            material_id: "",
-                                            material_variant_id: "",
-                                            variant_code: "",
-                                          }
-                                        : it,
-                                    ),
-                                  );
-                                } else {
-                                  handleSelectMasterMaterial(idx, val);
-                                }
-                              }}
-                              masterMaterials={masterMaterials}
-                              className="h-10"
-                            />
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Material Master</Label>
+                          <MaterialMasterSearchCombobox
+                            value={item.material_id || "CUSTOM"}
+                            onSelect={(val) => {
+                              if (val === "CUSTOM") {
+                                setItems(
+                                  items.map((it, i) =>
+                                    i === idx
+                                      ? {
+                                          ...it,
+                                          material_id: "",
+                                          material_variant_id: "",
+                                          variant_code: "",
+                                        }
+                                      : it,
+                                  ),
+                                );
+                              } else {
+                                handleSelectMasterMaterial(idx, val);
+                              }
+                            }}
+                            masterMaterials={masterMaterials}
+                            className="h-10"
+                          />
+                        </div>
 
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-2">
-                            <Label className="flex h-4 items-center text-xs font-medium">Variant</Label>
-                            <Select
-                              value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
-                              onValueChange={(val) => handleSelectVariant(idx, val)}
-                              disabled={!selectedMat?.variants?.length}
-                            >
-                              <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                                <SelectValue placeholder="No variant" />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-xl">
-                                {selectedMat?.variants?.map((v: any) => {
-                                  const spec = [v.size, v.color, v.grade]
-                                    .filter(Boolean)
-                                    .join(" · ");
-                                  return (
-                                    <SelectItem key={v.id} value={v.id} className="text-xs">
-                                      <span className="font-mono font-bold">{v.variant_code}</span>{" "}
-                                      {spec && `(${spec})`}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Specification</Label>
+                          <Select
+                            value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
+                            onValueChange={(val) => handleSelectVariant(idx, val)}
+                            disabled={!selectedMat?.variants?.length}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
+                              <SelectValue placeholder="No specification" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              {selectedMat?.variants?.map((v: any) => {
+                                const spec = [v.size, v.color, v.grade]
+                                  .filter(Boolean)
+                                  .join(" · ");
+                                return (
+                                  <SelectItem key={v.id} value={v.id} className="text-xs">
+                                    <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
+                                    {spec && `(${spec})`}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-4">
-                          <Label className="flex h-4 items-center text-xs font-medium">Material Description</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-3">
+                          <Label className="text-xs font-semibold text-foreground">Material Description</Label>
                           <Input
                             placeholder="e.g. Wire 1.5mm Red PVC..."
-                            className="h-10 rounded-xl bg-background text-sm"
+                            className={cn(
+                              "h-10 rounded-xl text-sm transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 font-medium cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
                             value={item.material_name}
+                            readOnly={Boolean(item.material_id)}
                             onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">Quantity</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Category</Label>
+                          <Input
+                            placeholder="Category..."
+                            className={cn(
+                              "h-10 rounded-xl text-sm font-medium transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
+                            value={item.category || selectedMat?.category || "Raw Materials"}
+                            readOnly={Boolean(item.material_id)}
+                            onChange={(e) => handleItemChange(idx, "category", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">Quantity</Label>
                           <Input
                             type="number"
                             min="1"
@@ -802,8 +964,8 @@ function WarehouseMaterialRequests() {
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">UOM</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">UOM</Label>
                           <Select
                             value={item.uom}
                             onValueChange={(value) => handleItemChange(idx, "uom", value)}
@@ -821,12 +983,12 @@ function WarehouseMaterialRequests() {
                           </Select>
                         </div>
 
-                        <div className="flex h-[64px] items-end justify-end md:col-span-2 xl:col-span-1">
+                        <div className="flex items-center justify-center h-10 xl:col-span-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-10 rounded-xl text-destructive disabled:pointer-events-none disabled:opacity-30"
+                            className="size-10 rounded-xl text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-30"
                             onClick={() => removeItem(idx)}
                             disabled={items.length === 1}
                             aria-label={`Remove material item ${idx + 1}`}
@@ -914,6 +1076,9 @@ function WarehouseMaterialRequests() {
                         {req.requestNumber}
                       </h3>
                       <StatusBadge status={req.status} />
+                      <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
+                        {req.priority || "MEDIUM"}
+                      </span>
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground font-medium">
                       <span className="flex items-center gap-1">
@@ -921,7 +1086,7 @@ function WarehouseMaterialRequests() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="size-3.5" /> Required by{" "}
-                        {formatDisplayDate(req.requiredDate)}
+                        {new Date(req.requiredDate || req.required_date).toLocaleDateString()}
                       </span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -930,19 +1095,22 @@ function WarehouseMaterialRequests() {
                           key={idx}
                           className="text-[10px] text-orange-700 bg-orange-soft/20 px-2 py-0.5 rounded-md border border-orange-200 uppercase font-bold"
                         >
-                          {item.materialCode}: {Math.floor(item.quantity)} {item.uom}
+                          {item.materialCode || item.material_code}: {Math.floor(item.quantity)}{" "}
+                          {item.uom}
                         </span>
                       ))}
                     </div>
                   </div>
                 </div>
-                <div className="text-right hidden md:block">
-                  <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">
-                    Created At
-                  </p>
-                  <p className="text-sm font-bold tabular-nums">
-                    {new Date(req.createdAt).toLocaleDateString()}
-                  </p>
+                <div className="flex flex-col items-end gap-2 text-right">
+                  <div>
+                    <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">
+                      Created At
+                    </p>
+                    <p className="text-sm font-bold tabular-nums">
+                      {new Date(req.createdAt || req.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
               </div>
             </Card>
@@ -1016,7 +1184,33 @@ function WarehouseMaterialRequests() {
                     <Label className="text-[10px] uppercase font-black text-muted-foreground">
                       Warehouse
                     </Label>
-                    <p className="font-bold text-sm truncate">{selectedRequest.warehouseId}</p>
+                    <p className="font-bold text-sm truncate">{selectedRequest.warehouseId || selectedRequest.warehouse_id || "Main Warehouse"}</p>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                      Priority
+                    </Label>
+                    {isEditing ? (
+                      <Select
+                        value={selectedRequest.priority || "MEDIUM"}
+                        onValueChange={(value) =>
+                          setSelectedRequest({ ...selectedRequest, priority: value })
+                        }
+                      >
+                        <SelectTrigger className="h-9 rounded-xl text-sm bg-background">
+                          <SelectValue placeholder="Priority" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => (
+                            <SelectItem key={priority} value={priority}>
+                              {priority}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-bold text-sm truncate">{selectedRequest.priority || "MEDIUM"}</p>
+                    )}
                   </div>
                 </div>
 
@@ -1041,11 +1235,12 @@ function WarehouseMaterialRequests() {
                   <div className="rounded-2xl border border-border/60 overflow-hidden bg-muted/5 shadow-inner">
                     <table className="w-full table-fixed text-left text-sm border-collapse">
                       <colgroup>
-                        <col className="w-[23%]" />
-                        <col className="w-[27%]" />
-                        <col className="w-[28%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[20%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[17%]" />
                         <col className="w-[10%]" />
-                        <col className="w-[12%]" />
+                        <col className="w-[10%]" />
                         {isEditing && <col className="w-10" />}
                       </colgroup>
                       <thead>
@@ -1054,10 +1249,13 @@ function WarehouseMaterialRequests() {
                             Material Code
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
-                            Variant Code
+                            Specification Code
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
-                            Material Name & Specs
+                            Material Name &amp; Specs
+                          </th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
+                            Category
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">
                             Qty
@@ -1075,18 +1273,14 @@ function WarehouseMaterialRequests() {
                               m.id === item.materialId ||
                               m.material_code === (item.materialCode || item.material_code),
                           );
-                          const currentMaterialId =
-                            item.materialId || selectedMat?.id || "CUSTOM";
+                          const currentMaterialId = item.materialId || selectedMat?.id || "CUSTOM";
                           const hasVariants =
-                            selectedMat &&
-                            selectedMat.variants &&
-                            selectedMat.variants.length > 0;
+                            selectedMat && selectedMat.variants && selectedMat.variants.length > 0;
                           const currentVariantId =
                             item.materialVariantId ||
                             selectedMat?.variants?.find(
                               (v: any) =>
-                                v.variant_code ===
-                                (item.variantCode || item.variant_code),
+                                v.variant_code === (item.variantCode || item.variant_code),
                             )?.id ||
                             selectedMat?.variants?.[0]?.id ||
                             "";
@@ -1097,9 +1291,7 @@ function WarehouseMaterialRequests() {
                                 {isEditing ? (
                                   <MaterialMasterSearchCombobox
                                     value={currentMaterialId}
-                                    onSelect={(val) =>
-                                      handleEditSelectMasterMaterial(idx, val)
-                                    }
+                                    onSelect={(val) => handleEditSelectMasterMaterial(idx, val)}
                                     masterMaterials={masterMaterials}
                                     size="sm"
                                   />
@@ -1114,12 +1306,10 @@ function WarehouseMaterialRequests() {
                                   hasVariants ? (
                                     <Select
                                       value={currentVariantId}
-                                      onValueChange={(val) =>
-                                        handleEditSelectVariant(idx, val)
-                                      }
+                                      onValueChange={(val) => handleEditSelectVariant(idx, val)}
                                     >
                                       <SelectTrigger className="h-9 rounded-xl text-xs bg-background border-teal-500/30 text-teal-700 font-semibold font-mono w-full min-w-0 truncate [&>span]:truncate [&>span]:block">
-                                        <SelectValue placeholder="Select Variant" />
+                                        <SelectValue placeholder="Select Specification" />
                                       </SelectTrigger>
                                       <SelectContent className="rounded-xl max-h-60">
                                         {selectedMat.variants.map((v: any) => {
@@ -1127,13 +1317,9 @@ function WarehouseMaterialRequests() {
                                             .filter(Boolean)
                                             .join(" · ");
                                           return (
-                                            <SelectItem
-                                              key={v.id}
-                                              value={v.id}
-                                              className="text-xs"
-                                            >
+                                            <SelectItem key={v.id} value={v.id} className="text-xs">
                                               <span className="font-mono font-bold text-teal-700">
-                                                {v.variant_code}
+                                                {formatSpecCode(v.variant_code)}
                                               </span>{" "}
                                               {spec && `(${spec})`}
                                             </SelectItem>
@@ -1143,8 +1329,8 @@ function WarehouseMaterialRequests() {
                                     </Select>
                                   ) : (
                                     <Input
-                                      value={item.variantCode || item.variant_code || ""}
-                                      placeholder="Variant Code"
+                                      value={formatSpecCode(item.variantCode || item.variant_code) || ""}
+                                      placeholder="Specification Code"
                                       onChange={(e) =>
                                         handleEditItemChange(idx, "variantCode", e.target.value)
                                       }
@@ -1153,7 +1339,7 @@ function WarehouseMaterialRequests() {
                                   )
                                 ) : (
                                   <span className="font-mono text-xs text-teal-600 font-semibold truncate block">
-                                    {item.variantCode || item.variant_code || "—"}
+                                    {formatSpecCode(item.variantCode || item.variant_code) || "—"}
                                   </span>
                                 )}
                               </td>
@@ -1162,18 +1348,42 @@ function WarehouseMaterialRequests() {
                                   <Input
                                     value={item.materialName || item.material_name || ""}
                                     placeholder="Material Name / Specification"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
                                     onChange={(e) =>
-                                      handleEditItemChange(
-                                        idx,
-                                        "materialName",
-                                        e.target.value,
-                                      )
+                                      handleEditItemChange(idx, "materialName", e.target.value)
                                     }
-                                    className="h-9 text-xs bg-background rounded-xl w-full min-w-0"
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 font-medium cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
                                   />
                                 ) : (
                                   <span className="text-xs font-medium truncate block">
                                     {item.materialName || item.material_name}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5 min-w-0 overflow-hidden">
+                                {isEditing ? (
+                                  <Input
+                                    value={item.category || selectedMat?.category || "Raw Materials"}
+                                    placeholder="Category"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
+                                    onChange={(e) =>
+                                      handleEditItemChange(idx, "category", e.target.value)
+                                    }
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0 font-medium",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
+                                  />
+                                ) : (
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block truncate">
+                                    {item.category || selectedMat?.category || "Raw Materials"}
                                   </span>
                                 )}
                               </td>
@@ -1185,11 +1395,7 @@ function WarehouseMaterialRequests() {
                                     step="any"
                                     value={item.quantity}
                                     onChange={(e) =>
-                                      handleEditItemChange(
-                                        idx,
-                                        "quantity",
-                                        e.target.value,
-                                      )
+                                      handleEditItemChange(idx, "quantity", e.target.value)
                                     }
                                     className="h-9 text-xs text-center bg-background rounded-xl w-full min-w-0"
                                   />
@@ -1203,9 +1409,7 @@ function WarehouseMaterialRequests() {
                                 {isEditing ? (
                                   <Select
                                     value={item.uom}
-                                    onValueChange={(val) =>
-                                      handleEditItemChange(idx, "uom", val)
-                                    }
+                                    onValueChange={(val) => handleEditItemChange(idx, "uom", val)}
                                   >
                                     <SelectTrigger className="h-9 text-xs bg-background rounded-xl w-full min-w-0">
                                       <SelectValue />
@@ -1262,15 +1466,43 @@ function WarehouseMaterialRequests() {
                       }
                       className="rounded-2xl min-h-[100px] text-sm"
                     />
+                  ) : selectedRequest.remarks?.includes("[Note to Procurement:") ? (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                        <AlertCircle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Vendor Sourcing Action Required
+                          </p>
+                          <p className="text-xs font-bold mt-1 leading-relaxed">
+                            {selectedRequest.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0] || selectedRequest.remarks}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim() && (
+                        <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                          {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim()}
+                        </p>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
                       {selectedRequest.remarks || "No remarks provided."}
                     </p>
                   )}
                 </div>
+
+
               </div>
 
-              <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-end">
+              <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
+                  onClick={() => setIsRequestModalOpen(false)}
+                >
+                  Close
+                </Button>
                 <div className="flex items-center gap-3">
                   {isEditing ? (
                     <>
@@ -1296,27 +1528,20 @@ function WarehouseMaterialRequests() {
                     </>
                   ) : (
                     <>
-                      <Button
-                        variant="ghost"
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => setIsRequestModalOpen(false)}
-                      >
-                        Close
-                      </Button>
-                      {selectedRequest.status?.toUpperCase() === "PENDING" ? (
+                      {selectedRequest.status === "Draft" && (
+                        <Button
+                          className="rounded-full h-11 px-6 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
+                          onClick={() => changeStatus("Submitted", "Submitted for approval")}
+                        >
+                          Submit Request
+                        </Button>
+                      )}
+                      {["Draft", "Submitted", "Rejected", "Pending Approval"].includes(selectedRequest.status) && (
                         <Button
                           className="rounded-full h-11 px-8 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
                           onClick={() => setIsEditing(true)}
                         >
                           Edit Request
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          disabled
-                          className="rounded-full h-11 px-6 font-bold text-xs uppercase opacity-60 cursor-not-allowed"
-                        >
-                          {selectedRequest.status} (Locked)
                         </Button>
                       )}
                     </>
@@ -1325,6 +1550,187 @@ function WarehouseMaterialRequests() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* PRE-SUBMISSION MATERIAL REQUEST CONFIRMATION POPUP MODAL */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white">
+                  Confirm Material Request Submission
+                </DialogTitle>
+                <Badge className="bg-white/20 text-white border-white/30 text-[10px] uppercase font-black">
+                  Pre-Submission Review
+                </Badge>
+              </div>
+              <DialogDescription className="text-blue-100 text-xs">
+                Review request details and category supplier availability before sending to Procurement
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Request Summary Metadata */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Request Number</p>
+                <p className="font-mono font-bold text-primary text-sm mt-0.5">
+                  {formData.request_number || "MR-PENDING"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.warehouse_id || "Main Warehouse"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Inventory"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Priority</p>
+                <Badge className="mt-0.5 bg-amber-500/10 text-amber-700 border-amber-500/30 text-[10px] font-bold">
+                  {formData.priority || "MEDIUM"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Material Items List */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase font-black text-muted-foreground">
+                Requested Materials ({items.length} item{items.length === 1 ? "" : "s"})
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-border/60 bg-card overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-muted/40 font-bold uppercase text-[10px] text-muted-foreground border-b border-border/60">
+                    <tr>
+                      <th className="p-2.5">Material</th>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5 text-right">Qty</th>
+                      <th className="p-2.5">UOM</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {items.map((it, i) => (
+                      <tr key={i} className="hover:bg-muted/10">
+                        <td className="p-2.5">
+                          <p className="font-mono font-bold text-primary">{it.material_code || "CUSTOM"}</p>
+                          <p className="text-foreground font-medium truncate max-w-[220px]">{it.material_name}</p>
+                        </td>
+                        <td className="p-2.5 font-semibold text-muted-foreground uppercase text-[10px]">
+                          {it.category || "Raw Materials"}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-foreground tabular-nums">
+                          {it.quantity}
+                        </td>
+                        <td className="p-2.5 font-medium text-muted-foreground uppercase text-[10px]">
+                          {it.uom || "PCS"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Categorized Suppliers Availability Banner */}
+            {(() => {
+              const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+              const primaryCategory = itemCategories[0] || "Raw Materials";
+              const matchingSuppliers = activeSuppliers.filter((s: any) =>
+                Array.isArray(s.category)
+                  ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+                  : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+              );
+
+              const hasSuppliers = matchingSuppliers.length > 0;
+
+              return (
+                <div
+                  className={cn(
+                    "p-4 rounded-2xl flex items-center justify-between gap-3 border transition-colors",
+                    hasSuppliers
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-950 dark:text-emerald-200"
+                      : "bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-200",
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "size-10 rounded-xl text-white flex items-center justify-center shrink-0 font-bold shadow-sm",
+                        hasSuppliers ? "bg-emerald-600" : "bg-amber-600",
+                      )}
+                    >
+                      {hasSuppliers ? <Building2 className="size-5" /> : <AlertCircle className="size-5" />}
+                    </div>
+                    <div>
+                      <p
+                        className={cn(
+                          "text-[10px] font-black uppercase tracking-wider",
+                          hasSuppliers
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400",
+                        )}
+                      >
+                        Procurement Supplier Master
+                      </p>
+                      {hasSuppliers ? (
+                        <p className="text-sm font-bold text-foreground mt-0.5">
+                          {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
+                        </p>
+                      ) : (
+                        <div>
+                          <p className="text-sm font-bold text-foreground mt-0.5">
+                            0 Active Suppliers for Category '{primaryCategory}'
+                          </p>
+                          <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 font-medium">
+                            Request will notify Procurement to source / suggest suppliers for this material.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-bold text-xs bg-card shrink-0",
+                      hasSuppliers
+                        ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                        : "border-amber-500/30 text-amber-700 dark:text-amber-400",
+                    )}
+                  >
+                    {hasSuppliers ? "Ready for RFQ" : "Procurement Action Required"}
+                  </Badge>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl font-bold text-xs uppercase"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              onClick={executeSubmitRequest}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 size-4" />
+              )}
+              Confirm &amp; Submit Request
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppShell>

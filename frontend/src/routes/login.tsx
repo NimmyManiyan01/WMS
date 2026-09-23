@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
-import { Warehouse, Loader2, Eye, EyeOff, ShieldCheck, Lock } from "lucide-react";
+import { Warehouse, Loader2, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api-client";
@@ -65,18 +65,14 @@ function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget as HTMLFormElement);
-    const submittedEmployeeId = String(formData.get("employeeId") ?? "").trim();
-    const submittedPassword = String(formData.get("password") ?? "");
-
-    if (!submittedEmployeeId || !submittedPassword) {
+    if (!employeeId || !password) {
       toast.error("Please enter both Employee ID and password");
       return;
     }
 
     setIsLoading(true);
     try {
-      const data = await api.login(submittedEmployeeId, submittedPassword, rememberMe);
+      const data = await api.login(employeeId, password, rememberMe);
       completeAuthentication(data);
     } catch (error: any) {
       toast.error(error.message || "Login failed. Please check your credentials.");
@@ -88,6 +84,7 @@ function LoginPage() {
   const completeAuthentication = (data: any) => {
     toast.success(`Welcome back, ${data.username}!`);
     const targetPath = redirectPath || getDefaultRouteForUser(data);
+
     setTimeout(() => {
       // Keep route transitions internal. `redirectPath` has already rejected external URLs.
       const target = new URL(targetPath, window.location.origin);
@@ -174,8 +171,7 @@ function LoginPage() {
               <Label htmlFor="employeeId">Employee ID / Username</Label>
               <Input
                 id="employeeId"
-                name="employeeId"
-                placeholder="e.g. emp_001"
+                placeholder="Enter your employee ID or username"
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
                 required
@@ -195,7 +191,6 @@ function LoginPage() {
               <div className="relative">
                 <Input
                   id="password"
-                  name="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
@@ -212,6 +207,7 @@ function LoginPage() {
                 </button>
               </div>
             </div>
+
 
             <div className="flex items-center space-x-2">
               <Checkbox

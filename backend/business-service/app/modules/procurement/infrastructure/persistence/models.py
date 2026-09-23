@@ -50,6 +50,8 @@ class SupplierModel(Base):
     main_materials: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     rating: Mapped[float] = mapped_column(Numeric(3, 2), default=0.0, nullable=False)
     performance_score: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0, nullable=False)
+    payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    credit_period_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="Active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -261,9 +263,11 @@ class QuotationModel(Base):
     discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     freight_charges: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
+    additional_charges: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     delivery_time: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     expected_delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    warranty: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     quotation_validity: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
@@ -322,6 +326,10 @@ class AsnModel(Base):
     number_of_packages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     package_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     shipping_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    invoice_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    challan_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    challan_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     lines: Mapped[List[AsnLineModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
@@ -367,8 +375,10 @@ class PurchaseOrderModel(Base):
     po_number: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     po_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     rfq_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("rfq.id"), nullable=True)
+    quotation_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("quotation.id"), nullable=True)
     supplier_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("supplier.id"), nullable=True)
 
     supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -376,6 +386,11 @@ class PurchaseOrderModel(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     expected_delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    delivery_terms: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    warranty: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    billing_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     procurement_officer: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
@@ -417,8 +432,12 @@ class PurchaseOrderModel(Base):
     history: Mapped[List["POApprovalHistoryModel"]] = relationship(
         "POApprovalHistoryModel", back_populates="purchase_order", cascade="all, delete-orphan"
     )
+    revisions: Mapped[List["PORevisionModel"]] = relationship(
+        "PORevisionModel", back_populates="purchase_order", cascade="all, delete-orphan"
+    )
 
     rfq: Mapped[Optional["RfqModel"]] = relationship("RfqModel")
+    quotation: Mapped[Optional["QuotationModel"]] = relationship("QuotationModel")
 
 
 class POApprovalHistoryModel(Base):
@@ -432,6 +451,22 @@ class POApprovalHistoryModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     purchase_order: Mapped[PurchaseOrderModel] = relationship("PurchaseOrderModel", back_populates="history")
+
+
+class PORevisionModel(Base):
+    __tablename__ = "po_revision"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    purchase_order_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("purchase_order.id", ondelete="CASCADE"), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_field: Mapped[str] = mapped_column(String(128), nullable=False)
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    purchase_order: Mapped[PurchaseOrderModel] = relationship("PurchaseOrderModel", back_populates="revisions")
 
 
 class PurchaseOrderItemModel(Base):
@@ -465,9 +500,14 @@ class MaterialRequestModel(Base):
     department: Mapped[str] = mapped_column(String(64), nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    priority: Mapped[str] = mapped_column(String(32), nullable=False, default="MEDIUM")
     required_date: Mapped[date] = mapped_column(Date, nullable=False)
+    suggested_supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    approval_history: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     items: Mapped[List["MaterialRequestItemModel"]] = relationship(
         "MaterialRequestItemModel", back_populates="request", cascade="all, delete-orphan"
@@ -627,6 +667,11 @@ class NotificationModel(Base):
     driver_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     asn_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     po_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    grn_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notification_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class SupplierUserModel(Base):

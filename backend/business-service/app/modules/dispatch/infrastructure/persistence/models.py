@@ -1,133 +1,88 @@
+"""
+SQLAlchemy ORM models for Outbound Dispatch and Gate Exit module.
+"""
 from __future__ import annotations
+
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Numeric, DateTime, Text, ForeignKey, Boolean
-from sqlalchemy.orm import relationship
+import uuid
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.database.base import Base, GUID
 
-class DispatchModel(Base):
-    __tablename__ = "dispatch_order"
 
-    id = Column(GUID, primary_key=True)
-    dispatch_number = Column(String(64), unique=True, index=True, nullable=False)
-    order_number = Column(String(64), index=True, nullable=False)
-    customer_name = Column(String(255), nullable=False)
-    warehouse_id = Column(String(64), nullable=False, default="WH-01")
-    dispatch_type = Column(String(64), nullable=True, default="Standard")
-    status = Column(String(32), nullable=False, default="DRAFT")
-    driver_id = Column(String(36), nullable=True)
-    vehicle_id = Column(String(36), nullable=True)
-    route_code = Column(String(64), nullable=True)
-    delivery_address = Column(Text, nullable=True)
-    destination = Column(Text, nullable=True)
-    scheduled_date = Column(DateTime(timezone=True), nullable=True)
-    expected_delivery_date = Column(DateTime(timezone=True), nullable=True)
-    priority = Column(String(32), nullable=False, default="Normal")
-    contact_person = Column(String(128), nullable=True)
-    contact_phone = Column(String(32), nullable=True)
-    delivery_instructions = Column(Text, nullable=True)
-    transport_mode = Column(String(64), nullable=True, default="Road")
-    transport_type = Column(String(64), nullable=True, default="Full Truckload")
-    transporter = Column(String(128), nullable=True)
-    notes = Column(Text, nullable=True)
+class OutboundDispatchModel(Base):
+    __tablename__ = "outbound_dispatch"
 
-    # GPS Telemetry fields
-    current_location = Column(String(255), nullable=True, default="Bangalore Origin")
-    distance_travelled_km = Column(Numeric(10, 2), nullable=False, default=0.0)
-    remaining_distance_km = Column(Numeric(10, 2), nullable=False, default=140.0)
-    eta_minutes = Column(Numeric(10, 2), nullable=False, default=180.0)
-    route_path = Column(String(255), nullable=True, default="Bangalore - Ramanagara - Mandya - Mysore")
-    route_deviation = Column(String(128), nullable=True, default="None (On Track)")
-    driver_status = Column(String(64), nullable=True, default="Active / Driving")
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    dispatch_number: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    order_reference: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    vehicle_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    driver_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    driver_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    loading_status: Mapped[str] = mapped_column(String(32), default="LOADING_COMPLETED", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="READY_FOR_GATE_EXIT", index=True, nullable=False)
+    items_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    destination_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seal_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    eway_bill: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    transporter: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    gross_weight: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dock_bay: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    warehouse_id: Mapped[str] = mapped_column(String(64), default="WH_PUNE-01", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    items = relationship("DispatchItemModel", back_populates="dispatch_order", cascade="all, delete-orphan")
+    gate_exit: Mapped["OutboundGateExitModel | None"] = relationship(
+        "OutboundGateExitModel", back_populates="dispatch", uselist=False, cascade="all, delete-orphan"
+    )
+    exceptions: Mapped[list["OutboundGateExitExceptionModel"]] = relationship(
+        "OutboundGateExitExceptionModel",
+        back_populates="dispatch",
+        order_by="desc(OutboundGateExitExceptionModel.created_at)",
+        cascade="all, delete-orphan",
+    )
 
 
-class DispatchItemModel(Base):
-    __tablename__ = "dispatch_item"
+class OutboundGateExitModel(Base):
+    __tablename__ = "outbound_gate_exit"
 
-    id = Column(GUID, primary_key=True)
-    dispatch_order_id = Column(GUID, ForeignKey("dispatch_order.id", ondelete="CASCADE"), nullable=False)
-    material_code = Column(String(64), nullable=False)
-    material_name = Column(String(255), nullable=False)
-    quantity_ordered = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_available = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_reserved = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_picked = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_packed = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_loaded = Column(Numeric(18, 4), nullable=False, default=0)
-    quantity_pending = Column(Numeric(18, 4), nullable=False, default=0)
-    uom = Column(String(32), nullable=False, default="PCS")
-    batch = Column(String(64), nullable=True)
-    bin = Column(String(64), nullable=True)
-    status = Column(String(32), nullable=False, default="PENDING")
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    dispatch_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("outbound_dispatch.id", ondelete="RESTRICT"), nullable=False, unique=True, index=True)
+    security_officer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    vehicle_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    driver_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="EXIT_COMPLETED", nullable=False)
+    exit_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    dispatch_order = relationship("DispatchModel", back_populates="items")
+    dispatch: Mapped[OutboundDispatchModel] = relationship("OutboundDispatchModel", back_populates="gate_exit")
 
 
-class DispatchPodModel(Base):
-    __tablename__ = "dispatch_pod"
+class OutboundGateExitExceptionModel(Base):
+    __tablename__ = "outbound_gate_exit_exception"
 
-    id = Column(GUID, primary_key=True)
-    dispatch_order_id = Column(GUID, ForeignKey("dispatch_order.id", ondelete="CASCADE"), nullable=False, unique=True)
-    delivery_datetime = Column(DateTime(timezone=True), nullable=False)
-    receiver_name = Column(String(128), nullable=False)
-    signature = Column(Text, nullable=False)
-    delivery_photo = Column(String(255), nullable=True)
-    delivered_quantity = Column(Numeric(18, 4), nullable=False, default=0)
-    damaged_quantity = Column(Numeric(18, 4), nullable=False, default=0)
-    remarks = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    dispatch_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("outbound_dispatch.id", ondelete="CASCADE"), nullable=False, index=True)
+    dispatch_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_vehicle: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_driver: Mapped[str] = mapped_column(String(128), nullable=False)
+    actual_vehicle: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_driver: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    verification_result: Mapped[str] = mapped_column(String(64), nullable=False)  # VEHICLE_MISMATCH, DRIVER_MISMATCH, BOTH_MISMATCH
+    mismatch_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    security_officer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="ACTION_REQUIRED", index=True, nullable=False)
+    resolution_action: Mapped[str | None] = mapped_column(String(32), nullable=True)  # UPDATE_MANIFEST, CONFIRM_CLEARED
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    dispatch_order = relationship("DispatchModel", backref="pod")
+    dispatch: Mapped[OutboundDispatchModel] = relationship("OutboundDispatchModel", back_populates="exceptions")
 
-
-class DriverModel(Base):
-    __tablename__ = "driver"
-
-    id = Column(GUID, primary_key=True)
-    driver_name = Column(String(128), nullable=False)
-    license_number = Column(String(64), unique=True, index=True, nullable=False)
-    phone = Column(String(32), nullable=False)
-    email = Column(String(128), nullable=True)
-    license_type = Column(String(32), nullable=False, default="Heavy")
-    is_active = Column(Boolean, nullable=False, default=True)
-    photo_path = Column(String(255), nullable=True)
-    address = Column(Text, nullable=True)
-    aadhaar_number = Column(String(32), unique=True, nullable=True)
-    status = Column(String(32), nullable=False, default="AVAILABLE")
-    rating = Column(Numeric(3, 2), nullable=False, default=5.0)
-    assigned_vehicle_id = Column(String(36), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-
-class VehicleModel(Base):
-    __tablename__ = "vehicle"
-
-    id = Column(GUID, primary_key=True)
-    vehicle_number = Column(String(64), unique=True, index=True, nullable=False)
-    vehicle_type = Column(String(64), nullable=False, default="Truck")
-    ownership_type = Column(String(64), nullable=False, default="Owned")
-    capacity_tons = Column(Numeric(10, 2), nullable=False, default=10.0)
-    is_active = Column(Boolean, nullable=False, default=True)
-    insurance_valid = Column(Boolean, nullable=False, default=True)
-    fitness_valid = Column(Boolean, nullable=False, default=True)
-    permit_valid = Column(Boolean, nullable=False, default=True)
-    puc_valid = Column(Boolean, nullable=False, default=True)
-    gps_available = Column(Boolean, nullable=False, default=True)
-    rc_number = Column(String(64), nullable=True)
-    chassis_number = Column(String(64), nullable=True)
-    registration_date = Column(String(32), nullable=True)
-    registration_expiry_date = Column(String(32), nullable=True)
-    insurance_expiry = Column(String(32), nullable=True)
-    fitness_expiry = Column(String(32), nullable=True)
-    permit_expiry = Column(String(32), nullable=True)
-    puc_expiry = Column(String(32), nullable=True)
-    rc_book_number = Column(String(64), nullable=True)
-    status = Column(String(32), nullable=False, default="AVAILABLE")
-    current_driver_id = Column(String(36), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

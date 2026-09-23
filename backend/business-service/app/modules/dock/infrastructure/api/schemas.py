@@ -43,6 +43,9 @@ class AutoCreateAllocationRequest(BaseModel):
 class AllocateDockRequest(BaseModel):
     allocation_request_id: uuid.UUID
     dock_id: uuid.UUID
+    store_manager_id: Optional[str] = None
+    store_manager_username: Optional[str] = None
+    store_manager_name: Optional[str] = None
 
 
 class ReassignDockRequest(BaseModel):
@@ -63,6 +66,12 @@ class AllocationRequestResponse(BaseModel):
     status: str
     assigned_dock_id: Optional[uuid.UUID] = None
     assigned_dock_code: Optional[str] = None
+    assigned_store_id: Optional[uuid.UUID] = None
+    assigned_store_code: Optional[str] = None
+    assigned_store_name: Optional[str] = None
+    assigned_store_manager_id: Optional[str] = None
+    assigned_store_manager_username: Optional[str] = None
+    assigned_store_manager_name: Optional[str] = None
     assigned_by: Optional[str] = None
     assigned_at: Optional[datetime] = None
     arrived_at: Optional[datetime] = None
@@ -87,6 +96,15 @@ class DockMasterResponse(BaseModel):
     description: Optional[str] = None
     status: str
     is_active: bool
+    store_id: Optional[uuid.UUID] = None
+    store_code: Optional[str] = None
+    store_name: Optional[str] = None
+    assigned_store_id: Optional[uuid.UUID] = None
+    assigned_store_code: Optional[str] = None
+    assigned_store_name: Optional[str] = None
+    assigned_store_manager_id: Optional[str] = None
+    assigned_store_manager_username: Optional[str] = None
+    assigned_store_manager_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     current_allocation: Optional[AllocationRequestResponse] = None

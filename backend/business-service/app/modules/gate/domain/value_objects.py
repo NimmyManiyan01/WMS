@@ -32,6 +32,7 @@ class GateEntryStatus(str, Enum):
     DOCK_RELEASED = "RELEASED"
     EXIT_APPROVED = "EXIT_APPROVED"
     GATE_EXIT_COMPLETED = "GATE_EXIT_COMPLETED"
+    VEHICLE_EXITED = "VEHICLE_EXITED"
     REJECTED = "REJECTED"
     CHECKED_IN = "CHECKED_IN"
     UNLOADED = "UNLOADED"
@@ -77,6 +78,7 @@ class PurchaseOrderRecord:
     po_date: str
     delivery_date: str
     status: str = "OPEN"
+    po_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

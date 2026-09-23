@@ -31,77 +31,8 @@ def upgrade() -> None:
         column["name"]
         for column in inspector.get_columns("notification")
     }
-
-    if "dock_code" not in notification_cols:
         op.add_column(
             "notification",
-            sa.Column("dock_code", sa.String(), nullable=True),
-        )
-
-    if "dock_name" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("dock_name", sa.String(), nullable=True),
-        )
-
-    if "dock_location" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("dock_location", sa.String(), nullable=True),
-        )
-
-    if "dock_type" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("dock_type", sa.String(), nullable=True),
-        )
-
-    if "warehouse_name" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("warehouse_name", sa.String(), nullable=True),
-        )
-
-    if "allocation_time" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("allocation_time", sa.DateTime(), nullable=True),
-        )
-
-    if "gate_pass_number" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("gate_pass_number", sa.String(), nullable=True),
-        )
-
-    if "vehicle_number" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("vehicle_number", sa.String(), nullable=True),
-        )
-
-    if "driver_name" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("driver_name", sa.String(), nullable=True),
-        )
-
-    if "driver_phone" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("driver_phone", sa.String(), nullable=True),
-        )
-
-    if "asn_number" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("asn_number", sa.String(), nullable=True),
-        )
-
-    if "po_number" not in notification_cols:
-        op.add_column(
-            "notification",
-            sa.Column("po_number", sa.String(), nullable=True),
         )
 
 

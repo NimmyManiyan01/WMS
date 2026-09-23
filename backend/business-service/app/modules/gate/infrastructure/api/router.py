@@ -29,6 +29,9 @@ from app.modules.receiving.domain.events import GrnPostedEvent, PostedInventoryL
 from app.events.outbox_repository import to_outbox_row
 from app.modules.storage.infrastructure.persistence.models import HandlingUnitModel, PutawayTaskModel, StorageLocationModel
 from app.modules.storage.application.location_strategy import recommend_storage_location
+from app.modules.store.infrastructure.persistence.models import StoreModel, StoreManagerUserModel
+from app.modules.dock.infrastructure.persistence.models import DockMasterModel
+from app.modules.quarantine.infrastructure.persistence.models import QuarantineRecordModel
 from app.modules.gate.application.ocr_pipeline import EnterprisePoOcrEngine
 from app.modules.gate.domain.aggregate import GateEntry
 from app.modules.gate.domain.services import GateVerificationService
@@ -193,21 +196,10 @@ async def scan_with_local_ocr(
             result = local_result
 
             if not result.po_number:
-                return {
-                    "po_number": "",
-                    "supplier_name": result.supplier_name,
-                    "material_description": result.material_description,
-                    "quantity": result.total_quantity,
-                    "po_date": _to_iso_date(result.po_date),
-                    "delivery_date": _to_iso_date(result.delivery_date),
-                    "line_items": list(result.line_items),
-                    "confidence": result.confidence,
-                    "source": "local-ocr",
-                    "verified": False,
-                    "status": GateEntryStatus.UNSCHEDULED_ARRIVAL.value,
-                    "extraction": {"fields": {"po_number": ""}},
-                    "canonical_record": None,
-                }
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="No readable purchase-order details were found. Use a clearer document image or enter the details manually.",
+                )
 
             # The uploaded image is always the source of extracted form values.
             # PostgreSQL is used only for verification/comparison; never replace
@@ -341,14 +333,11 @@ async def scan_with_local_ocr(
                     "extraction": {"fields": {"vehicle_number": vehicle_number}},
                 }
             except OcrUnavailableError as exc:
-                logger.warning("Vehicle OCR is unavailable; returning a manual-entry response: %s", exc)
-                return {
-                    "vehicle_number": "NOT_FOUND",
-                    "confidence": 0.0,
-                    "source": "local-tesseract-anpr",
-                    "extraction": {"fields": {"vehicle_number": "NOT_FOUND"}},
-                    "raw_text": "",
-                }
+                logger.error("Vehicle OCR is unavailable: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=str(exc),
+                ) from exc
             except Exception as exc:
                 logger.info("Vehicle plate was not readable: %s", exc)
                 return {
@@ -419,6 +408,12 @@ def _to_gate_entry_response(
         else str(entry.updated_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
     )
 
+    exited_at_val = (
+        entry.exited_at.isoformat()
+        if hasattr(entry, "exited_at") and entry.exited_at and hasattr(entry.exited_at, "isoformat")
+        else None
+    )
+
     return GateEntryResponse(
         id=entry.id,
         gate_entry_number=entry.gate_entry_number or f"GE-{entry.id[:8]}",
@@ -440,6 +435,8 @@ def _to_gate_entry_response(
         ocr_result=ocr_dto,
         mismatched_fields=mismatch_dtos,
         verified_by=entry.verified_by,
+        exited_at=exited_at_val,
+        exited_by=getattr(entry, "exited_by", None),
         created_at=created_at_val,
         updated_at=updated_at_val,
     )
@@ -498,12 +495,16 @@ def _gate_entry_from_model(model: GateEntryModel) -> GateEntry:
         ocr_result=ocr_result,
         mismatched_fields=mismatches,
         verified_by=model.verified_by_user_id,
+        exited_at=model.exited_at,
+        exited_by=model.exited_by,
         created_at=created_at,
         updated_at=updated_at,
     )
 
 
 async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | None = None) -> None:
+    if not entry.gate_entry_number:
+        entry.gate_entry_number = _generate_gate_entry_number()
     result = await session.execute(select(GateEntryModel).where(GateEntryModel.id == uuid.UUID(entry.id)))
     model = result.scalar_one_or_none()
     ocr = entry.ocr_result
@@ -540,6 +541,8 @@ async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | Non
         ocr_line_items=list(ocr.line_items) if ocr else [],
         security_officer_id=entry.created_by,
         verified_by_user_id=entry.verified_by,
+        exited_at=getattr(entry, "exited_at", None),
+        exited_by=getattr(entry, "exited_by", None),
         created_at=entry.created_at,
         updated_at=entry.updated_at,
     )
@@ -783,18 +786,10 @@ async def create_gate_entry(
 
     # 2. Dynamic OCR processing or extraction
     ocr_res: Optional[OcrResult] = None
-    if request.document_image_base64:
-        try:
-            doc_bytes = base64.b64decode(request.document_image_base64, validate=True)
-            ocr_res = _po_ocr_engine.process_po_document(doc_bytes)
-        except Exception:
-            pass
-
     po_record = await _lookup_database_po(uow.session, po_num)
 
-    # The scan preview has already populated the submitted form. Do not run a
-    # second OCR pass and overwrite those verified values with logo/header
-    # text. Master PO data is authoritative whenever it is available.
+    # The scan preview or form input has already populated the submitted fields.
+    # Master PO data is authoritative whenever it is available.
     if asn:
         ocr_res = OcrResult(
             po_number=po_num,
@@ -819,12 +814,12 @@ async def create_gate_entry(
     else:
         ocr_res = OcrResult(
             po_number=po_num,
-            supplier_name=request.supplier_name or (ocr_res.supplier_name if ocr_res else ""),
-            material_description=request.material_description or (ocr_res.material_description if ocr_res else ""),
-            total_quantity=request.total_quantity if request.total_quantity is not None else (ocr_res.total_quantity if ocr_res else 0.0),
-            po_date=request.po_date or (ocr_res.po_date if ocr_res else ""),
-            delivery_date=request.delivery_date or (ocr_res.delivery_date if ocr_res else ""),
-            confidence=ocr_res.confidence if ocr_res else 0.0,
+            supplier_name=request.supplier_name or "",
+            material_description=request.material_description or "",
+            total_quantity=request.total_quantity if request.total_quantity is not None else 0.0,
+            po_date=request.po_date or "",
+            delivery_date=request.delivery_date or "",
+            confidence=1.0,
         )
 
     # 3. Cross-verify 6 fields
@@ -920,10 +915,35 @@ async def reset_dev_entries(
 
 @router.get("/inbound-arrivals")
 async def list_inbound_arrivals(
-    _user: CurrentUser = Depends(require_permission("gate:read")),
+    user: CurrentUser = Depends(require_permission("gate:read")),
     uow: UnitOfWork = Depends(get_uow),
 ):
     """Warehouse queue backed by approved gate entries and their source ASNs."""
+    store_scoped = False
+    scoped_store_id = None
+    scoped_store_code = None
+
+    user_roles_upper = [r.upper() for r in (user.roles or [])]
+    is_admin_or_wm = any(r in user_roles_upper for r in ["ADMIN", "WAREHOUSE", "WAREHOUSE_MANAGER", "SECURITY", "PROCUREMENT"])
+    is_store_user = any(r in user_roles_upper for r in ["STORE_MANAGER", "STORE_KEEPER", "STORE"])
+
+    if is_store_user and not is_admin_or_wm:
+        store_scoped = True
+        scoped_store_id = user.raw_claims.get("store_id")
+        scoped_store_code = user.raw_claims.get("store_code")
+        if not scoped_store_id:
+            mgr_res = await uow.session.execute(
+                select(StoreManagerUserModel).where(
+                    or_(
+                        StoreManagerUserModel.username == user.username,
+                        StoreManagerUserModel.employee_id == user.subject,
+                    )
+                )
+            )
+            mgr = mgr_res.scalars().first()
+            if mgr:
+                scoped_store_id = str(mgr.store_id)
+
     result = await uow.session.execute(
         select(GateEntryModel, AsnModel, PurchaseOrderModel, DockAssignmentModel)
         .outerjoin(AsnModel, GateEntryModel.asn_id == AsnModel.id)
@@ -952,6 +972,12 @@ async def list_inbound_arrivals(
     )
     arrivals = []
     for gate_entry, asn, po, assignment in result.all():
+        if store_scoped:
+            if not assignment or not assignment.assigned_store_id:
+                continue
+            if scoped_store_id and str(assignment.assigned_store_id) != scoped_store_id and assignment.assigned_store_code != scoped_store_code:
+                continue
+
         received_by_code = {}
         if assignment:
             received_result = await uow.session.execute(
@@ -980,6 +1006,9 @@ async def list_inbound_arrivals(
                 else gate_entry.status
             ),
             "assigned_dock_id": gate_entry.assigned_dock_id,
+            "assigned_store_id": str(assignment.assigned_store_id) if assignment and assignment.assigned_store_id else None,
+            "assigned_store_code": assignment.assigned_store_code if assignment else None,
+            "assigned_store_name": assignment.assigned_store_name if assignment else None,
             "po_id": str(po.id) if po else None,
             "assigned_by": assignment.assigned_by if assignment else None,
             "assigned_at": assignment.assigned_at.isoformat() if assignment else None,
@@ -1170,6 +1199,38 @@ async def assign_arrival_dock(
 
     # 3. Search in DockMasterModel to map dock_code
     if dock is None:
+        dm_res = await uow.session.execute(
+            select(DockMasterModel).where(
+                or_(
+                    DockMasterModel.dock_code == dock_id_raw,
+                    func.upper(DockMasterModel.dock_code) == dock_id_raw.upper(),
+                )
+            )
+        )
+        dm = dm_res.scalar_one_or_none()
+        if dm:
+            dock_res = await uow.session.execute(
+                select(DockModel).where(
+                    or_(
+                        DockModel.dock_number == dm.dock_code,
+                        func.upper(DockModel.dock_number) == dm.dock_code.upper(),
+                    )
+                )
+            )
+            dock = dock_res.scalar_one_or_none()
+            if dock is None:
+                dock = DockModel(
+                    dock_number=dm.dock_code.upper(),
+                    warehouse_id=(dm.location or "WH-001").strip().upper(),
+                    dock_type=dm.dock_type,
+                    capacity=1,
+                    status=(dm.status or "AVAILABLE").strip().upper(),
+                )
+                uow.session.add(dock)
+                await uow.session.flush()
+
+    # 4. Search in DockMasterModel by UUID and map dock_code
+    if dock is None:
         try:
             val_uuid = uuid.UUID(dock_id_raw)
             dm_res = await uow.session.execute(select(DockMasterModel).where(DockMasterModel.id == val_uuid))
@@ -1184,6 +1245,16 @@ async def assign_arrival_dock(
                     )
                 )
                 dock = dock_res.scalar_one_or_none()
+                if dock is None:
+                    dock = DockModel(
+                        dock_number=dm.dock_code.upper(),
+                        warehouse_id=(dm.location or "WH-001").strip().upper(),
+                        dock_type=dm.dock_type,
+                        capacity=1,
+                        status=(dm.status or "AVAILABLE").strip().upper(),
+                    )
+                    uow.session.add(dock)
+                    await uow.session.flush()
         except ValueError:
             pass
 
@@ -1201,9 +1272,53 @@ async def assign_arrival_dock(
     )
     if occupied.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail=f"Dock {dock_id} is already occupied")
+
+    store = None
+    raw_store_id = request.store_id.strip() if request.store_id else ""
+    if raw_store_id:
+        try:
+            store_uuid = uuid.UUID(raw_store_id)
+            store = await uow.session.get(StoreModel, store_uuid)
+        except ValueError:
+            pass
+
+    if raw_store_id and store is None:
+        store_res = await uow.session.execute(
+            select(StoreModel).where(func.upper(StoreModel.store_code) == raw_store_id.upper())
+        )
+        store = store_res.scalars().first()
+
+    if store is None:
+        dock_wh = (dock.warehouse_id or "").strip().upper()
+        store_stmt = select(StoreModel).where(func.upper(StoreModel.status) == "ACTIVE")
+        if dock_wh:
+            store_stmt = store_stmt.where(func.upper(StoreModel.warehouse_id) == dock_wh)
+        store_res = await uow.session.execute(store_stmt.order_by(StoreModel.store_code).limit(1))
+        store = store_res.scalars().first()
+
+    if store is None:
+        detail = (
+            f"Store '{raw_store_id}' does not exist"
+            if raw_store_id
+            else "No active store is available for this dock warehouse"
+        )
+        raise HTTPException(status_code=422, detail=detail)
+
+    if (store.status or "").strip().upper() != "ACTIVE":
+        raise HTTPException(status_code=422, detail=f"Store '{store.store_name}' ({store.store_code}) is inactive")
+
+    # Validate Warehouse isolation
+    store_wh = (store.warehouse_id or "").strip().upper()
+    dock_wh = (dock.warehouse_id or "").strip().upper()
+    if store_wh and dock_wh and store_wh != dock_wh:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Store '{store.store_name}' belongs to warehouse '{store.warehouse_id}', which does not match dock warehouse '{dock.warehouse_id}'",
+        )
+
     try:
         model = await uow.session.get(GateEntryModel, uuid.UUID(entry_id))
-    except ValueError:
+    except (ValueError, TypeError):
         model = None
     if model is None:
         raise NotFoundException(f"Inbound arrival '{entry_id}' not found")
@@ -1242,16 +1357,33 @@ async def assign_arrival_dock(
         po_id=po.id if po else None,
         vehicle_number=model.vehicle_number,
         dock_number=dock_id,
+        assigned_store_id=store.id,
+        assigned_store_code=store.store_code,
+        assigned_store_name=store.store_name,
         assigned_by=user.username,
         assigned_at=assigned_at,
     )
     uow.session.add(assignment)
+
+    # Dispatch targeted notification exclusively to the assigned Store
+    notif_msg = (
+        f"Vehicle {entry.vehicle_plate} (Gate Entry: {entry.gate_entry_number}) has arrived at Dock {dock_id} "
+        f"and has been assigned to {store.store_name} ({store.store_code}). "
+        f"PO: {model.po_number}. Please proceed with the store-side unloading/receiving workflow."
+    )
     uow.session.add(NotificationModel(
-        user_role="WAREHOUSE",
-        title="Dock Assigned",
-        message=f"{entry.vehicle_plate} has been assigned to {dock_id} by {user.username}.",
+        user_role=f"STR:{store.store_code}"[:32],
+        title=f"Vehicle Arrival Assigned to {store.store_name}",
+        message=notif_msg,
         link="/vehicle-queue",
     ))
+    uow.session.add(NotificationModel(
+        user_role=f"STR:{store.id}"[:32],
+        title=f"Vehicle Arrival Assigned to {store.store_name}",
+        message=notif_msg,
+        link="/vehicle-queue",
+    ))
+
     return {
         "id": entry.id,
         "status": entry.status.value,
@@ -1259,6 +1391,9 @@ async def assign_arrival_dock(
         "po_id": str(po.id) if po else None,
         "vehicle_number": model.vehicle_number,
         "dock_number": dock_id,
+        "assigned_store_id": str(store.id),
+        "assigned_store_code": store.store_code,
+        "assigned_store_name": store.store_name,
         "assigned_by": user.username,
         "assigned_at": assigned_at.isoformat(),
     }
@@ -1908,7 +2043,11 @@ async def complete_receiving(
                     grn_number=grn.grn_number, handling_unit_id=unit.id, item_code=grn_line.item_code,
                     material_name=grn_line.material_name or grn_line.item_code, quantity=accepted,
                     uom=grn_line.uom or "PCS", warehouse_id=grn.warehouse_id,
-                    source_location=f"Receiving / {assignment.dock_number}",
+                    source_location=f"Receiving / {assignment.dock_number}" if assignment else "Receiving Area",
+                    destination_store_id=getattr(assignment, "assigned_store_id", None),
+                    assigned_to=getattr(assignment, "assigned_store_manager_username", None) or getattr(assignment, "assigned_store_manager_name", None) or getattr(assignment, "assigned_store_manager_id", None),
+                    assigned_by=getattr(assignment, "assigned_by", None) or user.username,
+                    assigned_at=getattr(assignment, "assigned_at", None) or completed_at,
                     destination_location_id=suggested_location.id if suggested_location else None,
                     destination_zone=suggested_location.zone if suggested_location else None,
                     destination_rack=suggested_location.rack if suggested_location else None,
@@ -1918,12 +2057,61 @@ async def complete_receiving(
                     material_category=placement["category"],
                     handling_requirement=placement["handling_requirement"],
                     rotation_policy=placement["rotation_policy"], placement_metadata=placement,
-                    status="OPEN", created_by=user.username, created_at=completed_at,
+                    status="PUTAWAY_PENDING" if getattr(assignment, "assigned_store_manager_id", None) or getattr(assignment, "assigned_store_manager_username", None) else "OPEN",
+                    created_by=user.username, created_at=completed_at,
                 ))
                 next_task_sequence += 1
                 unit.status = "PUTAWAY_PENDING"
                 tasks_created += 1
             unit.updated_at = completed_at
+
+        # Phase 6: Automatic Quarantine record creation for damaged quantity
+        if (grn_line.damaged_quantity or 0) > 0:
+            rec_line = receiving_by_code.get(grn_line.item_code)
+            rec_line_id = rec_line.id if rec_line else None
+            # Check idempotency to prevent duplicates on retry
+            q_exists_stmt = select(QuarantineRecordModel.id).where(
+                or_(
+                    QuarantineRecordModel.grn_line_id == grn_line.id,
+                    (QuarantineRecordModel.receiving_line_id == rec_line_id) if rec_line_id else False,
+                )
+            )
+            q_exists = await uow.session.execute(q_exists_stmt)
+            if q_exists.first() is None:
+                q_num = f"QRN-{completed_at.year}-{uuid.uuid4().hex[:8].upper()}"
+                q_record = QuarantineRecordModel(
+                    id=uuid.uuid4(),
+                    quarantine_number=q_num,
+                    grn_id=grn.id,
+                    grn_number=grn_number,
+                    grn_line_id=grn_line.id,
+                    receiving_line_id=rec_line_id,
+                    dock_assignment_id=assignment.id,
+                    item_code=grn_line.item_code,
+                    material_name=grn_line.material_name or grn_line.item_code,
+                    damaged_quantity=grn_line.damaged_quantity,
+                    uom=grn_line.uom or "PCS",
+                    supplier_name=grn.supplier_name,
+                    po_number=grn.po_number,
+                    asn_number=grn.asn_number,
+                    warehouse_id=grn.warehouse_id or "Main Warehouse",
+                    reason="Flagged as damaged during receiving inspection",
+                    receiving_notes=rec_line.condition_notes if rec_line and hasattr(rec_line, "condition_notes") else None,
+                    status="PENDING_REVIEW",
+                    created_by=user.username,
+                    created_at=completed_at,
+                    updated_at=completed_at,
+                )
+                uow.session.add(q_record)
+                uow.session.add(
+                    NotificationModel(
+                        user_role="WAREHOUSE",
+                        title="Material Quarantined",
+                        message=f"{grn_line.damaged_quantity} {grn_line.uom or 'PCS'} of {grn_line.item_code} from {grn_number} routed to Quarantine ({q_num}).",
+                        link="/warehouse/quarantine",
+                    )
+                )
+
     assignment.prepared_grn_id = grn_id
     damage_reports = (await uow.session.execute(
         select(DamageReportModel).where(DamageReportModel.gate_entry_id == model.id)
@@ -1939,10 +2127,57 @@ async def complete_receiving(
     return {"gate_entry_id": entry_id, "status": entry.status.value, "grn_id": str(grn.id), "grn_number": grn_number, "grn_status": grn.status, "putaway_tasks_created": tasks_created, "putaway_status": "AWAITING_PUTAWAY", "completed_by": user.username, "completed_at": completed_at.isoformat()}
 
 
+async def _get_store_user_context(user: CurrentUser, uow: UnitOfWork) -> tuple[set[uuid.UUID], set[str]]:
+    """Returns (store_ids, store_codes) authorized for the current user."""
+    store_ids: set[uuid.UUID] = set()
+    store_codes: set[str] = set()
+
+    raw_id = getattr(user, "store_id", None) or user.raw_claims.get("store_id")
+    if raw_id:
+        try:
+            store_ids.add(uuid.UUID(str(raw_id)))
+        except (ValueError, TypeError):
+            pass
+
+    raw_code = getattr(user, "store_code", None) or user.raw_claims.get("store_code")
+    if raw_code:
+        store_codes.add(str(raw_code).strip().upper())
+
+    emp_id = user.raw_claims.get("employee_id") or user.subject or user.username
+    if emp_id:
+        st_res = await uow.session.execute(
+            select(StoreManagerUserModel).where(
+                or_(
+                    func.lower(StoreManagerUserModel.employee_id) == str(emp_id).strip().lower(),
+                    func.lower(StoreManagerUserModel.username) == str(emp_id).strip().lower(),
+                )
+            )
+        )
+        sm_users = st_res.scalars().all()
+        for sm in sm_users:
+            if sm.store_id:
+                store_ids.add(sm.store_id)
+            if getattr(sm, "store_code", None):
+                store_codes.add(str(sm.store_code).strip().upper())
+
+    if store_ids:
+        s_res = await uow.session.execute(select(StoreModel).where(StoreModel.id.in_(store_ids)))
+        for s in s_res.scalars().all():
+            if s.store_code:
+                store_codes.add(s.store_code.strip().upper())
+
+    if store_codes:
+        s_res = await uow.session.execute(select(StoreModel).where(func.upper(StoreModel.store_code).in_(store_codes)))
+        for s in s_res.scalars().all():
+            store_ids.add(s.id)
+
+    return store_ids, store_codes
+
+
 @router.post("/{entry_id}/release-dock")
 async def release_dock(
     entry_id: str,
-    user: CurrentUser = Depends(require_permission("gate:verify")),
+    user: CurrentUser = Depends(get_current_user),
     uow: UnitOfWork = Depends(get_uow),
 ):
     try:
@@ -1961,12 +2196,46 @@ async def release_dock(
         raise HTTPException(status_code=409, detail="Dock assignment or prepared GRN was not found")
     if assignment.dock_released_at is not None:
         raise HTTPException(status_code=409, detail="Dock was already released")
+
+    # Validate Store assignment exists
+    if not assignment.assigned_store_id:
+        raise HTTPException(status_code=400, detail="Store must be assigned before dock release")
+
+    # Authorize Store Manager / Store Keeper
+    roles_upper = {r.upper() for r in (user.roles or [])}
+    is_admin = "ADMIN" in roles_upper or "SUPERUSER" in roles_upper
+    is_store_user = "STORE_MANAGER" in roles_upper or "STORE_KEEPER" in roles_upper
+
+    if not is_admin:
+        if not is_store_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Dock release must be performed by the assigned Store Manager/Keeper",
+            )
+        # Verify user belongs to the assigned Store
+        user_store_ids, user_store_codes = await _get_store_user_context(user, uow)
+        assigned_sid = assignment.assigned_store_id
+        assigned_scode = (assignment.assigned_store_code or "").strip().upper()
+
+        if assigned_sid not in user_store_ids and assigned_scode not in user_store_codes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only release docks assigned to your Store",
+            )
+
     dock_result = await uow.session.execute(select(DockModel).where(DockModel.dock_number == assignment.dock_number).with_for_update())
     dock = dock_result.scalar_one_or_none()
     if dock is None:
         raise HTTPException(status_code=409, detail="Assigned dock was not found")
     if dock.status != "OCCUPIED":
         raise HTTPException(status_code=409, detail=f"Dock {dock.dock_number} is not occupied")
+
+    # Validate warehouse matching between store and dock
+    if assignment.assigned_store_id:
+        store = await uow.session.get(StoreModel, assignment.assigned_store_id)
+        if store and store.warehouse_id and dock.warehouse_id and store.warehouse_id.strip().upper() != dock.warehouse_id.strip().upper():
+            raise HTTPException(status_code=400, detail="Store warehouse does not match dock warehouse")
+
     grn_result = await uow.session.execute(select(GrnModel).options(selectinload(GrnModel.lines)).where(GrnModel.id == assignment.prepared_grn_id))
     grn = grn_result.scalar_one_or_none()
     if grn is None:
@@ -2058,6 +2327,63 @@ async def approve_vehicle_exit(
     uow.session.add(approval)
     gate_entry.status = GateEntryStatus.EXIT_APPROVED.value
     gate_entry.updated_at = approved_at
+    existing_tasks = await uow.session.execute(select(PutawayTaskModel.id).where(PutawayTaskModel.grn_id == grn.id))
+    if existing_tasks.first() is not None:
+        raise HTTPException(status_code=409, detail="Putaway tasks already exist for this GRN")
+    handling_units_result = await uow.session.execute(select(HandlingUnitModel).where(HandlingUnitModel.grn_line_id.in_([line.id for line in grn.lines])))
+    handling_units_by_line = {unit.grn_line_id: unit for unit in handling_units_result.scalars().all()}
+    tasks_created = 0
+    for line in grn.lines:
+        accepted = line.accepted_quantity or 0
+        if accepted <= 0:
+            continue
+        handling_unit = handling_units_by_line.get(line.id)
+        if handling_unit is None:
+            raise HTTPException(status_code=409, detail=f"Handling unit is missing for {line.item_code}")
+        location_result = await uow.session.execute(
+            select(StorageLocationModel).where(
+                StorageLocationModel.warehouse_id == grn.warehouse_id,
+                StorageLocationModel.active.is_(True),
+                StorageLocationModel.capacity - StorageLocationModel.occupied_quantity >= accepted,
+            ).order_by(StorageLocationModel.zone, StorageLocationModel.rack, StorageLocationModel.bin).limit(1)
+        )
+        suggested_location = location_result.scalar_one_or_none()
+        uow.session.add(PutawayTaskModel(
+            task_number=f"PUT-{approved_at.year}-{uuid.uuid4().hex[:8].upper()}", grn_id=grn.id,
+            grn_number=grn.grn_number, handling_unit_id=handling_unit.id, item_code=line.item_code,
+            material_name=line.material_name or line.item_code, quantity=accepted, uom=line.uom or "PCS",
+            warehouse_id=grn.warehouse_id, source_location="RECEIVING_AREA",
+            destination_store_id=getattr(assignment, "assigned_store_id", None),
+            assigned_to=getattr(assignment, "assigned_store_manager_username", None) or getattr(assignment, "assigned_store_manager_name", None) or getattr(assignment, "assigned_store_manager_id", None),
+            assigned_by=getattr(assignment, "assigned_by", None) or user.username,
+            assigned_at=getattr(assignment, "assigned_at", None) or approved_at,
+            destination_location_id=suggested_location.id if suggested_location else None,
+            destination_zone=suggested_location.zone if suggested_location else None,
+            destination_rack=suggested_location.rack if suggested_location else None,
+            destination_bin=suggested_location.bin if suggested_location else None,
+            location_assigned_by="SYSTEM" if suggested_location else None,
+            location_assigned_at=approved_at if suggested_location else None,
+            status="PUTAWAY_PENDING", created_by=user.username, created_at=approved_at,
+        ))
+        handling_unit.status = "PUTAWAY_PENDING"
+        handling_unit.updated_at = approved_at
+        tasks_created += 1
+
+    if assignment.assigned_store_id:
+        store = await uow.session.get(StoreModel, assignment.assigned_store_id)
+        if store:
+            uow.session.add(NotificationModel(
+                user_role=f"STR:{store.store_code}"[:32],
+                title="New Putaway Tasks Available",
+                message=f"{tasks_created} Putaway task(s) generated for {store.store_name} from {grn.grn_number}.",
+                link="/my-store",
+            ))
+            uow.session.add(NotificationModel(
+                user_role=f"STR:{store.id}"[:32],
+                title="New Putaway Tasks Available",
+                message=f"{tasks_created} Putaway task(s) generated for {store.store_name} from {grn.grn_number}.",
+                link="/my-store",
+            ))
     uow.session.add(NotificationModel(user_role="WAREHOUSE", title="Vehicle Exit Approved", message=f"Security approved exit for {assignment.vehicle_number} against {grn.grn_number}.", link="/vehicle-exit"))
     await uow.session.flush()
     return {"gate_entry_id": str(gate_entry.id), "status": gate_entry.status, "vehicle_number": assignment.vehicle_number,
@@ -2140,7 +2466,28 @@ async def list_grn_drafts(
 ):
     query = select(GrnModel).options(selectinload(GrnModel.lines)).order_by(GrnModel.created_at.desc(), GrnModel.grn_number.desc())
     if status and status.upper() != "ALL":
-        query = query.where(GrnModel.status == status)
+        clean_st = status.upper().strip()
+        if "PARTIAL" in clean_st:
+            query = query.where(
+                or_(
+                    GrnModel.status.ilike("%PARTIAL%"),
+                    GrnModel.status == "PARTIALLY COMPLETED",
+                    GrnModel.status == "PARTIALLY_COMPLETED",
+                    GrnModel.status == "DRAFT",
+                    GrnModel.status == "IN_PROGRESS",
+                )
+            )
+        elif "COMPLETE" in clean_st:
+            query = query.where(
+                or_(
+                    GrnModel.status.ilike("%COMPLETE%"),
+                    GrnModel.status == "COMPLETED",
+                    GrnModel.status == "POSTED",
+                    GrnModel.status == "CLOSED",
+                )
+            )
+        else:
+            query = query.where(GrnModel.status == status)
 
     result = await uow.session.execute(query)
     all_grns = result.scalars().all()
@@ -2330,7 +2677,11 @@ async def post_grn(
                     handling_unit_id=handling_unit.id, item_code=line.item_code,
                     material_name=line.material_name or line.item_code, quantity=accepted,
                     uom=line.uom or "PCS", warehouse_id=grn.warehouse_id,
-                    source_location=f"Receiving / {assignment.dock_number}",
+                    source_location=f"Receiving / {assignment.dock_number}" if assignment else "RECEIVING_AREA",
+                    destination_store_id=getattr(assignment, "assigned_store_id", None),
+                    assigned_to=getattr(assignment, "assigned_store_manager_username", None) or getattr(assignment, "assigned_store_manager_name", None) or getattr(assignment, "assigned_store_manager_id", None),
+                    assigned_by=getattr(assignment, "assigned_by", None) or user.username,
+                    assigned_at=getattr(assignment, "assigned_at", None) or posted_at,
                     destination_location_id=suggested_location.id if suggested_location else None,
                     destination_zone=suggested_location.zone if suggested_location else None,
                     destination_rack=suggested_location.rack if suggested_location else None,
@@ -2340,7 +2691,8 @@ async def post_grn(
                     material_category=placement["category"],
                     handling_requirement=placement["handling_requirement"],
                     rotation_policy=placement["rotation_policy"], placement_metadata=placement,
-                    status="OPEN", created_by=user.username, created_at=posted_at,
+                    status="PUTAWAY_PENDING" if getattr(assignment, "assigned_store_manager_id", None) or getattr(assignment, "assigned_store_manager_username", None) else "OPEN",
+                    created_by=user.username, created_at=posted_at,
                 ))
                 putaway_task_created = True
             if not putaway_task_created:
@@ -2362,7 +2714,11 @@ async def post_grn(
                         handling_unit_id=handling_unit.id, item_code=line.item_code,
                         material_name=line.material_name or line.item_code, quantity=accepted,
                         uom=line.uom or "PCS", warehouse_id=grn.warehouse_id,
-                        source_location=f"Receiving / {assignment.dock_number}",
+                        source_location=f"Receiving / {assignment.dock_number}" if assignment else "RECEIVING_AREA",
+                        destination_store_id=getattr(assignment, "assigned_store_id", None),
+                        assigned_to=getattr(assignment, "assigned_store_manager_username", None) or getattr(assignment, "assigned_store_manager_name", None) or getattr(assignment, "assigned_store_manager_id", None),
+                        assigned_by=getattr(assignment, "assigned_by", None) or user.username,
+                        assigned_at=getattr(assignment, "assigned_at", None) or posted_at,
                         destination_location_id=suggested_location.id if suggested_location else None,
                         destination_zone=suggested_location.zone if suggested_location else None,
                         destination_rack=suggested_location.rack if suggested_location else None,
@@ -2372,7 +2728,8 @@ async def post_grn(
                         material_category=placement["category"],
                         handling_requirement=placement["handling_requirement"],
                         rotation_policy=placement["rotation_policy"], placement_metadata=placement,
-                        status="OPEN", created_by=user.username, created_at=posted_at,
+                        status="PUTAWAY_PENDING" if getattr(assignment, "assigned_store_manager_id", None) or getattr(assignment, "assigned_store_manager_username", None) else "OPEN",
+                        created_by=user.username, created_at=posted_at,
                     ))
             # Posting makes the receipt official, but the physical material
             # remains in the receiving area until its putaway task is completed.
@@ -2627,6 +2984,75 @@ async def approve_gate_entry_by_qr(
 
 
 
+@router.post("/{entry_id}/vehicle-exited", response_model=GateEntryResponse)
+async def mark_inbound_vehicle_exited(
+    entry_id: str,
+    user: CurrentUser = Depends(require_permission("gate:write")),
+    uow: UnitOfWork = Depends(get_uow),
+) -> GateEntryResponse:
+    """
+    Record that an inbound raw-material vehicle has exited the facility after unloading/receiving.
+    """
+    try:
+        model = await uow.session.get(GateEntryModel, uuid.UUID(entry_id))
+    except ValueError:
+        model = None
+
+    if model is None:
+        raise NotFoundException(f"Gate entry with ID '{entry_id}' not found")
+
+    current_status = (model.status or "").upper().strip()
+    if current_status == "VEHICLE_EXITED" or model.exited_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle has already exited.",
+        )
+
+    eligible_statuses = {
+        "RECEIVING_COMPLETED",
+        "COMPLETED",
+        "RELEASED",
+        "DOCK_RELEASED",
+        "GRN_POSTED",
+        "QUALITY_PASSED",
+        "UNLOADED",
+    }
+
+    if current_status not in eligible_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Gate entry status '{current_status}' is not eligible for vehicle exit. Eligible statuses: {', '.join(sorted(eligible_statuses))}.",
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    model.status = "VEHICLE_EXITED"
+    model.exited_at = now
+    model.exited_by = user.username
+    model.updated_at = now
+
+    audit_entry = GateEntryAuditLogModel(
+        gate_entry_id=model.id,
+        action="VEHICLE_EXITED",
+        performed_by=user.username,
+        timestamp=now,
+        details={
+            "previous_status": current_status,
+            "new_status": "VEHICLE_EXITED",
+            "exited_at": now.isoformat(),
+            "exited_by": user.username,
+        },
+    )
+    uow.session.add(audit_entry)
+    await uow.session.flush()
+
+    entry = _gate_entry_from_model(model)
+    response = _to_gate_entry_response(entry)
+    return response.model_copy(update={
+        "exited_at": now.isoformat(),
+        "exited_by": user.username,
+    })
+
+
 @router.get("/{entry_id}", response_model=GateEntryResponse)
 async def get_gate_entry(
     entry_id: str,
@@ -2650,9 +3076,12 @@ async def list_gate_entries(
     _user: CurrentUser = Depends(require_permission("gate:read")),
     uow: UnitOfWork = Depends(get_uow),
 ) -> list[GateEntryResponse]:
-    """List all Gate Entries with optional status filter."""
     try:
-        query = select(GateEntryModel).order_by(GateEntryModel.created_at.desc())
+        query = select(GateEntryModel).where(
+            GateEntryModel.gate_entry_number.isnot(None),
+            GateEntryModel.gate_entry_number != "",
+            GateEntryModel.status.notin_(["REJECTED", "CANCELLED", "DRAFT"])
+        ).order_by(GateEntryModel.created_at.desc())
         if status:
             query = query.where(GateEntryModel.status == status.strip().upper())
         result = await uow.session.execute(query)
@@ -2662,7 +3091,9 @@ async def list_gate_entries(
             response = _to_gate_entry_response(_gate_entry_from_model(model))
             responses.append(response.model_copy(update={
                 "driver_phone": model.driver_phone,
-                "document_image_base64": base64.b64encode(model.po_document_data).decode("ascii") if model.po_document_data else None,
+                "document_image_base64": None,
+                "exited_at": model.exited_at.isoformat() if model.exited_at else None,
+                "exited_by": model.exited_by,
             }))
         return responses
     except Exception as e:

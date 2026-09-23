@@ -97,7 +97,7 @@ function SupplierDashboard() {
 
   // Calculated stats
   const rfqsReceived = rfqs.length;
-  const bidRfqIds = new Set(quotations.map((q) => q.rfq_id));
+  const bidRfqIds = new Set(quotations.map((q) => q.rfq_id || q.rfqId));
   const rfqsPending = rfqs.filter((r) => !bidRfqIds.has(r.id)).length;
   const quotesSubmitted = quotations.length;
   const asnsDispatched = asns.length;
@@ -189,25 +189,32 @@ function SupplierDashboard() {
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               {qualityIssues.slice(0, 2).map((issue) => (
-                <div key={issue.gate_entry_id} className="rounded-xl border bg-card p-4">
+                <div key={issue.gate_entry_id || issue.id} className="rounded-xl border bg-card p-4">
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-mono font-bold">{issue.asn_number}</p>
+                      <p className="font-mono font-bold">{issue.asn_number || issue.claim_number || "Issue Report"}</p>
                       <p className="text-xs text-muted-foreground">{issue.po_number}</p>
                     </div>
                     <span className="rounded-full bg-destructive/10 px-2 py-1 text-[10px] font-bold text-destructive">
-                      INSPECTION FAILED
+                      {issue.status || "INSPECTION FAILED"}
                     </span>
                   </div>
                   {issue.image_base64 && (
                     <img
-                      src={`data:${issue.content_type};base64,${issue.image_base64}`}
+                      src={`data:${issue.content_type || 'image/jpeg'};base64,${issue.image_base64}`}
+                      alt="Failed receiving inspection"
+                      className="max-h-56 w-full rounded-lg border object-contain"
+                    />
+                  )}
+                  {issue.photos?.[0]?.image_base64 && (
+                    <img
+                      src={`data:${issue.photos[0].content_type || 'image/jpeg'};base64,${issue.photos[0].image_base64}`}
                       alt="Failed receiving inspection"
                       className="max-h-56 w-full rounded-lg border object-contain"
                     />
                   )}
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Vehicle {issue.vehicle_number} · Forwarded {issue.forwarded_at ? new Date(issue.forwarded_at).toLocaleString() : "—"}
+                    Vehicle {issue.vehicle_number || "—"} · Forwarded {issue.forwarded_at ? new Date(issue.forwarded_at).toLocaleString() : (issue.sent_at ? new Date(issue.sent_at).toLocaleString() : "—")}
                   </p>
                 </div>
               ))}
@@ -254,7 +261,7 @@ function SupplierDashboard() {
                         >
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
-                              <h4 className="text-sm font-bold">{rfq.rfqNumber}</h4>
+                              <h4 className="text-sm font-bold">{rfq.rfqNumber || rfq.rfq_number}</h4>
                               <span
                                 className={cn(
                                   "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
@@ -269,7 +276,7 @@ function SupplierDashboard() {
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Calendar className="size-3.5" /> Delivery:{" "}
-                                {rfq.requiredDeliveryDate || "N/A"}
+                                {rfq.requiredDeliveryDate || rfq.required_delivery_date || "N/A"}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Building2 className="size-3.5" /> WH: {rfq.warehouse}
@@ -326,35 +333,64 @@ function SupplierDashboard() {
                   </div>
                 ) : (
                   <div className="divide-y divide-border/60">
-                    {quotations.map((q, idx) => (
-                      <div
-                        key={q.id || `quo-${idx}`}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 hover:bg-muted/10 transition-colors"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-bold">
-                              Quote Reference: {q.id.substring(0, 8).toUpperCase()}
-                            </h4>
-                            <span className="rounded-full bg-success-soft/30 text-success px-2 py-0.5 text-[10px] font-bold uppercase">
-                              {q.status}
+                    {quotations.map((q, idx) => {
+                      const isRejected = String(q.status || "").toUpperCase() === "REJECTED";
+                      const isDeclined = String(q.status || "").toUpperCase() === "DECLINED";
+                      const rejectionLines = String(q.remarks || "")
+                        .split("\n")
+                        .filter((line: string) => line.startsWith("Rejected by "));
+                      const rejectionReason = rejectionLines[rejectionLines.length - 1];
+                      const quotationRfqId = q.rfqId || q.rfq_id;
+                      return (
+                        <div
+                          key={q.id || `quo-${idx}`}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 hover:bg-muted/10 transition-colors"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-bold">
+                                Quote Reference: {q.id.substring(0, 8).toUpperCase()}
+                              </h4>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                                  isRejected || isDeclined
+                                    ? "bg-destructive/10 text-destructive"
+                                    : "bg-success-soft/30 text-success",
+                                )}
+                              >
+                                {q.status}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              <span>RFQ ID: {quotationRfqId}</span>
+                              <span>Date: {new Date(q.created_at).toLocaleDateString()}</span>
+                            </div>
+                            {(isRejected || isDeclined) && (
+                              <div className="max-w-xl rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs">
+                                <p className="flex items-center gap-1.5 font-bold text-destructive">
+                                  <AlertCircle className="size-3.5" />
+                                  {isDeclined ? "Your decline reason" : "Rejection reason"}
+                                </p>
+                                <p className="mt-1 text-muted-foreground">
+                                  {rejectionReason ||
+                                    q.remarks ||
+                                    "Please contact procurement for more details."}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-extrabold text-foreground">
+                              INR {parseFloat(q.total_amount || 0).toLocaleString()}
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground mt-0.5">
+                              {q.lines?.length || 0} items quoted
                             </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span>RFQ ID: {q.rfq_id}</span>
-                            <span>Date: {new Date(q.created_at).toLocaleDateString()}</span>
-                          </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-sm font-extrabold text-foreground">
-                            INR {parseFloat(q.total_amount || 0).toLocaleString()}
-                          </span>
-                          <span className="block text-[10px] text-muted-foreground mt-0.5">
-                            {q.lines?.length || 0} items quoted
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -429,11 +465,11 @@ function SupplierDashboard() {
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-bold">ASN: {asn.asn_number}</h4>
+                            <h4 className="text-sm font-bold">ASN: {asn.asn_number || asn.asnNumber}</h4>
                             <span
                               className={cn(
                                 "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
-                                asn.status === "Received"
+                                (asn.status === "Received" || asn.status === "RECEIVED")
                                   ? "bg-success-soft/30 text-success"
                                   : "bg-blue-soft/30 text-blue-500",
                               )}
@@ -442,11 +478,11 @@ function SupplierDashboard() {
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span>Vehicle: {asn.vehicle_number || "—"}</span>
+                            <span>Vehicle: {asn.vehicle_number || asn.vehicleNumber || "—"}</span>
                             <span>
                               Arrival:{" "}
-                              {asn.expected_arrival_at
-                                ? new Date(asn.expected_arrival_at).toLocaleString()
+                              {(asn.expected_arrival_at || asn.expectedArrivalAt)
+                                ? new Date(asn.expected_arrival_at || asn.expectedArrivalAt).toLocaleString()
                                 : "—"}
                             </span>
                           </div>
@@ -456,7 +492,7 @@ function SupplierDashboard() {
                             Lines: {asn.lines?.length || 0}
                           </span>
                           <span className="block text-muted-foreground mt-0.5">
-                            Created: {new Date(asn.created_at).toLocaleDateString()}
+                            Created: {(asn.created_at || asn.createdAt) ? new Date(asn.created_at || asn.createdAt).toLocaleDateString() : "—"}
                           </span>
                           <Button
                             asChild

@@ -19,6 +19,7 @@ import {
   Trash2,
   Table as TableIcon,
   ArrowRight,
+  LogOut,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -88,7 +89,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { PoCameraScanner } from "@/components/wms/PoCameraScanner";
+
 
 function gateQrPayload(gateEntryNumber: string) {
   return `NEXUSWMS:GATE_ENTRY:${gateEntryNumber.trim().toUpperCase()}`;
@@ -110,9 +111,14 @@ type GateEntryRecord = {
   driverName: string;
   status: string;
   assignedDock?: string;
+  dockAllocationStatus?: string;
   verificationStatus?: string | null;
   truckPhotoBase64?: string | null;
   verificationResult?: { reasons?: string[] } | null;
+  exited_at?: string | null;
+  exited_by?: string | null;
+  exitedAt?: string | null;
+  exitedBy?: string | null;
 };
 type CaptureKind = "po" | "vehicle";
 type ArrivalLineItem = {
@@ -129,9 +135,9 @@ function formatVehicleNumber(value: string): string {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 11);
   const bharat = compact.match(/^(\d{2})BH(\d{4})([A-Z]{2})$/);
-  if (bharat) return `${bharat[1]}-BH-${bharat[2]}-${bharat[3]}`;
+  if (bharat && bharat[1] && bharat[2] && bharat[3]) return `${bharat[1]}-BH-${bharat[2]}-${bharat[3]}`;
   const standard = compact.match(/^([A-Z]{2})(\d{1,2})([A-Z]{1,3})(\d{4})$/);
-  if (standard)
+  if (standard && standard[1] && standard[2] && standard[3] && standard[4])
     return `${standard[1]}-${standard[2].padStart(2, "0")}-${standard[3]}-${standard[4]}`;
   return compact;
 }
@@ -141,12 +147,18 @@ function isValidVehicleNumber(value: string): boolean {
   return /^(?:[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{4}|\d{2}BH\d{4}[A-Z]{2})$/.test(compact);
 }
 
+function formatQuantityInputValue(value: unknown): string {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return "";
+  return String(Math.floor(quantity));
+}
+
 function GateEntry() {
   const [entries, setEntries] = useState<GateEntryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState<CaptureKind | null>(null);
-  const [poScannerOpen, setPoScannerOpen] = useState(false);
+
   const [poDocument, setPoDocument] = useState<File | null>(null);
   const [vehiclePhoto, setVehiclePhoto] = useState<File | null>(null);
   const [poPreview, setPoPreview] = useState<string | null>(null);
@@ -183,7 +195,92 @@ function GateEntry() {
   const [loadingDocks, setLoadingDocks] = useState(false);
   const [selectedDockId, setSelectedDockId] = useState<string | null>(null);
   const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
+  const [exitingId, setExitingId] = useState<string | null>(null);
   const approvalDialog = useRef<HTMLDialogElement>(null);
+
+  const isEligibleForInboundExit = (status: string) => {
+    const upper = (status || "").toUpperCase().trim();
+    return [
+      "RECEIVING_COMPLETED",
+      "COMPLETED",
+      "RELEASED",
+      "DOCK_RELEASED",
+      "GRN_POSTED",
+      "QUALITY_PASSED",
+      "UNLOADED",
+    ].includes(upper);
+  };
+
+  const handleMarkVehicleExited = async (entry: GateEntryRecord) => {
+    const vehName = entry.vehiclePlate || "this vehicle";
+    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`)) return;
+    setExitingId(entry.id);
+    try {
+      const updated = await api.markInboundVehicleExited(entry.id);
+      toast.success(`Gate exit approved for ${vehName}`, {
+        description: `Status updated to VEHICLE_EXITED by ${updated.exited_by || "Security"}.`,
+      });
+      await loadEntries(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
+      }
+    } catch (error: any) {
+      toast.error("Gate exit approval failed", {
+        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
+      });
+    } finally {
+      setExitingId(null);
+    }
+  };
+
+  const refreshDockAllocationForEntry = useCallback(async (entry: GateEntryRecord) => {
+    const passNumber = entry.gate_entry_number || entry.id;
+    try {
+      const [allocationRequests, gateEntries] = await Promise.all([
+        api.getDockAllocationRequests().catch(() => []),
+        api.getGateEntries().catch(() => []),
+      ]);
+      const allocation = allocationRequests.find((request: any) => {
+        const requestPass = String(request.existing_gate_pass_id || "").toUpperCase();
+        const requestVehicle = String(request.vehicle_number || "").toUpperCase();
+        return (
+          requestPass === String(passNumber).toUpperCase() ||
+          requestPass === String(entry.id).toUpperCase() ||
+          requestVehicle === String(entry.vehiclePlate || "").toUpperCase()
+        );
+      });
+      const freshGateEntry = gateEntries.find((candidate: any) => {
+        return (
+          String(candidate.id || "").toUpperCase() === String(entry.id).toUpperCase() ||
+          String(candidate.gate_entry_number || candidate.gateEntryNumber || "").toUpperCase() ===
+            String(passNumber).toUpperCase()
+        );
+      });
+      const assignedDock =
+        allocation?.assigned_dock_code ||
+        allocation?.assignedDockCode ||
+        allocation?.dock_code ||
+        freshGateEntry?.assignedDock ||
+        freshGateEntry?.assigned_dock_id ||
+        freshGateEntry?.assignedDockId;
+      const dockAllocationStatus =
+        allocation?.status ||
+        freshGateEntry?.dockAllocationStatus ||
+        freshGateEntry?.status ||
+        (assignedDock ? "DOCK_ASSIGNED" : "AWAITING_DOCK");
+
+      setLastCreatedEntry((current) => {
+        if (!current || current.id !== entry.id) return current;
+        return {
+          ...current,
+          assignedDock: assignedDock || current.assignedDock,
+          dockAllocationStatus,
+        };
+      });
+    } catch {
+      // The confirmation dialog can still be useful even if the background refresh fails.
+    }
+  }, []);
 
   useEffect(() => {
     const element = approvalDialog.current;
@@ -220,6 +317,15 @@ function GateEntry() {
     };
   }, [lastCreatedEntry]);
 
+  useEffect(() => {
+    if (!lastCreatedEntry) return;
+    void refreshDockAllocationForEntry(lastCreatedEntry);
+    const timer = window.setInterval(() => {
+      void refreshDockAllocationForEntry(lastCreatedEntry);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [lastCreatedEntry?.id, refreshDockAllocationForEntry]);
+
   const handleVehicleNumberChange = (rawVal: string) => {
     setVehicleNumber(formatVehicleNumber(rawVal));
   };
@@ -238,7 +344,11 @@ function GateEntry() {
             item.materialName ??
             `Standard Item ${idx + 1}`,
         ),
-        quantity: String(item.shipped_quantity ?? item.shippedQuantity ?? item.quantity ?? item.ordered_quantity ?? "10"),
+        // ASN lines expose their quantity as shippedQuantity, whereas PO and
+        // OCR lines use quantity. Support both when populating the gate form.
+        quantity: formatQuantityInputValue(
+          item.shipped_quantity ?? item.shippedQuantity ?? item.quantity ?? item.ordered_quantity ?? "10",
+        ),
         uom: String(item.uom ?? item.unit ?? "PCS"),
       }))
       .filter((item) => item.material_description || item.material_code);
@@ -309,6 +419,7 @@ function GateEntry() {
       return () => URL.revokeObjectURL(url);
     }
     setPoPreview(null);
+    return undefined;
   }, [poDocument]);
 
   useEffect(() => {
@@ -318,19 +429,20 @@ function GateEntry() {
       return () => URL.revokeObjectURL(url);
     }
     setVehiclePreview(null);
+    return undefined;
   }, [vehiclePhoto]);
 
   async function scanCapture(kind: CaptureKind, file: File) {
-    if (!file || !(file instanceof Blob) || file.size === 0) {
-      toast.error("Please capture or upload a document first.");
-      return;
-    }
     console.log(`Starting scanCapture for kind: ${kind}`, file);
     setScanning(null);
-    if (kind === "po") setPoDocument(file);
+    if (kind === "po") {
+      setPoDocument(file);
+      toast.success("PO document photo attached");
+      return;
+    }
     if (kind === "vehicle") setVehiclePhoto(file);
 
-    const toastId = toast.loading(`OCR is analyzing ${kind === "po" ? "document" : "vehicle"}...`);
+    const toastId = toast.loading("Analyzing vehicle photo...");
 
     try {
       console.log(`Calling api.scanOcr for ${kind}...`);
@@ -395,12 +507,7 @@ function GateEntry() {
         ]
           .filter(([, value]) => value === undefined || value === null || value === "")
           .map(([label]) => label);
-        if (!detectedPo && !result.supplier_name && !fields.supplier_name && !result.material_description && !fields.material_description) {
-          toast.info(
-            "No readable purchase-order details were found. Use a clearer document image or enter the details manually.",
-            { id: toastId },
-          );
-        } else if (missing.length) {
+        if (missing.length) {
           toast.warning("PO scanned with fields requiring review", {
             id: toastId,
             description: `Check: ${missing.join(", ")}`,
@@ -431,48 +538,14 @@ function GateEntry() {
       }
     } catch (error: any) {
       console.error("OCR scan error:", error);
-      const msg = String(error?.message || "");
-      if (msg.includes("422") || msg.includes("Unprocessable") || msg.includes("empty") || msg.includes("validation")) {
-        toast.error("Unable to process the uploaded document. Please try again.", {
-          id: toastId,
-        });
-      } else {
-        toast.error("Document scanning failed. Please try again or enter the details manually.", {
-          id: toastId,
-          description: error.message || "Falling back to manual entry.",
-        });
-      }
+      toast.error("OCR scan failed", {
+        id: toastId,
+        description: error.message || "Falling back to manual entry.",
+      });
     }
   }
 
-  async function handlePoScannerSuccess(data: any, file: File) {
-    setPoDocument(file);
-    const result = data.ocr_result || data;
 
-    setExtractedDetails({
-      ...data,
-      source: "local-ocr",
-      confidence: result.confidence,
-    });
-
-    if (result.po_number) {
-      setPoNumber(result.po_number);
-      const previewStatus = data.computedStatus || data.computed_status;
-      setPoVerificationStatus(
-        previewStatus === "PO_VERIFIED" ? "PO_VERIFIED" : "UNSCHEDULED_ARRIVAL",
-      );
-      void fetchPoDetails(result.po_number, true);
-    }
-    if (result.supplier_name) setSupplierName(result.supplier_name);
-    const foundLineItems = applyLineItems(result.line_items || result.lineItems);
-    if (!foundLineItems) {
-      setArrivalLineItems([]);
-      if (result.material_description) setMaterialDescription(result.material_description);
-      if (result.total_quantity) setTotalQuantity(String(result.total_quantity));
-    }
-    if (result.po_date) setPoDate(result.po_date);
-    if (result.delivery_date) setDeliveryDate(result.delivery_date);
-  }
 
   async function fetchPoDetails(number: string, preserveScannedFields = false) {
     if (!number || number.trim().length < 3) return;
@@ -548,7 +621,8 @@ function GateEntry() {
         applyLineItems([
           {
             material_code: `MAT-${resolvedPoNumber.replace(/[^A-Z0-9]/gi, "")}-01`,
-            material_description: po.materialDescription || po.material_description || "Standard Procurement Goods",
+            material_description:
+              po.materialDescription || po.material_description || "Standard Procurement Goods",
             quantity: po.totalQuantity || po.total_quantity || "10",
             uom: "PCS",
           },
@@ -561,7 +635,9 @@ function GateEntry() {
       const today = new Date().toISOString().split("T")[0];
       const defaultDelivery = new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0];
       const fetchedPoDate = String(po.poDate || po.po_date || today);
-      const fetchedDeliveryDate = String(po.expectedDeliveryDate || po.expected_delivery_date || defaultDelivery);
+      const fetchedDeliveryDate = String(
+        po.expectedDeliveryDate || po.expected_delivery_date || defaultDelivery,
+      );
       setPoDate(fetchedPoDate);
       setDeliveryDate(fetchedDeliveryDate);
 
@@ -572,7 +648,10 @@ function GateEntry() {
       if (systemMat) setMaterialDescription(systemMat);
 
       const systemQty = items.length
-        ? items.reduce((sum: number, i: any) => sum + Number(i.quantity || i.ordered_quantity || 0), 0)
+        ? items.reduce(
+            (sum: number, i: any) => sum + Number(i.quantity || i.ordered_quantity || 0),
+            0,
+          )
         : 10;
       setTotalQuantity(String(systemQty || 10));
 
@@ -588,9 +667,11 @@ function GateEntry() {
           String(asn.poNumber || asn.po_number || "").toUpperCase() ===
           resolvedPoNumber.toUpperCase(),
       );
+
+      setVehicleNumber("");
       if (shipment) {
         setAsnReference(shipment.asnNumber || shipment.asn_number || shipment.id || "");
-        if (shipment.supplierName || shipment.supplier_name) setSupplierName(shipment.supplierName || shipment.supplier_name);
+        setSupplierName(shipment.supplierName || shipment.supplier_name || fetchedSupplier);
         const expectedArrival = shipment.expectedArrivalAt || shipment.expected_arrival_at;
         if (expectedArrival) setDeliveryDate(String(expectedArrival).slice(0, 10));
         const shipmentItems = shipment.lines || shipment.items || [];
@@ -605,13 +686,16 @@ function GateEntry() {
         setDriverPhone(shipment.driverContact || shipment.driver_contact);
       }
 
+      if (shipment?.vehicleNumber || shipment?.vehicle_number) {
+        handleVehicleNumberChange(shipment.vehicleNumber || shipment.vehicle_number);
+      }
+
       toast.success(
         shipment?.vehicleNumber || shipment?.vehicle_number
-          ? "PO and vehicle details fetched from system"
-          : "PO details fetched; no submitted ASN vehicle found",
+          ? `PO ${resolvedPoNumber} & vehicle details auto-fetched!`
+          : `PO ${resolvedPoNumber} details auto-fetched & required fields generated!`,
         { id: toastId },
       );
-
       if (shipment?.vehicleNumber || shipment?.vehicle_number) {
         handleVehicleNumberChange(shipment.vehicleNumber || shipment.vehicle_number);
       }
@@ -710,18 +794,87 @@ function GateEntry() {
     if (poDocument) form.append("po_document", poDocument);
     if (vehiclePhoto) form.append("vehicle_photo", vehiclePhoto);
 
-    // Instead of direct submission, fetch docks and open modal
+    // Approve the gate entry. Warehouse dock-management will allocate the dock.
     try {
-      setLoadingDocks(true);
-      const dockList = await api.getDocks();
-      setDocks(dockList);
-      setPendingFormData(form);
-      setSelectedDockId(null);
-      setIsDockModalOpen(true);
+      setSubmitting(true);
+      const entry = await api.createGateEntry(form);
+
+      const createdVehicle =
+        entry.vehicleNumber ||
+        entry.vehicle_number ||
+        entry.vehiclePlate ||
+        entry.vehicle_plate ||
+        vehicleNumber;
+      const createdPo = entry.poNumber || entry.po_number || poNumber;
+      const createdGateNumber = entry.gateEntryNumber || entry.gate_entry_number;
+      const createdDriver = entry.driverName || entry.driver_name || driverName;
+      const assignedDock =
+        entry.assignedDock ||
+        entry.assigned_dock_id ||
+        entry.assignedDockId ||
+        entry.assigned_dock_code;
+
+      localStorage.setItem(
+        "verified_gate_po",
+        JSON.stringify({
+          gateEntryId: entry.id,
+          poNumber,
+          supplierName,
+          materialDescription,
+          totalQuantity,
+          poDate,
+          deliveryDate,
+          vehicleNumber,
+          verifiedAt: new Date().toISOString(),
+        }),
+      );
+      toast.success("Gate entry approved", {
+        description: assignedDock
+          ? `Dock ${assignedDock} is assigned.`
+          : "Warehouse Manager can now allocate a dock in Dock Management.",
+      });
+
+      setLastCreatedEntry({
+        id: entry.id,
+        gate_entry_number: createdGateNumber,
+        poNumber: createdPo,
+        poStatus: entry.poStatus,
+        asnNumber: entry.asnNumber,
+        asnStatus: entry.asnStatus,
+        vehiclePlate: createdVehicle,
+        driverName: createdDriver,
+        status: entry.status,
+        assignedDock,
+        dockAllocationStatus: assignedDock ? "DOCK_ASSIGNED" : "AWAITING_DOCK",
+        verificationStatus: poVerificationStatus,
+      });
+
+      setPoDocument(null);
+      setVehiclePhoto(null);
+      setAsnReference("");
+      setPoNumber("");
+      setPoVerificationStatus(null);
+      setSupplierName("");
+      setMaterialDescription("");
+      setTotalQuantity("");
+      setArrivalLineItems([]);
+      setPoDate("");
+      setDeliveryDate("");
+      setVehicleNumber("");
+      setDriverName("Driver");
+      setLicenseNumber("");
+      setDriverPhone("");
+      setPendingFormData(null);
+      await loadEntries(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
+      }
     } catch (error) {
-      toast.error("Failed to load available docks");
+      toast.error("Gate entry approval failed", {
+        description: error instanceof Error ? error.message : undefined,
+      });
     } finally {
-      setLoadingDocks(false);
+      setSubmitting(false);
     }
   }
 
@@ -881,17 +1034,17 @@ function GateEntry() {
           </SectionCard>
 
           <SectionCard
-            title="Arrival scanning & upload"
-            description="Capture from camera or upload an image or PDF—OCR/ANPR will process either"
-            icon={ScanLine}
+            title="Arrival photo capture & upload"
+            description="Capture from camera or upload PO photo/PDF and vehicle photo"
+            icon={Camera}
           >
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 w-full">
               <ScanCard
                 label="PO document"
-                detail={poDocument ? "PO document ready" : "Optional (Image/PDF)"}
+                detail={poDocument ? "PO document photo ready" : "Optional (Photo/PDF)"}
                 kind="po"
                 captured={!!poDocument}
-                onOpen={() => setPoScannerOpen(true)}
+                onOpen={setScanning}
                 onUpload={(f) => void scanCapture("po", f)}
               />
               <ScanCard
@@ -972,37 +1125,6 @@ function GateEntry() {
             description="Entering a PO auto-fetches system records and auto-populates all required fields."
             icon={Truck}
           >
-            {/* PO Quick Selection Pills */}
-            {availablePos.length > 0 && (
-              <div className="mb-3">
-                <span className="text-[11px] font-medium text-muted-foreground mr-2">Quick Select Open PO:</span>
-                <div className="inline-flex flex-wrap gap-1.5 align-middle mt-1">
-                  {availablePos.slice(0, 6).map((item: any) => {
-                    const num = item.poNumber || item.po_number;
-                    if (!num) return null;
-                    return (
-                      <button
-                        type="button"
-                        key={num}
-                        onClick={() => {
-                          setPoNumber(num);
-                          void fetchPoDetails(num, true);
-                        }}
-                        className={cn(
-                          "px-2 py-0.5 text-xs font-mono rounded-md border transition-colors",
-                          poNumber.toUpperCase() === num.toUpperCase()
-                            ? "bg-primary text-primary-foreground border-primary font-semibold"
-                            : "bg-muted/50 hover:bg-muted text-foreground border-border/60",
-                        )}
-                      >
-                        {num}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             <datalist id="po-options">
               {availablePos.map((item: any, idx: number) => {
                 const num = item.poNumber || item.po_number;
@@ -1334,9 +1456,8 @@ function GateEntry() {
             <div className="space-y-3">
               {entries.slice(0, 8).map((entry) => (
                 <div key={entry.id} className="relative group">
-                  <Link
-                    to="/vehicle-queue"
-                    className="flex items-center gap-3 rounded-xl border border-border/70 p-3 transition-colors hover:border-primary/30 hover:bg-primary-soft"
+                  <div
+                    className="flex items-center gap-3 rounded-xl border border-border/70 p-3 transition-colors hover:border-primary/30 hover:bg-primary-soft/40"
                   >
                     {entry.truckPhotoBase64 ? (
                       <div className="size-14 shrink-0 overflow-hidden rounded-lg border border-border/40">
@@ -1381,8 +1502,48 @@ function GateEntry() {
                           ⚠️ {entry.verificationResult.reasons[0]}
                         </p>
                       )}
+
+                      {(entry.status === "VEHICLE_EXITED" || entry.exited_at || entry.exitedAt) ? (
+                        <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs space-y-0.5">
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <ShieldCheck className="size-3.5" /> Status: Gate Exit Approved
+                          </p>
+                          {(entry.exited_at || entry.exitedAt) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="font-medium text-foreground">Approved Exit Time:</span>{" "}
+                              {new Date(entry.exited_at || entry.exitedAt!).toLocaleString()}
+                            </p>
+                          )}
+                          {(entry.exited_by || entry.exitedBy) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="font-medium text-foreground">Approved By:</span>{" "}
+                              {entry.exited_by || entry.exitedBy}
+                            </p>
+                          )}
+                        </div>
+                      ) : isEligibleForInboundExit(entry.status) ? (
+                        <div className="mt-2">
+                          <Button
+                            size="sm"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm gap-1.5 text-xs h-8"
+                            disabled={exitingId === entry.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void handleMarkVehicleExited(entry);
+                            }}
+                          >
+                            {exitingId === entry.id ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="size-3.5" />
+                            )}
+                            Approve Gate Exit
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
-                  </Link>
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1435,12 +1596,7 @@ function GateEntry() {
           onCapture={(file) => void scanCapture(scanning, file)}
         />
       )}
-      {poScannerOpen && (
-        <PoCameraScanner
-          onClose={() => setPoScannerOpen(false)}
-          onOcrSuccess={handlePoScannerSuccess}
-        />
-      )}
+
       {lastCreatedEntry && (
         <dialog
           ref={approvalDialog}
@@ -1546,16 +1702,26 @@ function GateEntry() {
                   </div>
                 </div>
 
-                {lastCreatedEntry.assignedDock && (
-                  <div className="pt-1 border-t border-border/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Assigned Dock
-                    </span>
-                    <p className="mt-0.5 font-mono text-sm font-black text-primary">
-                      {lastCreatedEntry.assignedDock}
-                    </p>
-                  </div>
-                )}
+                <div className="pt-1 border-t border-border/40">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Dock Allocation
+                  </span>
+                  {lastCreatedEntry.assignedDock ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg border border-primary/20 bg-primary-soft/40 px-2.5 py-1 font-mono text-sm font-black text-primary">
+                        {lastCreatedEntry.assignedDock}
+                      </span>
+                      <StatusBadge status={lastCreatedEntry.dockAllocationStatus || "DOCK_ASSIGNED"} />
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <StatusBadge status={lastCreatedEntry.dockAllocationStatus || "AWAITING_DOCK"} />
+                      <span className="text-[11px] font-medium text-muted-foreground">
+                        Waiting for Warehouse Manager allocation in Dock Management.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1635,7 +1801,7 @@ function GateEntry() {
                   const isAvailable = status === "AVAILABLE";
                   const isOccupied = status === "OCCUPIED" || status === "UNLOADING";
                   const isMaintenance = status === "MAINTENANCE";
-                  const dockIdentifier = dock.dock_number || dock.dock_code || dock.id;
+                  const dockIdentifier = dock.id || dock.dock_number || dock.dock_code;
 
                   return (
                     <button
@@ -1781,7 +1947,11 @@ function ScanCard({
         onClick={() => (hideCamera ? fileInput.current?.click() : onOpen(kind))}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
-            hideCamera ? fileInput.current?.click() : onOpen(kind);
+            if (hideCamera) {
+              fileInput.current?.click();
+            } else {
+              onOpen(kind);
+            }
           }
         }}
         className="cursor-pointer space-y-3"
@@ -2017,7 +2187,7 @@ function CameraScanner({
     );
   }
 
-  const title = kind === "po" ? "Scan purchase order" : "Capture vehicle photo";
+  const title = kind === "po" ? "Capture PO document photo" : "Capture vehicle photo";
 
   return createPortal(
     <dialog

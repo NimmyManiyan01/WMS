@@ -18,6 +18,13 @@ import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -55,10 +62,26 @@ function Rfqs() {
     try {
       setSendingRfq(true);
       const result = await api.sendRfq(rfqId);
-      const sent = result.delivery?.sent;
-      toast.success(result.message || "RFQ published and sent to suppliers successfully!", {
-        description: typeof sent === "number" ? `${sent} email(s) delivered` : undefined,
-      });
+      const delivery = result.delivery || {};
+      const sent = typeof delivery.sent === "number" ? delivery.sent : (result.sent ?? 0);
+      const failed = typeof delivery.failed === "number" ? delivery.failed : (result.failed ?? 0);
+      const total = typeof delivery.total === "number" ? delivery.total : (result.total ?? (sent + failed));
+
+      if (failed === 0 && sent > 0) {
+        toast.success("RFQ Published", {
+          description: `Supplier Email: SENT (${sent} of ${total} accepted by mail server)`,
+        });
+      } else if (sent > 0 && failed > 0) {
+        toast.warning("RFQ Published", {
+          description: `Supplier Email: PARTIALLY SENT (${sent} sent, ${failed} failed)`,
+        });
+      } else if (failed > 0 && sent === 0) {
+        toast.error("RFQ Published with Email Delivery Failure", {
+          description: `Supplier Email: FAILED (0 of ${total} delivered)`,
+        });
+      } else {
+        toast.success(result.message || "RFQ published successfully.");
+      }
       setSelectedRfq(null);
       await fetchData();
     } catch (error: any) {
@@ -68,9 +91,44 @@ function Rfqs() {
     }
   };
 
+  const handleCancelRfq = async (rfqId: string) => {
+    try {
+      setSendingRfq(true);
+      await api.cancelRfq(rfqId);
+      toast.success("RFQ Cancelled successfully");
+      setSelectedRfq(null);
+      await fetchData();
+    } catch (error: any) {
+      toast.error("Failed to cancel RFQ", { description: error.message });
+    } finally {
+      setSendingRfq(false);
+    }
+  };
+
   return (
     <AppShell
-      title="Request for Quotations"
+      title={
+        <div className="flex items-center gap-2">
+          <span>Request for Quotations</span>
+          <TooltipProvider>
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="RFQs Info"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                >
+                  <Info className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-semibold">Request for Quotation (RFQ)</p>
+                <p className="mt-0.5">A request sent to one or more suppliers asking them to provide pricing and commercial terms for required materials.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      }
       subtitle="Manage and track RFQs sent to various suppliers"
     >
       <div className="mb-6 flex flex-wrap items-center gap-4">
@@ -343,28 +401,43 @@ function Rfqs() {
             </div>
 
             {/* Footer */}
-            <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/70 bg-card px-6 py-4">
-              <Button variant="outline" className="rounded-xl" onClick={() => setSelectedRfq(null)}>
-                Close
-              </Button>
-              {(selectedRfq.status === "DRAFT" || selectedRfq.status === "OPEN") && (
-                <Button
-                  className="rounded-xl shadow-glow"
-                  disabled={sendingRfq}
-                  onClick={() => handleSendRfq(selectedRfq.id)}
-                >
-                  {sendingRfq ? (
-                    <>
-                      <Loader2 className="mr-2 size-4 animate-spin" /> Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 size-4" />{" "}
-                      {selectedRfq.status === "OPEN" ? "Resend RFQ Email" : "Approve & Send RFQ"}
-                    </>
-                  )}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-card px-6 py-4">
+              <div className="flex items-center gap-2">
+                {selectedRfq.status !== "CANCELLED" && selectedRfq.status !== "CLOSED" && (
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs"
+                    disabled={sendingRfq}
+                    onClick={() => handleCancelRfq(selectedRfq.id)}
+                  >
+                    <X className="mr-1.5 size-3.5" /> Cancel RFQ
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button variant="outline" className="rounded-xl" onClick={() => setSelectedRfq(null)}>
+                  Close
                 </Button>
-              )}
+                {(selectedRfq.status === "DRAFT" || selectedRfq.status === "OPEN" || selectedRfq.status === "SENT") && (
+                  <Button
+                    className="rounded-xl shadow-glow font-bold text-xs"
+                    disabled={sendingRfq}
+                    onClick={() => handleSendRfq(selectedRfq.id)}
+                  >
+                    {sendingRfq ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" /> Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 size-4" />{" "}
+                        {selectedRfq.status === "DRAFT" ? "Approve & Send RFQ" : "Resend RFQ Email"}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </Card>
         </div>
