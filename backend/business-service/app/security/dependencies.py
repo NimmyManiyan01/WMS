@@ -101,12 +101,15 @@ async def get_current_user(
         if token.startswith("mock-jwt-db-user-"):
             session_token = token.removeprefix("mock-jwt-db-user-")
             from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
             from app.database.session import AsyncSessionFactory
             from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
 
             async with AsyncSessionFactory() as session:
                 result = await session.execute(
-                    select(StoreManagerUserModel).where(
+                    select(StoreManagerUserModel)
+                    .options(selectinload(StoreManagerUserModel.store))
+                    .where(
                         StoreManagerUserModel.auth_token_hash == hashlib.sha256(session_token.encode()).hexdigest(),
                         StoreManagerUserModel.status == "ACTIVE",
                     )
@@ -119,18 +122,34 @@ async def get_current_user(
                     "ADMIN_OFFICER": "ADMIN",
                     "PROCUREMENT_MANAGER": "PROCUREMENT",
                     "PROCUREMENT_OFFICER": "PROCUREMENT",
+                    "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
                     "STORE_OPERATOR": "STORE_KEEPER",
+                    "STORE_MANAGER": "STORE_MANAGER",
                 }.get(role_key, role_key)
+
+                perms = []
+                if role in ("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE"):
+                    perms = ["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"]
+                elif role == "STORE_MANAGER":
+                    perms = ["store:read", "store:write", "storage:read", "putaway:execute", "pickup:execute"]
+                elif role == "STORE_KEEPER":
+                    perms = ["store:read", "storage:read", "putaway:execute", "pickup:execute"]
+                elif role in ("ASSEMBLY", "ASSEMBLY_MANAGER"):
+                    perms = ["material_request:create", "material_request:read", "assembly:read", "assembly:write"]
+
+                claims = {
+                    "employee_id": account.employee_id,
+                    "applications": account.applications or [],
+                    "store_id": str(account.store_id) if account.store_id else None,
+                    "store_code": account.store.store_code if account.store else None,
+                    "store_name": account.store.store_name if account.store else None,
+                }
                 return CurrentUser(
                     subject=account.employee_id,
                     username=account.username,
                     roles=[role],
-                    permissions=[],
-                    raw_claims={
-                        "employee_id": account.employee_id,
-                        "applications": account.applications or [],
-                        "store_id": str(account.store_id),
-                    },
+                    permissions=perms,
+                    raw_claims=claims,
                 )
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or invalid")
         if token == "mock-jwt-admin-token" or token == "local_dev_mock_token":
@@ -346,12 +365,12 @@ async def get_current_user(
                 permissions=permissions,
                 raw_claims=claims,
             )
-        elif token == "mock-jwt-assembly-token":
+        elif token in ("mock-jwt-assembly-token", "mock-jwt-assembly-manager-token"):
             return CurrentUser(
                 subject="EMP-ASSEMBLY-001",
-                username="assembly_operator",
-                roles=["ASSEMBLY"],
-                permissions=["material_request:create", "material_request:read"],
+                username="assembly_manager",
+                roles=["ASSEMBLY_MANAGER", "ASSEMBLY"],
+                permissions=["material_request:create", "material_request:read", "assembly:read", "assembly:write"],
                 raw_claims={"department": "Assembly", "employee_id": "EMP-ASSEMBLY-001"},
             )
 

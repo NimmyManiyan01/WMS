@@ -44,95 +44,9 @@ export const Route = createFileRoute("/warehouse-dashboard")({
   component: WarehouseDashboard,
 });
 
-const warehouseShortcutCards = [
-  {
-    label: "Material Master",
-    to: "/warehouse/materials",
-    icon: Database,
-    detail: "Material codes and specifications",
-    tone: "primary",
-  },
-  {
-    label: "Store Management",
-    to: "/my-store",
-    icon: Store,
-    detail: "Store operations workspace",
-    tone: "teal",
-  },
-  {
-    label: "Stores Master",
-    to: "/warehouse/stores",
-    icon: Building2,
-    detail: "Stores, zones, and bins",
-    tone: "teal",
-  },
-  {
-    label: "Inventory",
-    to: "/inventory",
-    icon: Boxes,
-    detail: "Stock matrix and ledger",
-    tone: "emerald",
-  },
-  {
-    label: "Putaway Tasks",
-    to: "/putaway-tasks",
-    icon: PackageCheck,
-    detail: "Inbound storage execution",
-    tone: "emerald",
-  },
-  {
-    label: "Material Requests",
-    to: "/warehouse/material-requests",
-    icon: ClipboardList,
-    detail: "Warehouse demand requests",
-    tone: "amber",
-  },
-  {
-    label: "Assembly Requisitions",
-    to: "/warehouse/assembly-requisitions",
-    icon: ClipboardList,
-    detail: "Assembly store pickups",
-    tone: "amber",
-  },
-  {
-    label: "Inbound Arrivals",
-    to: "/vehicle-queue?module=warehouse",
-    icon: ListOrdered,
-    detail: "Arrivals awaiting handling",
-    tone: "primary",
-  },
-  {
-    label: "Vehicle Exit",
-    to: "/vehicle-exit",
-    icon: LogOut,
-    detail: "Exit approvals and release",
-    tone: "rose",
-  },
-  {
-    label: "Dock Management",
-    to: "/dock-management",
-    icon: Warehouse,
-    detail: "Dock allocation and status",
-    tone: "primary",
-  },
-  {
-    label: "Damage & Quarantine",
-    to: "/warehouse/quarantine",
-    icon: ShieldAlert,
-    detail: "Segregated stock review",
-    tone: "rose",
-  },
-  {
-    label: "Reports",
-    to: "/reports",
-    icon: BarChart3,
-    detail: "Warehouse analytics",
-    tone: "amber",
-  },
-];
-
 function WarehouseDashboard() {
   const [data, setData] = useState<any>(null);
+  const [materialCount, setMaterialCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,8 +54,14 @@ function WarehouseDashboard() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const res = await api.getWarehouseDashboardMetrics();
+      const [res, mats] = await Promise.all([
+        api.getWarehouseDashboardMetrics(),
+        api.getMaterials().catch(() => []),
+      ]);
       setData(res);
+      if (Array.isArray(mats)) {
+        setMaterialCount(mats.length);
+      }
     } catch (err: any) {
       console.error("Failed to load warehouse dashboard metrics", err);
       setError(err.message || "Failed to load warehouse dashboard data");
@@ -234,6 +154,91 @@ function WarehouseDashboard() {
     window.location.href = target;
   };
 
+  const warehouseShortcutCards = [
+    {
+      label: "Material Master",
+      to: "/warehouse/materials",
+      icon: Database,
+      value: loading ? "..." : (materialCount !== null ? materialCount : (inventory.total_skus || 0)),
+      detail: `${inventory.total_skus || 0} SKUs in stock`,
+      tone: "primary",
+    },
+    {
+      label: "Store Management",
+      to: "/my-store",
+      icon: Store,
+      value: loading ? "..." : actionReq.pending_pickup_count,
+      detail: `${storage.total_stores} active stores`,
+      tone: "teal",
+    },
+    {
+      label: "Stores Master",
+      to: "/warehouse/stores",
+      icon: Building2,
+      value: loading ? "..." : storage.total_stores,
+      detail: `${storage.total_zones} Zones · ${storage.total_bins} Bins`,
+      tone: "teal",
+    },
+    {
+      label: "Inventory",
+      to: "/inventory",
+      icon: Boxes,
+      value: loading ? "..." : Number(inventory.total_on_hand || 0).toLocaleString(),
+      detail: `${Number(inventory.total_available || 0).toLocaleString()} available units`,
+      tone: "emerald",
+    },
+    {
+      label: "Putaway Tasks",
+      to: "/putaway-tasks",
+      icon: PackageCheck,
+      value: loading ? "..." : actionReq.pending_putaway_count,
+      detail: `${putaway.in_progress_count || 0} in progress`,
+      tone: "emerald",
+    },
+    {
+      label: "Material Requests",
+      to: "/warehouse/material-requests",
+      icon: ClipboardList,
+      value: loading ? "..." : actionReq.pending_material_request_count,
+      detail: "Warehouse demand reviews",
+      tone: "amber",
+    },
+    {
+      label: "Assembly Requisitions",
+      to: "/warehouse/assembly-requisitions",
+      icon: ClipboardList,
+      value: loading ? "..." : actionReq.pending_requisition_count,
+      detail: "Assembly store pickups",
+      tone: "amber",
+    },
+    {
+      label: "Dock Management",
+      to: "/dock-management",
+      icon: Warehouse,
+      value: loading
+        ? "..."
+        : `${data?.dock_overview?.occupied_docks ?? 0} / ${data?.dock_overview?.total_docks ?? 0}`,
+      detail: `${data?.dock_overview?.available_docks ?? 0} available docks`,
+      tone: "primary",
+    },
+    {
+      label: "Damage & Quarantine",
+      to: "/warehouse/quarantine",
+      icon: ShieldAlert,
+      value: loading ? "..." : actionReq.active_quarantine_count,
+      detail: `${Number(actionReq.active_quarantine_qty || 0).toLocaleString()} units segregated`,
+      tone: "rose",
+    },
+    {
+      label: "Reports",
+      to: "/reports",
+      icon: BarChart3,
+      value: null,
+      detail: "Warehouse analytics & KPIs",
+      tone: "amber",
+    },
+  ];
+
   return (
     <AppShell
       title="Warehouse Control Center"
@@ -270,8 +275,8 @@ function WarehouseDashboard() {
     >
       <div className="space-y-6">
         <div>
-          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            {warehouseShortcutCards.map((item, index) => {
+          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {warehouseShortcutCards.map((item) => {
               const Icon = item.icon;
               const toneClass =
                 item.tone === "teal"
@@ -294,10 +299,10 @@ function WarehouseDashboard() {
                         ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/20"
                         : "bg-primary/15 text-primary border-primary/20";
               return (
-                <Link key={item.to} to={item.to} className="group">
+                <Link key={item.to + item.label} to={item.to} className="group">
                   <div
                     className={cn(
-                      "relative h-full min-h-[158px] overflow-hidden rounded-2xl border p-5 shadow-2xs transition-all duration-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2",
+                      "relative h-full min-h-[158px] overflow-hidden rounded-2xl border p-5 shadow-2xs transition-all duration-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 flex flex-col justify-between",
                       toneClass,
                     )}
                   >
@@ -314,16 +319,24 @@ function WarehouseDashboard() {
                         <Icon className="size-4" />
                       </span>
                     </div>
-                    <div className="mt-6 flex items-end justify-between gap-3">
-                      <div>
-                        <p className="text-3xl font-black tracking-tight tabular-nums text-foreground">
-                          {index + 1}
-                        </p>
+                    <div className="mt-4 flex items-end justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {item.value !== null ? (
+                          <p className="text-3xl font-black tracking-tight tabular-nums text-foreground truncate">
+                            {item.value}
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-1.5 py-1">
+                            <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                              Analytics & KPIs
+                            </span>
+                          </div>
+                        )}
                         <p className="mt-1 text-[11px] font-medium text-muted-foreground line-clamp-2">
                           {item.detail}
                         </p>
                       </div>
-                      <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-background/50 px-2 py-0.5 text-[10px] font-bold text-muted-foreground border border-border/40">
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-background/50 px-2 py-0.5 text-[10px] font-bold text-muted-foreground border border-border/40 shrink-0">
                         Open
                         <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                       </span>
@@ -1042,13 +1055,13 @@ function WarehouseDashboard() {
                       className={cn(
                         "size-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
                         act.tone === "success" &&
-                          "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+                        "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
                         act.tone === "warning" &&
-                          "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+                        "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
                         act.tone === "purple" &&
-                          "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+                        "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
                         act.tone === "danger" &&
-                          "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
+                        "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
                         (!act.tone || act.tone === "primary") && "bg-primary/10 text-primary",
                       )}
                     >

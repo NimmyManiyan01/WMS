@@ -16,6 +16,7 @@ class StoreCreate(BaseModel):
     store_manager_id: Optional[str] = Field(None, max_length=128)
     store_manager_name: Optional[str] = Field(None, max_length=128)
     status: str = Field(default="ACTIVE", max_length=32)
+    store_type: str = Field(default="RAW_MATERIAL", max_length=64)
     store_code: Optional[str] = Field(None, description="System-generated code; client inputs are auto-assigned")
 
 
@@ -26,6 +27,8 @@ class StoreUpdate(BaseModel):
     store_manager_id: Optional[str] = Field(None, max_length=128)
     store_manager_name: Optional[str] = Field(None, max_length=128)
     status: Optional[str] = Field(None, max_length=32)
+    store_type: Optional[str] = Field(None, max_length=64)
+
 
 
 class StoreStatusUpdate(BaseModel):
@@ -156,6 +159,7 @@ class StoreResponse(BaseModel):
     store_manager_id: Optional[str] = None
     store_manager_name: Optional[str] = None
     status: str
+    store_type: str = "RAW_MATERIAL"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     zones_count: Optional[int] = 0
@@ -174,9 +178,11 @@ class StoreWithZonesResponse(BaseModel):
     store_manager_id: Optional[str] = None
     store_manager_name: Optional[str] = None
     status: str
+    store_type: str = "RAW_MATERIAL"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     zones: List[ZoneWithBinsResponse] = []
+
 
     class Config:
         from_attributes = True

@@ -141,6 +141,45 @@ export const PREDEFINED_CATEGORIES = [
   { id: "MAIN_RECEIVING", name: "Main Receiving" },
 ];
 
+const DOCK_TYPE_CONFIG: Record<string, { prefix: string; namePrefix: string }> = {
+  RAW_MATERIAL: { prefix: "RM", namePrefix: "Raw Material Dock" },
+  CHEMICAL_HAZARDOUS: { prefix: "CH", namePrefix: "Chemical/Hazardous Dock" },
+  ELECTRICAL: { prefix: "EL", namePrefix: "Electrical Dock" },
+  ELECTRONICS: { prefix: "EC", namePrefix: "Electronics Dock" },
+  MAIN_RECEIVING: { prefix: "MR", namePrefix: "Main Receiving Dock" },
+  CHEMICAL: { prefix: "CH", namePrefix: "Chemical/Hazardous Dock" },
+  HAZARDOUS_ITEMS: { prefix: "HZ", namePrefix: "Chemical/Hazardous Dock" },
+};
+
+function generateDockCodeAndName(dockType: string, existingDocks: { dock_code?: string }[]) {
+  const effectiveType = dockType || "RAW_MATERIAL";
+  const config = DOCK_TYPE_CONFIG[effectiveType] || {
+    prefix: effectiveType.slice(0, 2).toUpperCase() || "DK",
+    namePrefix: `${effectiveType.replaceAll("_", " ")} Dock`,
+  };
+
+  const prefix = config.prefix;
+  const regex = new RegExp(`^${prefix}-?(\\d+)`, "i");
+  let maxNum = 0;
+
+  for (const d of existingDocks) {
+    if (!d.dock_code) continue;
+    const match = d.dock_code.trim().match(regex);
+    if (match && match[1]) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  }
+
+  const nextNumStr = String(maxNum + 1).padStart(2, "0");
+  return {
+    code: `${prefix}-${nextNumStr}`,
+    name: `${config.namePrefix} ${nextNumStr}`,
+  };
+}
+
 function getCategoryLabel(dockType: string): string {
   switch (dockType) {
     case "CHEMICAL_HAZARDOUS":
@@ -199,6 +238,30 @@ function DockManagement() {
   const [selectedRequestIdToAllocate, setSelectedRequestIdToAllocate] = useState<string>("");
   const [selectedDockIdToAllocate, setSelectedDockIdToAllocate] = useState<string>("");
   const [releaseConfirmDock, setReleaseConfirmDock] = useState<Dock | null>(null);
+
+  // Create New Dock State
+  const [showCreateDock, setShowCreateDock] = useState(false);
+  const [createDockType, setCreateDockType] = useState("RAW_MATERIAL");
+  const [createDockCode, setCreateDockCode] = useState("");
+  const [createDockName, setCreateDockName] = useState("");
+  const [createLocation, setCreateLocation] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createStatus, setCreateStatus] = useState("AVAILABLE");
+
+  const handleDockTypeChange = (newType: string) => {
+    setCreateDockType(newType);
+    const generated = generateDockCodeAndName(newType, docks);
+    setCreateDockCode(generated.code);
+    setCreateDockName(generated.name);
+  };
+
+  useEffect(() => {
+    if (showCreateDock) {
+      const generated = generateDockCodeAndName(createDockType, docks);
+      setCreateDockCode(generated.code);
+      setCreateDockName(generated.name);
+    }
+  }, [showCreateDock, docks, createDockType]);
 
   // User Auth & Store Context
   const userInfo = getUserInfo();
@@ -342,7 +405,8 @@ function DockManagement() {
     allocateModalPendingReq ||
     releaseConfirmDock ||
     editDockModalDock ||
-    maintenanceConfirmDock,
+    maintenanceConfirmDock ||
+    showCreateDock,
   );
 
   useEffect(() => {
@@ -351,6 +415,36 @@ function DockManagement() {
     const timer = window.setInterval(() => void loadAll(true), 5000);
     return () => window.clearInterval(timer);
   }, [loadAll, isAnyModalOpen]);
+
+  // Handle Create Dock
+  async function handleCreateDock(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setActionBusy(true);
+    const data = new FormData(event.currentTarget);
+    try {
+      await api.createDock({
+        dock_code: String(data.get("dock_code") || createDockCode),
+        dock_name: String(data.get("dock_name") || createDockName),
+        dock_type: String(data.get("dock_type") || createDockType),
+        location: String(data.get("location") || ""),
+        description: String(data.get("description") || ""),
+        status: String(data.get("status") || "AVAILABLE"),
+      });
+      toast.success("Dock created successfully", {
+        description: `Dock ${createDockCode} is now available in Dock Management.`,
+      });
+      setShowCreateDock(false);
+      setCreateLocation("");
+      setCreateDescription("");
+      await loadAll(true);
+    } catch (error) {
+      toast.error("Unable to create dock", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   // Handle Edit Dock Update
   async function handleUpdateDock() {
@@ -568,9 +662,7 @@ function DockManagement() {
           {mounted && isWarehouseOrAdmin && (
             <Button
               className="h-9 rounded-full px-4 text-xs font-semibold shadow-glow gap-1.5"
-              onClick={() => {
-                window.location.href = "/dock-master";
-              }}
+              onClick={() => setShowCreateDock(true)}
             >
               <Plus className="size-3.5" />
               New Dock
@@ -1497,6 +1589,136 @@ function DockManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 10. Create New Dock Modal */}
+      <Dialog open={showCreateDock} onOpenChange={setShowCreateDock}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-semibold text-lg flex items-center gap-2">
+              <Plus className="size-5 text-primary" /> Create New Dock
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Add a new dock bay to the warehouse dock management system.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateDock} className="space-y-3.5 py-2 text-xs">
+            <div>
+              <Label htmlFor="create_dock_type" className="text-xs font-semibold">
+                Dock Category / Type
+              </Label>
+              <select
+                id="create_dock_type"
+                name="dock_type"
+                value={createDockType}
+                onChange={(e) => handleDockTypeChange(e.target.value)}
+                className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-xs font-medium focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="RAW_MATERIAL">RAW_MATERIAL (Raw Material — RM)</option>
+                <option value="CHEMICAL_HAZARDOUS">
+                  CHEMICAL_HAZARDOUS (Chemical/Hazardous — CH)
+                </option>
+                <option value="ELECTRICAL">ELECTRICAL (Electrical — EL)</option>
+                <option value="ELECTRONICS">ELECTRONICS (Electronics — EC)</option>
+                <option value="MAIN_RECEIVING">MAIN_RECEIVING (Main Receiving — MR)</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="create_dock_code" className="text-xs font-semibold">
+                Dock Code{" "}
+                <span className="text-muted-foreground font-normal">(Auto-generated)</span>
+              </Label>
+              <Input
+                id="create_dock_code"
+                name="dock_code"
+                value={createDockCode}
+                onChange={(e) => setCreateDockCode(e.target.value)}
+                placeholder="e.g. RM-01, CH-01, EC-02"
+                required
+                className="mt-1.5 h-10 rounded-xl bg-background font-mono font-semibold"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="create_dock_name" className="text-xs font-semibold">
+                Dock Name
+              </Label>
+              <Input
+                id="create_dock_name"
+                name="dock_name"
+                value={createDockName}
+                onChange={(e) => setCreateDockName(e.target.value)}
+                placeholder="e.g. Raw Material Dock 01"
+                required
+                className="mt-1.5 h-10 rounded-xl bg-background"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="create_location" className="text-xs font-semibold">
+                Location
+              </Label>
+              <Input
+                id="create_location"
+                name="location"
+                value={createLocation}
+                onChange={(e) => setCreateLocation(e.target.value)}
+                placeholder="e.g. North Warehouse, Bay 3"
+                className="mt-1.5 h-10 rounded-xl bg-background"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="create_description" className="text-xs font-semibold">
+                Description
+              </Label>
+              <Input
+                id="create_description"
+                name="description"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                placeholder="e.g. Heavy vehicle unloading ramp"
+                className="mt-1.5 h-10 rounded-xl bg-background"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="create_status" className="text-xs font-semibold">
+                Initial Status
+              </Label>
+              <select
+                id="create_status"
+                name="status"
+                value={createStatus}
+                onChange={(e) => setCreateStatus(e.target.value)}
+                className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-xs font-medium focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="AVAILABLE">AVAILABLE</option>
+                <option value="MAINTENANCE">MAINTENANCE</option>
+              </select>
+            </div>
+
+            <DialogFooter className="pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCreateDock(false)}
+                className="rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={actionBusy}
+                className="rounded-xl bg-primary hover:bg-primary/90 text-white shadow-glow"
+              >
+                {actionBusy && <Loader2 className="size-4 animate-spin mr-1.5" />} Create Dock
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

@@ -91,13 +91,14 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (
     pathname === "/gate-dashboard" ||
     pathname === "/gate-entry" ||
-    pathname === "/vehicle-queue" ||
     pathname === "/vehicle-exit" ||
     pathname === "/unscheduled-arrivals"
   )
-    return ["GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"];
+    return ["GATE_SECURITY", "GATE_OPERATOR", "WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname === "/grn" || pathname === "/receiving")
     return ["GRN", "GRN_MANAGER", "RECEIVING", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  if (pathname === "/warehouse/stores")
+    return ["WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/warehouse") ||
     pathname === "/warehouse-dashboard" ||
@@ -105,7 +106,6 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
     pathname === "/dock-master" ||
     pathname === "/inventory" ||
     pathname === "/putaway-tasks" ||
-    pathname === "/pick-tasks" ||
     pathname === "/reports" ||
     pathname === "/damage-claims"
   )
@@ -118,7 +118,7 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
       "SUPERUSER",
     ];
   if (pathname === "/my-store")
-    return ["STORE_MANAGER", "STORE_KEEPER", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+    return ["STORE_MANAGER", "STORE_KEEPER", "ADMIN", "SUPERUSER"];
   return null;
 }
 
@@ -158,7 +158,7 @@ export function getDefaultRouteForUser(user = getUserInfo()): string {
   if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
   if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
   if (user?.roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (user?.roles.includes("ASSEMBLY_MANAGER")) return "/assembly-dashboard";
+  if (user?.roles.includes("ASSEMBLY_MANAGER") || user?.roles.includes("ASSEMBLY") || user?.roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
   if (user?.roles.includes("STORE_MANAGER") || user?.roles.includes("STORE_KEEPER"))
     return "/my-store";
   if (

@@ -851,7 +851,7 @@ async def create_gate_entry(
             user_role="WAREHOUSE",
             title="Direct Gate Entry Approved",
             message=f"Vehicle {plate} for PO {po_num} has been approved at the gate and is ready for warehouse processing.",
-            link="/vehicle-queue",
+            link="/dock-management",
         ))
     entry.move_to_inbound_queue()
 
@@ -1369,13 +1369,13 @@ async def assign_arrival_dock(
         user_role=f"STR:{store.store_code}"[:32],
         title=f"Vehicle Arrival Assigned to {store.store_name}",
         message=notif_msg,
-        link="/vehicle-queue",
+        link="/my-store",
     ))
     uow.session.add(NotificationModel(
         user_role=f"STR:{store.id}"[:32],
         title=f"Vehicle Arrival Assigned to {store.store_name}",
         message=notif_msg,
-        link="/vehicle-queue",
+        link="/my-store",
     ))
 
     return {
@@ -1421,7 +1421,7 @@ async def start_dock_movement(
         user_role="WAREHOUSE",
         title="Vehicle Moving to Dock",
         message=f"{entry.vehicle_plate} is moving to {entry.assigned_dock_id}.",
-        link="/vehicle-queue",
+        link="/dock-management",
     ))
     return {
         "id": entry.id,
@@ -1469,7 +1469,7 @@ async def dock_check_in(
         user_role="WAREHOUSE",
         title="Vehicle Arrived at Dock",
         message=f"{entry.vehicle_plate} checked in at {assignment.dock_number} for ASN-linked receiving.",
-        link="/vehicle-queue",
+        link="/dock-management",
     ))
     return {
         "id": entry.id,

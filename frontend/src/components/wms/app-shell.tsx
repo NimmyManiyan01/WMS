@@ -34,44 +34,115 @@ import {
   Factory,
   Users,
   Inbox,
+  GitFork,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
-import { getUserInfo } from "@/lib/auth-utils";
+import { getUserInfo, type UserInfo } from "@/lib/auth-utils";
 import { SecureAssistant } from "@/components/wms/secure-assistant";
+
+function getUserDisplayName(user: UserInfo | null): string {
+  if (!user) return "User";
+  if (user.full_name?.trim()) return user.full_name.trim();
+  if (user.username?.trim()) return user.username.trim();
+  if (user.employee_id?.trim()) return user.employee_id.trim();
+  return "User";
+}
+
+function getUserInitials(user: UserInfo | null): string {
+  const name = getUserDisplayName(user);
+  if (!name || name === "User") return "U";
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
+function getUserRoleLabel(user: UserInfo | null): string {
+  if (!user?.roles || user.roles.length === 0) return "User";
+  const roles = user.roles;
+  if (roles.includes("ADMIN") || roles.includes("SUPERUSER") || roles.includes("SUPER_ADMIN")) {
+    return "Administrator";
+  }
+  if (
+    roles.includes("PROCUREMENT") ||
+    roles.includes("PROCUREMENT_MANAGER") ||
+    roles.includes("PROCUREMENT_OFFICER")
+  ) {
+    return "Procurement Manager";
+  }
+  if (roles.includes("FINANCE") || roles.includes("FINANCE_MANAGER")) {
+    return "Finance Manager";
+  }
+  if (roles.includes("GATE_SECURITY") || roles.includes("GATE_OPERATOR")) {
+    return "Security Officer";
+  }
+  if (
+    roles.includes("GRN") ||
+    roles.includes("GRN_MANAGER") ||
+    roles.includes("OPERATIONS_MANAGER") ||
+    roles.includes("OPERATIONS") ||
+    roles.includes("RECEIVING") ||
+    user?.username?.toLowerCase() === "grn" ||
+    user?.username?.toLowerCase()?.includes("grn")
+  ) {
+    return "GRN / Operations Manager";
+  }
+  if (roles.includes("STORE_MANAGER")) {
+    return "Store Manager";
+  }
+  if (roles.includes("STORE_KEEPER") || roles.includes("STORE_OPERATOR")) {
+    return "Store Keeper";
+  }
+  if (roles.includes("ASSEMBLY") || roles.includes("ASSEMBLY_MANAGER")) {
+    return "Assembly Manager";
+  }
+  if (roles.includes("SUPPLIER")) {
+    return "Supplier";
+  }
+  if (roles.includes("WAREHOUSE") || roles.includes("WAREHOUSE_MANAGER")) {
+    return "Warehouse Manager";
+  }
+  return roles[0].replace(/_/g, " ");
+}
 
 const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
   { label: "Create GRN", to: "/grn?tab=wizard", icon: PlusCircle },
-  { label: "Inbound Arrivals", to: "/vehicle-queue?module=grn", icon: Truck },
   { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
 
 const storeManagerNav = [
-  { label: "My Store Control", to: "/my-store", icon: Store },
-  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
-  { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "My Store", to: "/my-store", icon: Store },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
 ];
 
+const assemblyNav = [
+  { label: "Dashboard", to: "/assembly-dashboard", icon: LayoutDashboard },
+  { label: "Assembly Orders", to: "/assembly-orders", icon: Factory },
+  { label: "Material Requests", to: "/assembly/requests", icon: ClipboardList },
+  { label: "Material/Pickup Status", to: "/assembly-material-issues", icon: PackageCheck },
+  { label: "Production", to: "/assembly-progress", icon: ListOrdered },
+  { label: "Finished Goods", to: "/assembly-finished-goods", icon: Boxes },
+  { label: "Genealogy", to: "/assembly-genealogy", icon: GitFork },
+];
+
 const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
+  { label: "Store Master", to: "/warehouse/stores", icon: Building2 },
   { label: "Material Master", to: "/warehouse/materials", icon: Database },
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
-  { label: "Store Management", to: "/my-store", icon: Store },
-  { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
-  { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
@@ -102,7 +173,6 @@ const financeNav = [
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
-  { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
 ];
 
@@ -169,10 +239,9 @@ export function AppShell({
   const searchStr = location.searchStr || "";
   const fullHref = path + searchStr;
   const navigate = useNavigate();
-  const [user, setUser] = useState<{
-    username?: string;
-    roles?: string[];
-  } | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(() =>
+    typeof window !== "undefined" ? getUserInfo() : null,
+  );
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -203,10 +272,9 @@ export function AppShell({
     setMounted(true);
     document.documentElement.classList.toggle("dark", dark);
     try {
-      const savedUser = localStorage.getItem("user_info");
-      if (savedUser) {
-        const u = JSON.parse(savedUser);
-        setUser(u);
+      const u = getUserInfo();
+      setUser(u);
+      if (u) {
         const role = u.roles?.includes("SUPPLIER")
           ? "SUPPLIER"
           : u.roles?.includes("FINANCE")
@@ -223,7 +291,7 @@ export function AppShell({
               ]);
               const unreadArrivals = Array.isArray(arrivals)
                 ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED")
-                    .length
+                  .length
                 : 0;
               const unreadGeneral = Array.isArray(general)
                 ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
@@ -269,10 +337,27 @@ export function AppShell({
       user?.roles?.includes("RECEIVING") ||
       user?.username?.toLowerCase() === "grn" ||
       user?.username?.toLowerCase()?.includes("grn"));
+  const isAssemblyUser =
+    mounted &&
+    (user?.roles?.includes("ASSEMBLY") ||
+      user?.roles?.includes("ASSEMBLY_MANAGER") ||
+      user?.roles?.includes("ASSEMBLY_OPERATOR"));
+  const isAssemblyRoute =
+    path === "/assembly-dashboard" ||
+    path === "/assembly-orders" ||
+    path.startsWith("/assembly/") ||
+    path === "/assembly-material-issues" ||
+    path === "/assembly-progress" ||
+    path === "/assembly-finished-goods" ||
+    path === "/assembly-genealogy" ||
+    path === "/assembly-reports";
+  const isStoreUser =
+    mounted &&
+    (user?.roles?.includes("STORE_MANAGER") || user?.roles?.includes("STORE_KEEPER"));
+  const isStoreRoute = path === "/my-store" || path.startsWith("/my-store");
   const isGrnRoute =
     path === "/grn" ||
-    path.startsWith("/grn") ||
-    (path === "/vehicle-queue" && currentQueryModule === "grn");
+    path.startsWith("/grn");
   const isProcurementRoute =
     path === "/procurement-dashboard" ||
     path.startsWith("/procurement/") ||
@@ -291,13 +376,15 @@ export function AppShell({
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
   const isNotificationsRoute = path.startsWith("/notifications");
   const isAdminRoute = path.startsWith("/admin/");
-  const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-queue", "/vehicle-exit"].some(
+  const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-exit"].some(
     (route) => path.startsWith(route),
   );
   const isWarehouseRoute =
     isSharedOperationsRoute ||
     [
       "/inventory",
+      "/warehouse/stores",
+      "/warehouse/materials",
       "/warehouse/material-requests",
       "/dock-management",
       "/receiving",
@@ -314,31 +401,37 @@ export function AppShell({
       "/dock-assignment",
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
-    (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
+      (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
-      : isGrnUser || isGrnRoute
-        ? grnNav
-        : isSupplierRoute
-          ? supplierNav
-          : isFinanceRoute
-            ? financeNav
-            : isProcurementRoute
-              ? procurementNav
-              : isGateSecurityRoute
-                ? gateSecurityNav
-                : isWarehouseRoute
-                  ? warehouseNav
-                  : mounted && user?.roles?.includes("SUPPLIER")
-                    ? supplierNav
-                    : mounted && user?.roles?.includes("FINANCE")
-                      ? financeNav
-                      : mounted && user?.roles?.includes("PROCUREMENT")
-                        ? procurementNav
-                        : isGateSecurityUser
-                          ? gateSecurityNav
-                          : warehouseNav;
+      : isAssemblyUser || isAssemblyRoute
+        ? assemblyNav
+        : isStoreUser || isStoreRoute
+          ? storeManagerNav
+          : isGrnUser || isGrnRoute
+            ? grnNav
+            : isSupplierRoute
+              ? supplierNav
+              : isFinanceRoute
+                ? financeNav
+                : isProcurementRoute
+                  ? procurementNav
+                  : isGateSecurityRoute
+                    ? gateSecurityNav
+                    : isWarehouseRoute
+                      ? warehouseNav
+                      : mounted && user?.roles?.includes("ASSEMBLY")
+                        ? assemblyNav
+                        : mounted && user?.roles?.includes("SUPPLIER")
+                          ? supplierNav
+                          : mounted && user?.roles?.includes("FINANCE")
+                            ? financeNav
+                            : mounted && user?.roles?.includes("PROCUREMENT")
+                              ? procurementNav
+                              : isGateSecurityUser
+                                ? gateSecurityNav
+                                : warehouseNav;
   const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
   const nav = navigationPending ? [] : resolvedNav;
   useEffect(() => {
@@ -346,6 +439,7 @@ export function AppShell({
   }, [fullHref]);
   const handleLogout = () => {
     api.logout();
+    setUser(null);
     toast.success("Logged out successfully");
     navigate({ to: "/login" });
   };
@@ -628,27 +722,11 @@ export function AppShell({
               </Link>
               <div className="group relative ml-1 flex items-center gap-2.5 rounded-xl border border-border bg-card py-1.5 pl-1.5 pr-3 transition-colors hover:bg-accent/50">
                 <span className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">
-                  {user?.username?.substring(0, 2).toUpperCase() || "AO"}
+                  {getUserInitials(user)}
                 </span>
                 <div className="hidden leading-tight lg:block">
-                  <p className="text-xs font-semibold">{user?.username || "Admin Officer"}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {user?.roles?.includes("PROCUREMENT")
-                      ? "Procurement Manager"
-                      : user?.roles?.includes("FINANCE")
-                        ? "Finance Manager"
-                        : user?.roles?.includes("GATE_SECURITY")
-                          ? "Security Officer"
-                          : user?.roles?.includes("GRN") ||
-                              user?.roles?.includes("GRN_MANAGER") ||
-                              user?.roles?.includes("OPERATIONS_MANAGER") ||
-                              user?.roles?.includes("OPERATIONS") ||
-                              user?.roles?.includes("RECEIVING") ||
-                              user?.username?.toLowerCase() === "grn" ||
-                              user?.username?.toLowerCase()?.includes("grn")
-                            ? "GRN / Operations Manager"
-                            : "Operations Manager"}
-                  </p>
+                  <p className="text-xs font-semibold">{getUserDisplayName(user)}</p>
+                  <p className="text-[10px] text-muted-foreground">{getUserRoleLabel(user)}</p>
                 </div>
                 <button
                   suppressHydrationWarning

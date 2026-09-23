@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { getUserInfo } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/procurement/asns/$asnId")({
   component: AsnTracking,
@@ -136,9 +137,9 @@ function AsnTracking() {
         setLoading(true);
 
         // Get current user info
-        const userInfo = localStorage.getItem("user_info");
-        if (userInfo) {
-          setUser(JSON.parse(userInfo));
+        const user = getUserInfo();
+        if (user) {
+          setUser(user);
         }
 
         const data = await api.getAsn(asnId);

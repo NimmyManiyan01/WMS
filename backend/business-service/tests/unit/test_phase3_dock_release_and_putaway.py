@@ -284,7 +284,7 @@ async def test_phase3_dock_release_authorization_and_validation():
 
         async with session_scope() as session:
             # Verify DB dock status updated to AVAILABLE
-            d = (await session.execute(select(DockModel).where(DockModel.dock_number == "DOCK-P3-01"))).scalar_one()
+            d = (await session.execute(select(DockModel).where(DockModel.dock_number == dock_num_1))).scalar_one()
             assert d.status == "AVAILABLE"
 
             # Verify assignment record updated

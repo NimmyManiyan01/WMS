@@ -1117,7 +1117,30 @@ async def complete_putaway(
         )
         handling_unit = hu_result.scalar_one_or_none()
 
-    if handling_unit is None and scanned_hu.upper() != task.item_code.upper() and raw_scan.upper() != task.item_code.upper():
+    afg_match = False
+    if getattr(task, "finished_goods_id", None):
+        try:
+            from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
+            afg = await uow.session.get(AssemblyFinishedGoodsModel, task.finished_goods_id)
+            if afg:
+                if (
+                    raw_scan == afg.qr_code
+                    or raw_scan == afg.serial_number
+                    or raw_scan.upper() == afg.product_code.upper()
+                    or (afg.product_code and afg.product_code.upper() in raw_scan.upper())
+                    or (afg.serial_number and afg.serial_number.upper() in raw_scan.upper())
+                ):
+                    afg_match = True
+        except Exception:
+            pass
+
+    if (
+        handling_unit is None
+        and not afg_match
+        and scanned_hu.upper() != task.item_code.upper()
+        and raw_scan.upper() != task.item_code.upper()
+        and task.item_code.upper() not in raw_scan.upper()
+    ):
         raise HTTPException(status_code=422, detail="Scanned Material QR does not match the putaway task")
 
     if handling_unit and handling_unit.status in ("QUARANTINED", "REJECTED", "DAMAGED"):
@@ -1374,14 +1397,14 @@ async def complete_putaway(
             available_quantity=0,
             uom=task.uom,
             last_putaway_task_id=task.id,
-            last_grn_number=task.grn_number,
+            last_grn_number=task.grn_number or "FG-INTERNAL",
             updated_at=completed_at,
         )
         uow.session.add(balance)
     balance.quantity = balance.quantity + request.quantity
     balance.available_quantity = balance.available_quantity + request.quantity
     balance.last_putaway_task_id = task.id
-    balance.last_grn_number = task.grn_number
+    balance.last_grn_number = task.grn_number or "FG-INTERNAL"
     balance.updated_at = completed_at
 
     # 7. Task and Handling Unit Completion
@@ -1460,6 +1483,28 @@ async def complete_putaway(
             performed_at=completed_at,
         )
     )
+
+    if getattr(task, "finished_goods_id", None):
+        try:
+            from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
+            afg = await uow.session.get(AssemblyFinishedGoodsModel, task.finished_goods_id)
+            if afg:
+                afg.status = "AVAILABLE"
+                afg.location_code = dest_loc_str
+                afg.store_id = target_zone.store_id
+                afg.updated_at = completed_at.replace(tzinfo=None)
+                uow.session.add(
+                    NotificationModel(
+                        user_role="ASSEMBLY_MANAGER",
+                        title="Finished Goods Putaway Completed",
+                        message=f"{task.material_name} ({task.item_code}) has been put away into {target_store.store_name} ({dest_loc_str}).",
+                        link="/assembly-finished-goods",
+                        is_read=False,
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Failed to update AssemblyFinishedGoodsModel on putaway complete: {e}")
+
     await uow.session.flush()
 
     response = task_response(task)

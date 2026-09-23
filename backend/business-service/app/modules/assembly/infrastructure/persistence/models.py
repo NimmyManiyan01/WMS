@@ -168,5 +168,11 @@ class AssemblyFinishedGoodsModel(Base):
     location_code: Mapped[str] = mapped_column(String(64), nullable=False)
     on_hand_before: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     on_hand_after: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    qr_code: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    serial_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    store_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID, ForeignKey("store.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
