@@ -94,6 +94,12 @@ function MaterialRequests() {
   };
   useEffect(() => {
     fetchData();
+
+    const refreshRequests = () => {
+      void fetchData();
+    };
+    window.addEventListener("material-requests:changed", refreshRequests);
+    return () => window.removeEventListener("material-requests:changed", refreshRequests);
   }, []);
   useEffect(() => {
     if (routeStatus === "manager-approval") {
