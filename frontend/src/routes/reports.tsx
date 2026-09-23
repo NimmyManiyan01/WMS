@@ -407,8 +407,12 @@ function WarehouseReportsPage() {
     link.setAttribute("download", fileName);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      try {
+        if (link.parentNode) document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch {}
+    }, 2000);
     toast.success(`Exported ${currentFilteredRecords.length} records to ${fileName}`);
   };
 

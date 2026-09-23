@@ -5,6 +5,7 @@ Supports local dev mock user fallback when running in environment=local.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -29,49 +30,7 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> CurrentUser:
     settings = get_settings()
-
-    # 1. Check custom proxy/test headers (X-User-Roles, X-User-Name, X-User-Id)
     roles_hdr = request.headers.get("X-User-Roles") or request.headers.get("x-user-roles")
-    if roles_hdr:
-        roles = [r.strip() for r in roles_hdr.split(",") if r.strip()]
-        user_name = request.headers.get("X-User-Name") or request.headers.get("x-user-name") or request.headers.get("X-User-Username") or request.headers.get("x-user-username") or "test_user"
-        user_id = request.headers.get("X-User-Id") or request.headers.get("x-user-id") or request.headers.get("X-User-Subject") or request.headers.get("x-user-subject") or user_name
-        store_code = request.headers.get("X-Store-Code") or request.headers.get("x-store-code") or request.headers.get("X-User-Store-Code") or request.headers.get("x-user-store-code")
-        store_id = request.headers.get("X-Store-Id") or request.headers.get("x-store-id") or request.headers.get("X-User-Store-Id") or request.headers.get("x-user-store-id")
-        emp_id = request.headers.get("X-Employee-Id") or request.headers.get("x-employee-id") or request.headers.get("X-User-Employee-Id") or request.headers.get("x-user-employee-id") or user_id
-        claims = {}
-        if store_code:
-            claims["store_code"] = store_code
-        if store_id:
-            claims["store_id"] = store_id
-        if emp_id:
-            claims["employee_id"] = emp_id
-        roles_upper = {r.upper() for r in roles}
-        perms = []
-        if "ADMIN" in roles_upper or "SUPERUSER" in roles_upper:
-            perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "procurement:read", "procurement:create", "procurement:write", "store:read", "store:write"])
-        if "WAREHOUSE" in roles_upper or "WAREHOUSE_MANAGER" in roles_upper:
-            perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"])
-        if "GATE_SECURITY" in roles_upper:
-            perms.extend(["gate:read", "gate:write", "gate:entry:read", "gate:entry:create", "gate:entry:verify"])
-        if "PROCUREMENT" in roles_upper:
-            perms.extend(["procurement:read", "procurement:create", "procurement:write"])
-        if "FINANCE" in roles_upper:
-            perms.extend(["finance:read", "finance:approve"])
-        if "STORE_MANAGER" in roles_upper:
-            perms.extend(["store:read", "store:write", "storage:read", "putaway:execute", "pickup:execute"])
-        if "STORE_KEEPER" in roles_upper:
-            perms.extend(["store:read", "storage:read", "putaway:execute", "pickup:execute"])
-        if "ASSEMBLY" in roles_upper:
-            perms.extend(["material_request:create", "material_request:read"])
-
-        return CurrentUser(
-            subject=user_id,
-            username=user_name,
-            roles=roles,
-            permissions=list(set(perms)),
-            raw_claims=claims,
-        )
 
     if credentials is None:
         if settings.environment.lower() in ("local", "test", "development"):
@@ -97,6 +56,41 @@ async def get_current_user(
                 permissions=[],
                 raw_claims={"supplier_id": supplier_id} if supplier_id else {},
             )
+        if token.startswith("mock-jwt-db-user-"):
+            session_token = token.removeprefix("mock-jwt-db-user-")
+            from sqlalchemy import select
+            from app.database.session import AsyncSessionFactory
+            from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
+
+            async with AsyncSessionFactory() as session:
+                result = await session.execute(
+                    select(StoreManagerUserModel).where(
+                        StoreManagerUserModel.auth_token_hash == hashlib.sha256(session_token.encode()).hexdigest(),
+                        StoreManagerUserModel.status == "ACTIVE",
+                    )
+                )
+                account = result.scalar_one_or_none()
+            if account:
+                role_key = account.role.strip().upper().replace(" ", "_")
+                role = {
+                    "SUPER_ADMIN": "ADMIN",
+                    "ADMIN_OFFICER": "ADMIN",
+                    "PROCUREMENT_MANAGER": "MANAGER",
+                    "PROCUREMENT_OFFICER": "PROCUREMENT",
+                    "STORE_OPERATOR": "STORE_KEEPER",
+                }.get(role_key, role_key)
+                return CurrentUser(
+                    subject=account.employee_id,
+                    username=account.username,
+                    roles=[role],
+                    permissions=[],
+                    raw_claims={
+                        "employee_id": account.employee_id,
+                        "applications": account.applications or [],
+                        "store_id": str(account.store_id),
+                    },
+                )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or invalid")
         if token == "mock-jwt-admin-token" or token == "local_dev_mock_token":
             return CurrentUser(
                 subject="admin",
@@ -182,6 +176,19 @@ async def get_current_user(
                 username="finance",
                 roles=["FINANCE", "ADMIN"],
                 permissions=["gate:write", "gate:entry:create", "gate:entry:read", "gate:entry:verify"],
+                raw_claims={},
+            )
+        elif token == "mock-jwt-manager-token":
+            return CurrentUser(
+                subject="manager",
+                username="manager",
+                roles=["MANAGER"],
+                permissions=[
+                    "procurement:read",
+                    "procurement:approve",
+                    "gate:approve",
+                    "warehouse:read",
+                ],
                 raw_claims={},
             )
         elif token == "mock-jwt-warehouse-token":
@@ -321,13 +328,53 @@ async def get_current_user(
 
     try:
         claims = await decode_and_validate(token)
-        return CurrentUser(
+        user = CurrentUser(
             subject=claims.get("sub", ""),
             username=claims.get("username", claims.get("sub", "")),
             roles=claims.get("roles", []),
             permissions=claims.get("permissions", []),
             raw_claims=claims,
         )
+        if roles_hdr and settings.environment.lower() in {"local", "test", "development"}:
+            roles = [r.strip() for r in roles_hdr.split(",") if r.strip()]
+            user_name = request.headers.get("X-User-Name") or request.headers.get("x-user-name") or request.headers.get("X-User-Username") or request.headers.get("x-user-username") or user.username
+            user_id = request.headers.get("X-User-Id") or request.headers.get("x-user-id") or request.headers.get("X-User-Subject") or request.headers.get("x-user-subject") or user.subject
+            store_code = request.headers.get("X-Store-Code") or request.headers.get("x-store-code") or request.headers.get("X-User-Store-Code") or request.headers.get("x-user-store-code")
+            store_id = request.headers.get("X-Store-Id") or request.headers.get("x-store-id") or request.headers.get("X-User-Store-Id") or request.headers.get("x-user-store-id")
+            emp_id = request.headers.get("X-Employee-Id") or request.headers.get("x-employee-id") or request.headers.get("X-User-Employee-Id") or request.headers.get("x-user-employee-id") or user.subject
+            claims_override = dict(claims)
+            if store_code:
+                claims_override["store_code"] = store_code
+            if store_id:
+                claims_override["store_id"] = store_id
+            if emp_id:
+                claims_override["employee_id"] = emp_id
+            roles_upper = {r.upper() for r in roles}
+            perms = list(user.permissions)
+            if "ADMIN" in roles_upper or "SUPERUSER" in roles_upper:
+                perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "procurement:read", "procurement:create", "procurement:write", "store:read", "store:write"])
+            if "WAREHOUSE" in roles_upper or "WAREHOUSE_MANAGER" in roles_upper:
+                perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"])
+            if "GATE_SECURITY" in roles_upper:
+                perms.extend(["gate:read", "gate:write", "gate:entry:read", "gate:entry:create", "gate:entry:verify"])
+            if "PROCUREMENT" in roles_upper:
+                perms.extend(["procurement:read", "procurement:create", "procurement:write"])
+            if "FINANCE" in roles_upper:
+                perms.extend(["finance:read", "finance:approve"])
+            if "STORE_MANAGER" in roles_upper:
+                perms.extend(["store:read", "store:write", "storage:read", "putaway:execute", "pickup:execute"])
+            if "STORE_KEEPER" in roles_upper:
+                perms.extend(["store:read", "storage:read", "putaway:execute", "pickup:execute"])
+            if "ASSEMBLY" in roles_upper:
+                perms.extend(["material_request:create", "material_request:read"])
+            user = CurrentUser(
+                subject=user_id,
+                username=user_name,
+                roles=roles,
+                permissions=list(dict.fromkeys(perms)),
+                raw_claims=claims_override,
+            )
+        return user
     except Exception as exc:
         if settings.environment.lower() in ("local", "test", "development"):
             return CurrentUser(

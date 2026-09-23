@@ -3,10 +3,14 @@ import hashlib
 import uuid
 from decimal import Decimal
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient, ASGITransport
+from starlette.requests import Request
+from fastapi.security import HTTPAuthorizationCredentials
 from app.main import app
 from app.config.settings import get_settings
 from app.database.session import session_scope
+from app.security.dependencies import get_current_user
 from app.modules.procurement.infrastructure.persistence.models import MaterialModel, MaterialStockModel
 from app.modules.receiving.infrastructure.persistence.models import GrnModel
 from app.modules.storage.infrastructure.persistence.models import PutawayTaskModel
@@ -40,6 +44,45 @@ async def test_dev_login_case_insensitivity_and_auth_rules():
         )
         assert inv_res.status_code == 401
         assert "Invalid username or password" in inv_res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_dev_login_is_disabled_outside_authorized_environments(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/api/v1/procurement/auth/dev-login",
+            json={"username": settings.manager_username, "password": settings.manager_password},
+        )
+
+    assert res.status_code == 403
+    assert "Development login is disabled" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_bearer_does_not_trust_x_user_roles_in_prod(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [
+                ("x-user-roles", "ADMIN"),
+                ("x-user-name", "override-user"),
+            ],
+        }
+    )
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad-token")
+
+    with pytest.raises(HTTPException) as exc:
+        await get_current_user(request, credentials)
+
+    assert exc.value.status_code == 401
 
 
 @pytest.mark.asyncio

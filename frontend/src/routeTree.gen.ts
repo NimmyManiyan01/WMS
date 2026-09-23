@@ -34,6 +34,7 @@ import { Route as GateEntryRouteImport } from './routes/gate-entry'
 import { Route as GrnRouteImport } from './routes/grn'
 import { Route as InventoryRouteImport } from './routes/inventory'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ManagerDashboardRouteImport } from './routes/manager-dashboard'
 import { Route as MasterDataRouteImport } from './routes/master-data'
 import { Route as MyStoreRouteImport } from './routes/my-store'
 import { Route as NewSupplierRouteImport } from './routes/new-supplier'
@@ -52,6 +53,7 @@ import { Route as VehicleExitRouteImport } from './routes/vehicle-exit'
 import { Route as VehicleQueueRouteImport } from './routes/vehicle-queue'
 import { Route as WarehouseDashboardRouteImport } from './routes/warehouse-dashboard'
 import { Route as WarehouseStorageRouteImport } from './routes/warehouse-storage'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AssemblyRequestsRouteImport } from './routes/assembly.requests'
 import { Route as FinanceApprovalsRouteImport } from './routes/finance.approvals'
 import { Route as ProcurementAsnsRouteImport } from './routes/procurement.asns'
@@ -207,6 +209,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ManagerDashboardRoute = ManagerDashboardRouteImport.update({
+  id: '/manager-dashboard',
+  path: '/manager-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MasterDataRoute = MasterDataRouteImport.update({
   id: '/master-data',
   path: '/master-data',
@@ -295,6 +302,11 @@ const WarehouseDashboardRoute = WarehouseDashboardRouteImport.update({
 const WarehouseStorageRoute = WarehouseStorageRouteImport.update({
   id: '/warehouse-storage',
   path: '/warehouse-storage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AssemblyRequestsRoute = AssemblyRequestsRouteImport.update({
@@ -452,6 +464,7 @@ export interface FileRoutesByFullPath {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -470,6 +483,7 @@ export interface FileRoutesByFullPath {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
@@ -521,6 +535,7 @@ export interface FileRoutesByTo {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -539,6 +554,7 @@ export interface FileRoutesByTo {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -589,6 +605,7 @@ export interface FileRoutesById {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -607,6 +624,7 @@ export interface FileRoutesById {
   '/vehicle-queue': typeof VehicleQueueRoute
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
+  '/admin/users': typeof AdminUsersRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
@@ -660,6 +678,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -678,6 +697,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/finance/approvals'
     | '/procurement/asns'
@@ -729,6 +749,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -747,6 +768,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -796,6 +818,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -814,6 +837,7 @@ export interface FileRouteTypes {
     | '/vehicle-queue'
     | '/warehouse-dashboard'
     | '/warehouse-storage'
+    | '/admin/users'
     | '/assembly/requests'
     | '/finance/approvals'
     | '/procurement/asns'
@@ -866,6 +890,7 @@ export interface RootRouteChildren {
   GrnRoute: typeof GrnRoute
   InventoryRoute: typeof InventoryRoute
   LoginRoute: typeof LoginRoute
+  ManagerDashboardRoute: typeof ManagerDashboardRoute
   MasterDataRoute: typeof MasterDataRoute
   MyStoreRoute: typeof MyStoreRoute
   NewSupplierRoute: typeof NewSupplierRoute
@@ -884,6 +909,7 @@ export interface RootRouteChildren {
   VehicleQueueRoute: typeof VehicleQueueRoute
   WarehouseDashboardRoute: typeof WarehouseDashboardRoute
   WarehouseStorageRoute: typeof WarehouseStorageRoute
+  AdminUsersRoute: typeof AdminUsersRoute
   AssemblyRequestsRoute: typeof AssemblyRequestsRoute
   FinanceApprovalsRoute: typeof FinanceApprovalsRouteWithChildren
   ProcurementAsnsRoute: typeof ProcurementAsnsRouteWithChildren
@@ -1082,6 +1108,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/manager-dashboard': {
+      id: '/manager-dashboard'
+      path: '/manager-dashboard'
+      fullPath: '/manager-dashboard'
+      preLoaderRoute: typeof ManagerDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/master-data': {
       id: '/master-data'
       path: '/master-data'
@@ -1206,6 +1239,13 @@ declare module '@tanstack/react-router' {
       path: '/warehouse-storage'
       fullPath: '/warehouse-storage'
       preLoaderRoute: typeof WarehouseStorageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/assembly/requests': {
@@ -1434,6 +1474,7 @@ const rootRouteChildren: RootRouteChildren = {
   GrnRoute: GrnRoute,
   InventoryRoute: InventoryRoute,
   LoginRoute: LoginRoute,
+  ManagerDashboardRoute: ManagerDashboardRoute,
   MasterDataRoute: MasterDataRoute,
   MyStoreRoute: MyStoreRoute,
   NewSupplierRoute: NewSupplierRoute,
@@ -1452,6 +1493,7 @@ const rootRouteChildren: RootRouteChildren = {
   VehicleQueueRoute: VehicleQueueRoute,
   WarehouseDashboardRoute: WarehouseDashboardRoute,
   WarehouseStorageRoute: WarehouseStorageRoute,
+  AdminUsersRoute: AdminUsersRoute,
   AssemblyRequestsRoute: AssemblyRequestsRoute,
   FinanceApprovalsRoute: FinanceApprovalsRouteWithChildren,
   ProcurementAsnsRoute: ProcurementAsnsRouteWithChildren,

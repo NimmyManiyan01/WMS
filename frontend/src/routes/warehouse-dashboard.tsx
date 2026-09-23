@@ -13,6 +13,13 @@ import {
   ArrowRight,
   Activity,
   Plus,
+  Database,
+  Store,
+  ClipboardList,
+  ListOrdered,
+  LogOut,
+  BarChart3,
+  LayoutDashboard,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -36,6 +43,93 @@ export const Route = createFileRoute("/warehouse-dashboard")({
   }),
   component: WarehouseDashboard,
 });
+
+const warehouseShortcutCards = [
+  {
+    label: "Material Master",
+    to: "/warehouse/materials",
+    icon: Database,
+    detail: "Material codes and specifications",
+    tone: "primary",
+  },
+  {
+    label: "Store Management",
+    to: "/my-store",
+    icon: Store,
+    detail: "Store operations workspace",
+    tone: "teal",
+  },
+  {
+    label: "Stores Master",
+    to: "/warehouse/stores",
+    icon: Building2,
+    detail: "Stores, zones, and bins",
+    tone: "teal",
+  },
+  {
+    label: "Inventory",
+    to: "/inventory",
+    icon: Boxes,
+    detail: "Stock matrix and ledger",
+    tone: "emerald",
+  },
+  {
+    label: "Putaway Tasks",
+    to: "/putaway-tasks",
+    icon: PackageCheck,
+    detail: "Inbound storage execution",
+    tone: "emerald",
+  },
+  {
+    label: "Material Requests",
+    to: "/warehouse/material-requests",
+    icon: ClipboardList,
+    detail: "Warehouse demand requests",
+    tone: "amber",
+  },
+  {
+    label: "Assembly Requisitions",
+    to: "/warehouse/assembly-requisitions",
+    icon: ClipboardList,
+    detail: "Assembly store pickups",
+    tone: "amber",
+  },
+  {
+    label: "Inbound Arrivals",
+    to: "/vehicle-queue?module=warehouse",
+    icon: ListOrdered,
+    detail: "Arrivals awaiting handling",
+    tone: "primary",
+  },
+  {
+    label: "Vehicle Exit",
+    to: "/vehicle-exit",
+    icon: LogOut,
+    detail: "Exit approvals and release",
+    tone: "rose",
+  },
+  {
+    label: "Dock Management",
+    to: "/dock-management",
+    icon: Warehouse,
+    detail: "Dock allocation and status",
+    tone: "primary",
+  },
+  {
+    label: "Damage & Quarantine",
+    to: "/warehouse/quarantine",
+    icon: ShieldAlert,
+    detail: "Segregated stock review",
+    tone: "rose",
+  },
+  {
+    label: "Reports",
+    to: "/reports",
+    icon: BarChart3,
+    detail: "Warehouse analytics",
+    tone: "amber",
+  },
+];
 
 function WarehouseDashboard() {
   const [data, setData] = useState<any>(null);
@@ -113,8 +207,12 @@ function WarehouseDashboard() {
   const totalActionsCount =
     actionReq.pending_putaway_count +
     actionReq.pending_pickup_count +
+    actionReq.pending_requisition_count +
+    actionReq.pending_material_request_count +
     actionReq.active_quarantine_count +
-    actionReq.low_stock_count;
+    actionReq.low_stock_count +
+    actionReq.out_of_stock_count +
+    actionReq.unassigned_locations_count;
 
   // Compute physical stock distribution percentages
   const onHandTotal =
@@ -127,6 +225,14 @@ function WarehouseDashboard() {
 
   const binOccupancyPct =
     storage.total_bins > 0 ? Math.round((storage.occupied_bins / storage.total_bins) * 100) : 0;
+  const totalBinCapacity =
+    storage.occupied_bins + storage.available_bins || storage.total_bins || 1;
+  const occupiedBinPct = Math.round(((storage.occupied_bins || 0) / totalBinCapacity) * 100);
+  const availableBinPct = Math.max(0, 100 - occupiedBinPct);
+
+  const openDashboardTarget = (target: string) => {
+    window.location.href = target;
+  };
 
   return (
     <AppShell
@@ -163,13 +269,84 @@ function WarehouseDashboard() {
       }
     >
       <div className="space-y-6">
+        <div>
+          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-6">
+            {warehouseShortcutCards.map((item, index) => {
+              const Icon = item.icon;
+              const toneClass =
+                item.tone === "teal"
+                  ? "border-teal-500/20 bg-gradient-to-br from-teal-500/10 via-card to-card hover:border-teal-500/40 focus-visible:ring-teal-500/20"
+                  : item.tone === "emerald"
+                    ? "border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-card to-card hover:border-emerald-500/40 focus-visible:ring-emerald-500/20"
+                    : item.tone === "amber"
+                      ? "border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-card hover:border-amber-500/40 focus-visible:ring-amber-500/20"
+                      : item.tone === "rose"
+                        ? "border-rose-500/20 bg-gradient-to-br from-rose-500/10 via-card to-card hover:border-rose-500/40 focus-visible:ring-rose-500/20"
+                        : "border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card hover:border-primary/40 focus-visible:ring-primary/20";
+              const iconClass =
+                item.tone === "teal"
+                  ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/20"
+                  : item.tone === "emerald"
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                    : item.tone === "amber"
+                      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                      : item.tone === "rose"
+                        ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                        : "bg-primary/15 text-primary border-primary/20";
+              return (
+                <Link key={item.to} to={item.to} className="group">
+                  <div
+                    className={cn(
+                      "relative h-full min-h-[158px] overflow-hidden rounded-2xl border p-5 shadow-2xs transition-all duration-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2",
+                      toneClass,
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+                        {item.label}
+                      </p>
+                      <span
+                        className={cn(
+                          "grid size-9 shrink-0 place-items-center rounded-xl border shadow-2xs",
+                          iconClass,
+                        )}
+                      >
+                        <Icon className="size-4" />
+                      </span>
+                    </div>
+                    <div className="mt-6 flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-3xl font-black tracking-tight tabular-nums text-foreground">
+                          {index + 1}
+                        </p>
+                        <p className="mt-1 text-[11px] font-medium text-muted-foreground line-clamp-2">
+                          {item.detail}
+                        </p>
+                      </div>
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-background/50 px-2 py-0.5 text-[10px] font-bold text-muted-foreground border border-border/40">
+                        Open
+                        <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
         {/* ============================================================ */}
         {/* SECTION 1: ACTION REQUIRED (OPERATIONAL COMMAND CENTER)     */}
         {/* ============================================================ */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="size-2 rounded-full bg-amber-500 animate-pulse" />
+              <div
+                className={cn(
+                  "size-2 rounded-full",
+                  totalActionsCount > 0 ? "bg-amber-500 animate-pulse" : "bg-emerald-500",
+                )}
+              />
               <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">
                 Action Required
               </h2>
@@ -216,12 +393,20 @@ function WarehouseDashboard() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {/* Card 1: Pending Putaway */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.pending_putaway_count > 0
                   ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/putaway-tasks?status=PENDING")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/putaway-tasks?status=PENDING");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -251,9 +436,10 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
-                  <Link to="/putaway-tasks">
+                  <Link to="/putaway-tasks?status=PENDING">
                     Track Putaways <ArrowRight className="size-3.5" />
                   </Link>
                 </Button>
@@ -262,12 +448,20 @@ function WarehouseDashboard() {
 
             {/* Card 2: Store Pickups */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.pending_pickup_count > 0
                   ? "bg-purple-50/50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/warehouse/assembly-requisitions")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/assembly-requisitions");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -293,6 +487,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/warehouse/assembly-requisitions">
@@ -304,12 +499,20 @@ function WarehouseDashboard() {
 
             {/* Card 3: Active Quarantine */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.active_quarantine_count > 0
                   ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/warehouse/quarantine")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/quarantine");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -337,6 +540,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/warehouse/quarantine">
@@ -348,12 +552,20 @@ function WarehouseDashboard() {
 
             {/* Card 4: Low Stock Alerts */}
             <Card
+              role="button"
+              tabIndex={0}
               className={cn(
-                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between",
+                "rounded-2xl border transition-all hover:shadow-subtle p-4 flex flex-col justify-between cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
                 actionReq.low_stock_count > 0
                   ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60"
                   : "bg-card/60 border-border/60",
               )}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/inventory");
+                }
+              }}
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -381,6 +593,7 @@ function WarehouseDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full rounded-xl text-xs font-semibold justify-between bg-background/80 hover:bg-background"
+                  onClick={(event) => event.stopPropagation()}
                   asChild
                 >
                   <Link to="/inventory">
@@ -415,7 +628,15 @@ function WarehouseDashboard() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-border/40 bg-muted/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+            >
               <p className="text-[11px] font-medium text-muted-foreground uppercase">
                 Total On Hand
               </p>
@@ -425,7 +646,15 @@ function WarehouseDashboard() {
               <p className="text-[10px] text-muted-foreground mt-0.5">Physical warehouse units</p>
             </div>
 
-            <div className="rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+            >
               <p className="text-[11px] font-medium text-emerald-800 dark:text-emerald-300 uppercase">
                 Available Stock
               </p>
@@ -437,7 +666,15 @@ function WarehouseDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/inventory")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") openDashboardTarget("/inventory");
+              }}
+              className="rounded-xl border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+            >
               <p className="text-[11px] font-medium text-blue-800 dark:text-blue-300 uppercase">
                 Allocated Stock
               </p>
@@ -449,7 +686,17 @@ function WarehouseDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-rose-200/60 dark:border-rose-800/40 bg-rose-50/40 dark:bg-rose-950/20 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => openDashboardTarget("/warehouse/quarantine")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  openDashboardTarget("/warehouse/quarantine");
+                }
+              }}
+              className="rounded-xl border border-rose-200/60 dark:border-rose-800/40 bg-rose-50/40 dark:bg-rose-950/20 p-3 cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/20"
+            >
               <p className="text-[11px] font-medium text-rose-800 dark:text-rose-300 uppercase">
                 Quarantined Stock
               </p>
@@ -515,7 +762,17 @@ function WarehouseDashboard() {
 
               {/* Status breakdown pills */}
               <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=PENDING")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=PENDING");
+                    }
+                  }}
+                  className="rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-300">
                     Pending
                   </p>
@@ -523,7 +780,17 @@ function WarehouseDashboard() {
                     {putaway.pending_count}
                   </p>
                 </div>
-                <div className="rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=IN_PROGRESS")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=IN_PROGRESS");
+                    }
+                  }}
+                  className="rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-blue-800 dark:text-blue-300">
                     In Progress
                   </p>
@@ -531,7 +798,17 @@ function WarehouseDashboard() {
                     {putaway.in_progress_count}
                   </p>
                 </div>
-                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/putaway-tasks?status=COMPLETED")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/putaway-tasks?status=COMPLETED");
+                    }
+                  }}
+                  className="rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300">
                     Completed
                   </p>
@@ -607,17 +884,47 @@ function WarehouseDashboard() {
 
               {/* Hierarchy Metrics */}
               <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">Stores</p>
                   <p className="text-lg font-black text-foreground mt-0.5">
                     {storage.total_stores}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">Zones</p>
                   <p className="text-lg font-black text-foreground mt-0.5">{storage.total_zones}</p>
                 </div>
-                <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDashboardTarget("/warehouse/stores")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      openDashboardTarget("/warehouse/stores");
+                    }
+                  }}
+                  className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center cursor-pointer transition-all hover:shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">
                     Total Bins
                   </p>
@@ -634,6 +941,18 @@ function WarehouseDashboard() {
                   </span>
                 </div>
                 <Progress value={binOccupancyPct} className="h-2 rounded-full" />
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                  <div
+                    style={{ width: `${occupiedBinPct}%` }}
+                    className="bg-primary transition-all"
+                    title={`Occupied bins: ${storage.occupied_bins}`}
+                  />
+                  <div
+                    style={{ width: `${availableBinPct}%` }}
+                    className="bg-emerald-500 transition-all"
+                    title={`Available bins: ${storage.available_bins}`}
+                  />
+                </div>
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
                   <span>
                     Occupied: <strong className="text-foreground">{storage.occupied_bins}</strong>
@@ -688,9 +1007,16 @@ function WarehouseDashboard() {
                 stock movements
               </p>
             </div>
-            <Badge variant="outline" className="text-[10px] font-mono py-0.5 px-2">
-              Authoritative Stock Ledger
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px] font-mono py-0.5 px-2">
+                Authoritative Stock Ledger
+              </Badge>
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" asChild>
+                <Link to="/reports">
+                  View All <ArrowRight className="size-3.5 ml-1" />
+                </Link>
+              </Button>
+            </div>
           </div>
 
           {activity.length === 0 ? (

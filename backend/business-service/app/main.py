@@ -336,6 +336,17 @@ async def lifespan(app: FastAPI):
             except Exception: pass
 
         for col in [
+            ("role", "VARCHAR(64) NOT NULL DEFAULT 'Store Manager'"),
+            ("applications", "JSONB NOT NULL DEFAULT '[\"WMS\"]'::jsonb"),
+            ("auth_token_hash", "VARCHAR(128)"),
+            ("last_login", "TIMESTAMP WITH TIME ZONE"),
+        ]:
+            try:
+                await run_ddl(f"ALTER TABLE store_manager_user ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+            except Exception as exc:
+                logger.warning("Unable to ensure store_manager_user.%s: %s", col[0], exc)
+
+        for col in [
             ("material_name", "VARCHAR(256)"),
             ("source_location", "VARCHAR(64) DEFAULT 'RECEIVING_AREA'"),
             ("warehouse_id", "VARCHAR(64) DEFAULT 'Main Warehouse'"),

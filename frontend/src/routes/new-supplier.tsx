@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Building2,
   ChevronRight,
@@ -40,12 +40,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
@@ -64,6 +59,8 @@ const steps = [
 
 function NewSupplier() {
   const navigate = useNavigate();
+  const location = useRouterState({ select: (state) => state.location });
+  const currentModule = new URLSearchParams(location.searchStr || "").get("module");
   const [currentStep, setCurrentStep] = React.useState(1);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isLookingUpIfsc, setIsLookingUpIfsc] = React.useState(false);
@@ -124,6 +121,7 @@ function NewSupplier() {
     gstin: "",
     paymentTerms: "",
     creditPeriodDays: "",
+    modeOfPayment: "",
     address: {
       registeredAddress: "",
       city: "",
@@ -627,9 +625,7 @@ function NewSupplier() {
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
-        creditPeriodDays: formData.creditPeriodDays
-          ? Number(formData.creditPeriodDays)
-          : undefined,
+        creditPeriodDays: formData.creditPeriodDays ? Number(formData.creditPeriodDays) : undefined,
         address: {
           ...formData.address,
           registeredAddress: formData.address.registeredAddress.trim(),
@@ -644,10 +640,18 @@ function NewSupplier() {
         },
       };
       await api.createSupplier(finalData);
-      toast.success("Supplier registered successfully", {
-        description: `${name} has been added to the system.`,
+      toast.success("Supplier sent for manager approval", {
+        description: `${name} has been added to the supplier approval queue.`,
       });
-      navigate({ to: "/procurement-dashboard" });
+      window.dispatchEvent(new Event("suppliers:changed"));
+      if (currentModule === "manager") {
+        navigate({
+          to: "/master-data",
+          search: { module: "manager", status: "pending-approval" } as any,
+        });
+      } else {
+        navigate({ to: "/master-data", search: { status: "pending-approval" } as any });
+      }
     } catch (error: any) {
       toast.error("Failed to register supplier", {
         description: error.message,
@@ -667,7 +671,11 @@ function NewSupplier() {
         <div className="mb-8 flex items-center justify-between">
           {steps.map((step, idx) => (
             <React.Fragment key={step.id}>
-              <div className="flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(step.id)}
+                className="flex flex-col items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              >
                 <div
                   className={cn(
                     "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all",
@@ -692,7 +700,7 @@ function NewSupplier() {
                 >
                   {step.name}
                 </span>
-              </div>
+              </button>
               {idx < steps.length - 1 && (
                 <div
                   className={cn(
@@ -767,7 +775,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Defines the type of supplier, such as Manufacturer, Distributor, Trader, or Service Provider.
+                          Defines the type of supplier, such as Manufacturer, Distributor, Trader,
+                          or Service Provider.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -821,7 +830,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Select the procurement category that best represents the supplier's products or services.
+                          Select the procurement category that best represents the supplier's
+                          products or services.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1000,7 +1010,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Enter the supplier's 15-digit Goods and Services Tax Identification Number (GSTIN).
+                          Enter the supplier's 15-digit Goods and Services Tax Identification Number
+                          (GSTIN).
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1045,7 +1056,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Official registered business address of the vendor for legal and invoicing purposes.
+                          Official registered business address of the vendor for legal and invoicing
+                          purposes.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1124,7 +1136,8 @@ function NewSupplier() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent className="max-w-xs text-xs font-normal">
-                            6-digit postal code. Entering a valid pincode will auto-populate City and State.
+                            6-digit postal code. Entering a valid pincode will auto-populate City
+                            and State.
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -1169,7 +1182,8 @@ function NewSupplier() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs text-xs font-normal">
-                              Full name of the primary contact person responsible for procurement communication.
+                              Full name of the primary contact person responsible for procurement
+                              communication.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -1219,7 +1233,8 @@ function NewSupplier() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs text-xs font-normal">
-                              10-digit primary contact phone number for operational and procurement queries.
+                              10-digit primary contact phone number for operational and procurement
+                              queries.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -1274,7 +1289,8 @@ function NewSupplier() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs text-xs font-normal">
-                              Main email address used for purchase orders, RFQs, and official notifications.
+                              Main email address used for purchase orders, RFQs, and official
+                              notifications.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -1326,7 +1342,8 @@ function NewSupplier() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs text-xs font-normal">
-                              Secondary or department email address for copy (CC) and backup communication.
+                              Secondary or department email address for copy (CC) and backup
+                              communication.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -1389,7 +1406,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Name of the financial institution where the supplier holds their primary business account.
+                          Name of the financial institution where the supplier holds their primary
+                          business account.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1420,7 +1438,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Supplier's bank account number for processing electronic fund transfers (NEFT/RTGS/IMPS).
+                          Supplier's bank account number for processing electronic fund transfers
+                          (NEFT/RTGS/IMPS).
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1478,7 +1497,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          11-character Indian Financial System Code for bank branch identification. Auto-fetches bank and branch.
+                          11-character Indian Financial System Code for bank branch identification.
+                          Auto-fetches bank and branch.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1529,7 +1549,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Name of the account holder as registered with the bank for payment verification.
+                          Name of the account holder as registered with the bank for payment
+                          verification.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1593,7 +1614,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          8 or 11-character SWIFT/BIC code required for international wire transfers.
+                          8 or 11-character SWIFT/BIC code required for international wire
+                          transfers.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1632,7 +1654,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Applicable Tax Deducted at Source (TDS) section under Income Tax Act for tax withholding.
+                          Applicable Tax Deducted at Source (TDS) section under Income Tax Act for
+                          tax withholding.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1664,7 +1687,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Agreed commercial terms governing payment schedules (e.g. Net 30, Net 60, Advance).
+                          Agreed commercial terms governing payment schedules (e.g. Net 30, Net 60,
+                          Advance).
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1677,11 +1701,13 @@ function NewSupplier() {
                       <SelectValue placeholder="Select payment terms" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map((term) => (
-                        <SelectItem key={term} value={term}>
-                          {term}
-                        </SelectItem>
-                      ))}
+                      {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map(
+                        (term) => (
+                          <SelectItem key={term} value={term}>
+                            {term}
+                          </SelectItem>
+                        ),
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1696,7 +1722,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Number of credit days allowed by the supplier from invoice or GRN date before payment is due.
+                          Number of credit days allowed by the supplier from invoice or GRN date
+                          before payment is due.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1715,6 +1742,46 @@ function NewSupplier() {
                     placeholder="e.g. 30"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="modeOfPayment" className="flex items-center gap-1.5">
+                    Mode of Payment
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help items-center text-muted-foreground hover:text-foreground">
+                            <Info className="size-3.5" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs font-normal">
+                          Preferred payment channel for supplier settlements.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <Select
+                    onValueChange={(v) => updateFormData("root", "modeOfPayment", v)}
+                    value={formData.modeOfPayment}
+                  >
+                    <SelectTrigger id="modeOfPayment">
+                      <SelectValue placeholder="Select mode of payment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[
+                        "NEFT",
+                        "RTGS",
+                        "IMPS",
+                        "UPI",
+                        "Cheque",
+                        "Demand Draft",
+                        "Wire Transfer",
+                      ].map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {mode}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           )}
@@ -1732,12 +1799,14 @@ function NewSupplier() {
                   {
                     name: "GST Certificate",
                     mandatory: true,
-                    tooltip: "Official GST Registration Certificate (Form REG-06) issued by tax authorities.",
+                    tooltip:
+                      "Official GST Registration Certificate (Form REG-06) issued by tax authorities.",
                   },
                   {
                     name: "Cancelled Cheque",
                     mandatory: true,
-                    tooltip: "Copy of a cancelled cheque or bank statement showing account number and IFSC for bank verification.",
+                    tooltip:
+                      "Copy of a cancelled cheque or bank statement showing account number and IFSC for bank verification.",
                   },
                   {
                     name: "Vendor Code of Conduct",
@@ -1747,7 +1816,8 @@ function NewSupplier() {
                   {
                     name: "Other",
                     mandatory: false,
-                    tooltip: "Any additional licenses, ISO certifications, PAN, or supporting commercial documents.",
+                    tooltip:
+                      "Any additional licenses, ISO certifications, PAN, or supporting commercial documents.",
                   },
                 ].map((doc) => (
                   <div key={doc.name} className="relative">
@@ -1854,7 +1924,8 @@ function NewSupplier() {
                           </span>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs font-normal">
-                          Enter any relevant vendor notes, special terms, background context, or registration justification.
+                          Enter any relevant vendor notes, special terms, background context, or
+                          registration justification.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

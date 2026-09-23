@@ -34,6 +34,7 @@ import {
   Factory,
   Users,
   Inbox,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -41,12 +42,20 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { getUserInfo } from "@/lib/auth-utils";
+import { SecureAssistant } from "@/components/wms/secure-assistant";
+
+type NavItem = {
+  label: string;
+  to: string;
+  icon: any;
+  badge?: ReactNode;
+};
 
 const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
   { label: "Create GRN", to: "/grn?tab=wizard", icon: PlusCircle },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=grn", icon: Truck },
-  { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList }
+  { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
 
 const storeManagerNav = [
@@ -61,16 +70,16 @@ const storeManagerNav = [
 
 const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
+  { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
+  { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Store Management", to: "/my-store", icon: Store },
   { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
-  { label: "Material Master", to: "/warehouse/materials", icon: Database },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
-  { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
-  { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
@@ -98,11 +107,49 @@ const financeNav = [
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
+const managerNav = [
+  { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
+  {
+    label: "Suppliers",
+    to: "/master-data?module=manager&status=pending-approval",
+    icon: Building2,
+  },
+  {
+    label: "Material Requests",
+    to: "/procurement/material-requests?module=manager&status=manager-approval",
+    icon: ClipboardList,
+  },
+];
+
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=gate", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit?module=gate", icon: LogOut },
+];
+
+const assemblyNav = [
+  { label: "Dashboard", to: "/assembly-dashboard", icon: LayoutDashboard },
+  { label: "Work Orders", to: "/assembly-work-orders", icon: ClipboardList },
+  { label: "Material Requests", to: "/assembly-material-requests", icon: ClipboardList },
+  { label: "Material Requirements", to: "/assembly-material-requirements", icon: ClipboardList },
+  { label: "Material Reservations", to: "/assembly-material-reservations", icon: PackageCheck },
+  { label: "Material Consumption", to: "/assembly-material-consumption", icon: Boxes },
+  { label: "Material Issues", to: "/assembly-material-issues", icon: AlertTriangle },
+  { label: "Quality Inspection", to: "/assembly-quality-inspection", icon: ShieldCheck },
+  { label: "Finished Goods", to: "/assembly-finished-goods", icon: Factory },
+  { label: "Scrap & Wastage", to: "/assembly-scrap-wastage", icon: Trash2 },
+  { label: "Rework", to: "/assembly-rework", icon: Sliders },
+  { label: "Workforce", to: "/assembly-workforce", icon: Users },
+  { label: "Reports", to: "/assembly-reports", icon: BarChart3 },
+];
+
+const adminNav = [
+  { label: "User Management", to: "/admin/users", icon: Users },
+  { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
+  { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
+  { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
 const ICON_MAP: Record<string, any> = {
@@ -140,6 +187,59 @@ function getIconComponent(iconName: any) {
   return ICON_MAP[iconName] || LayoutDashboard;
 }
 
+function hasUserRole(user: { roles?: string[] } | null, role: string): boolean {
+  return Boolean(user?.roles?.includes(role));
+}
+
+function isGrnSession(user: { username?: string; roles?: string[] } | null): boolean {
+  const username = user?.username?.toLowerCase() ?? "";
+  return Boolean(
+    user?.roles?.some((role) =>
+      ["GRN", "GRN_MANAGER", "OPERATIONS_MANAGER", "OPERATIONS", "RECEIVING"].includes(role),
+    ) ||
+    username === "grn" ||
+    username.includes("grn"),
+  );
+}
+
+function getNotificationRole(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "SUPPLIER")) return "SUPPLIER";
+  if (hasUserRole(user, "FINANCE")) return "FINANCE";
+  if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
+  if (hasUserRole(user, "MANAGER")) return "MANAGER";
+  if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
+  if (isGrnSession(user)) return "GRN";
+  return "WAREHOUSE";
+}
+
+function getStrictRoleNav(user: { username?: string; roles?: string[] } | null): NavItem[] {
+  if (!user) return [];
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return adminNav;
+  if (hasUserRole(user, "PROCUREMENT")) return procurementNav;
+  if (hasUserRole(user, "MANAGER")) return managerNav;
+  if (hasUserRole(user, "SUPPLIER")) return supplierNav;
+  if (hasUserRole(user, "FINANCE")) return financeNav;
+  if (hasUserRole(user, "GATE_SECURITY") || hasUserRole(user, "GATE_OPERATOR"))
+    return gateSecurityNav;
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return assemblyNav;
+  if (hasUserRole(user, "STORE_MANAGER") || hasUserRole(user, "STORE_KEEPER"))
+    return storeManagerNav;
+  if (isGrnSession(user)) return grnNav;
+  return warehouseNav;
+}
+
+function getRoleLabel(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return "Administrator";
+  if (hasUserRole(user, "PROCUREMENT")) return "Procurement Manager";
+  if (hasUserRole(user, "MANAGER")) return "Manager";
+  if (hasUserRole(user, "FINANCE")) return "Finance Manager";
+  if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
+  if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
+  if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
+  if (isGrnSession(user)) return "GRN / Operations Manager";
+  return "Operations Manager";
+}
+
 export function AppShell({
   children,
   title,
@@ -154,7 +254,6 @@ export function AppShell({
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
   const searchStr = location.searchStr || "";
@@ -190,146 +289,52 @@ export function AppShell({
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    setMounted(true);
     document.documentElement.classList.toggle("dark", dark);
-    try {
-      const savedUser = localStorage.getItem("user_info");
-      if (savedUser) {
-        const u = JSON.parse(savedUser);
-        setUser(u);
-        const role = u.roles?.includes("SUPPLIER")
-          ? "SUPPLIER"
-          : u.roles?.includes("FINANCE")
-            ? "FINANCE"
-            : u.roles?.includes("PROCUREMENT")
-              ? "PROCUREMENT"
-              : "WAREHOUSE";
-        const fetchNotifications = async () => {
-          try {
-            if (role === "WAREHOUSE" || role === "GRN" || isGrnUser) {
-              const [arrivals, general] = await Promise.all([
-                api.getArrivalNotifications().catch(() => []),
-                api.getNotifications("GRN").catch(() => []),
-              ]);
-              const unreadArrivals = Array.isArray(arrivals)
-                ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED").length
-                : 0;
-              const unreadGeneral = Array.isArray(general)
-                ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
-                : 0;
-              setUnreadNotifications(unreadArrivals + unreadGeneral);
-            } else {
-              const data = await api.getNotifications(role);
-              setUnreadNotifications(
-                Array.isArray(data)
-                  ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length
-                  : 0,
-              );
-            }
-          } catch {
-            // Silently ignore during background polling
-          }
-        };
-        void fetchNotifications();
-        const interval = window.setInterval(fetchNotifications, 2000);
-        window.addEventListener("notifications:refresh", fetchNotifications);
-        window.addEventListener("focus", fetchNotifications);
-        cleanup = () => {
-          window.clearInterval(interval);
-          window.removeEventListener("notifications:refresh", fetchNotifications);
-          window.removeEventListener("focus", fetchNotifications);
-        };
-      }
-    } catch (e) {
-      console.error("Failed to parse user info", e);
-    }
-    return () => {
-      if (cleanup) cleanup();
-    };
   }, [dark]);
-  const currentQueryModule = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("module") : null;
-  const isGrnUser =
-    mounted &&
-    (user?.roles?.includes("GRN") ||
-      user?.roles?.includes("GRN_MANAGER") ||
-      user?.roles?.includes("OPERATIONS_MANAGER") ||
-      user?.roles?.includes("OPERATIONS") ||
-      user?.roles?.includes("RECEIVING") ||
-      user?.username?.toLowerCase() === "grn" ||
-      user?.username?.toLowerCase()?.includes("grn"));
-  const isGrnRoute = path === "/grn" || path.startsWith("/grn") || (path === "/vehicle-queue" && currentQueryModule === "grn");
-  const isProcurementRoute =
-    path === "/procurement-dashboard" ||
-    path.startsWith("/procurement/") ||
-    path === "/master-data" ||
-    path === "/new-supplier" ||
-    (path.startsWith("/supplier/") && !path.startsWith("/supplier/asns/"));
-  const isSupplierRoute = path === "/supplier-dashboard" || path === "/submit-quotation";
-  const isFinanceUser = mounted && user?.roles?.includes("FINANCE");
-  const isSharedFinanceRoute = path.startsWith("/reports");
-  const isFinanceRoute =
-    path === "/finance-dashboard" ||
-    path.startsWith("/finance/") ||
-    (isFinanceUser && isSharedFinanceRoute);
-  const isGateSecurityUser =
-    mounted &&
-    (user?.roles?.includes("GATE_SECURITY") ||
-      user?.roles?.includes("GATE_ENTRY") ||
-      
-      user?.roles?.includes("GATE") ||
-      user?.username?.toLowerCase() === "gate_entry" ||
-      user?.username?.toLowerCase()?.includes("gate"));
-  const isNotificationsRoute = path.startsWith("/notifications");
-  const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-queue", "/vehicle-exit"].some(
-    (route) => path.startsWith(route),
-  );
-  const isWarehouseRoute =
-    isSharedOperationsRoute ||
-    [
-      "/inventory",
-      "/warehouse/material-requests",
-      "/dock-management",
-      "/receiving",
-      "/putaway-tasks",
-      "/reports",
-    ].some((p) => path.startsWith(p));
-  const isGateSecurityRoute =
-    [
-      "/gate-entry",
-      "/gate-dashboard",
-      "/accept-arrival",
-      "/driver-verification",
-      "/vehicle-verification",
-      "/dock-assignment",
-      "/arrival-success",
-    ].some((route) => path.startsWith(route)) ||
-    (path === "/vehicle-queue" && currentQueryModule === "gate") ||
-    (path === "/vehicle-exit" && currentQueryModule === "gate") ||
-    (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
-  const resolvedNav = (isGrnUser || isGrnRoute)
-    ? grnNav
-    : isSupplierRoute
-      ? supplierNav
-      : isFinanceRoute
-        ? financeNav
-        : isProcurementRoute
-          ? procurementNav
-          : isGateSecurityRoute
-            ? gateSecurityNav
-            : isWarehouseRoute
-              ? warehouseNav
-              : mounted && user?.roles?.includes("SUPPLIER")
-                ? supplierNav
-                : mounted && user?.roles?.includes("FINANCE")
-                  ? financeNav
-                  : mounted && user?.roles?.includes("PROCUREMENT")
-                    ? procurementNav
-                    : isGateSecurityUser
-                      ? gateSecurityNav
-                      : warehouseNav;
-  const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
-  const nav = navigationPending ? [] : resolvedNav;
+  useEffect(() => {
+    const activeUser = getUserInfo();
+    setUser(activeUser);
+    if (!activeUser) return;
+
+    const role = getNotificationRole(activeUser);
+    const fetchNotifications = async () => {
+      try {
+        if (role === "WAREHOUSE" || role === "GRN") {
+          const [arrivals, general] = await Promise.all([
+            api.getArrivalNotifications().catch(() => []),
+            api.getNotifications("GRN").catch(() => []),
+          ]);
+          const unreadArrivals = Array.isArray(arrivals)
+            ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED")
+                .length
+            : 0;
+          const unreadGeneral = Array.isArray(general)
+            ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
+            : 0;
+          setUnreadNotifications(unreadArrivals + unreadGeneral);
+        } else {
+          const data = await api.getNotifications(role);
+          setUnreadNotifications(
+            Array.isArray(data) ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length : 0,
+          );
+        }
+      } catch {
+        // Silently ignore during background polling
+      }
+    };
+
+    void fetchNotifications();
+    const interval = window.setInterval(fetchNotifications, 2000);
+    window.addEventListener("notifications:refresh", fetchNotifications);
+    window.addEventListener("focus", fetchNotifications);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("notifications:refresh", fetchNotifications);
+      window.removeEventListener("focus", fetchNotifications);
+    };
+  }, []);
+  const nav = getStrictRoleNav(user);
+  const navigationPending = false;
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [fullHref]);
@@ -353,10 +358,17 @@ export function AppShell({
         return path === targetPath && targetTab === currentTab && targetPage === currentPage;
       }
       if (targetTab) {
-        return path === targetPath && targetTab === currentTab && (!targetPage || !currentPage || targetTab !== "wizard");
+        return (
+          path === targetPath &&
+          targetTab === currentTab &&
+          (!targetPage || !currentPage || targetTab !== "wizard")
+        );
       }
       if (targetModule) {
-        return path === targetPath && (targetModule === currentModule || (!currentModule && targetModule === "warehouse"));
+        return (
+          path === targetPath &&
+          (targetModule === currentModule || (!currentModule && targetModule === "warehouse"))
+        );
       }
       return fullHref === to || (searchStr ? fullHref.startsWith(to) : to === "/grn?tab=dashboard");
     }
@@ -614,23 +626,7 @@ export function AppShell({
                 </span>
                 <div className="hidden leading-tight lg:block">
                   <p className="text-xs font-semibold">{user?.username || "Admin Officer"}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {user?.roles?.includes("PROCUREMENT")
-                      ? "Procurement Manager"
-                      : user?.roles?.includes("FINANCE")
-                        ? "Finance Manager"
-                        : user?.roles?.includes("GATE_SECURITY")
-                          ? "Security Officer"
-                          : user?.roles?.includes("GRN") ||
-                            user?.roles?.includes("GRN_MANAGER") ||
-                            user?.roles?.includes("OPERATIONS_MANAGER") ||
-                            user?.roles?.includes("OPERATIONS") ||
-                            user?.roles?.includes("RECEIVING") ||
-                            user?.username?.toLowerCase() === "grn" ||
-                            user?.username?.toLowerCase()?.includes("grn")
-                            ? "GRN / Operations Manager"
-                            : "Operations Manager"}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground">{getRoleLabel(user)}</p>
                 </div>
                 <button
                   suppressHydrationWarning
@@ -658,6 +654,7 @@ export function AppShell({
           </div>
         </main>
       </div>
+      <SecureAssistant />
     </div>
   );
 }
@@ -766,22 +763,14 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Vehicle:\s*([^\n]+)/i)?.[1]?.trim() ||
     "N/A";
   const driverName =
-    n?.driver_name ||
-    n?.driverName ||
-    msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
+    n?.driver_name || n?.driverName || msg.match(/Driver:\s*([^\n]+)/i)?.[1]?.trim();
   const driverPhone =
     n?.driver_phone ||
     n?.driverPhone ||
     msg.match(/Driver Phone:\s*([^\n]+)/i)?.[1]?.trim() ||
     msg.match(/Phone:\s*([^\n]+)/i)?.[1]?.trim();
-  const asnNumber =
-    n?.asn_number ||
-    n?.asnNumber ||
-    msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
-  const poNumber =
-    n?.po_number ||
-    n?.poNumber ||
-    msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
+  const asnNumber = n?.asn_number || n?.asnNumber || msg.match(/ASN:\s*([^\n]+)/i)?.[1]?.trim();
+  const poNumber = n?.po_number || n?.poNumber || msg.match(/PO:\s*([^\n]+)/i)?.[1]?.trim();
 
   const dockCode =
     n?.dock_code ||
@@ -800,10 +789,7 @@ export function parseDockAllocationDetails(n: any) {
     msg.match(/Location:\s*([^\n]+)/i)?.[1]?.trim() ||
     "Receiving Bay - A";
   const dockType =
-    n?.dock_type ||
-    n?.dockType ||
-    msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() ||
-    "Inbound";
+    n?.dock_type || n?.dockType || msg.match(/Dock Type:\s*([^\n]+)/i)?.[1]?.trim() || "Inbound";
   const warehouseName =
     n?.warehouse_name ||
     n?.warehouseName ||
@@ -871,7 +857,10 @@ export function DockAllocationNotificationCard({ notification }: { notification:
             <p className="text-xs text-muted-foreground">Vehicle assigned & dock allocated</p>
           </div>
         </div>
-        <Badge variant="outline" className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full">
+        <Badge
+          variant="outline"
+          className="bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 font-extrabold text-[11px] px-2.5 py-0.5 rounded-full"
+        >
           Dock Allocated
         </Badge>
       </div>
@@ -927,7 +916,9 @@ export function DockAllocationNotificationCard({ notification }: { notification:
           <div className="space-y-1.5 pt-1 font-medium">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Code:</span>
-              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">{details.dockCode}</span>
+              <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
+                {details.dockCode}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Dock Name:</span>

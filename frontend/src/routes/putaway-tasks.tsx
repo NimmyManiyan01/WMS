@@ -449,7 +449,10 @@ function WarehousePutawayTasksPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === "undefined") return "ALL";
+    return new URLSearchParams(window.location.search).get("status") || "ALL";
+  });
   const [storeFilter, setStoreFilter] = useState("ALL");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const [selectedTaskDetails, setSelectedTaskDetails] = useState<Task | null>(null);

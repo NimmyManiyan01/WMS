@@ -477,6 +477,7 @@ class MaterialRequestItemSchema(ApiModel):
     material_code: Optional[str] = None
     variant_code: Optional[str] = None
     material_name: Optional[str] = None
+    category: Optional[str] = None
     quantity: Decimal = Field(..., gt=0, description="Quantity must be strictly greater than zero")
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
 
@@ -639,6 +640,10 @@ class ProcurementStatsResponse(ApiModel):
     active_suppliers: int
     total_suppliers: int
     open_pos: int
+    pending_material_requests: int = 0
+    pending_material_request_sources: List[str] = []
+    pending_supplier_registrations: int = 0
+    expiring_supplier_documents: int = 0
     pending_approvals: int = 0
     pending_quotations: int = 0
     awaiting_supplier_confirmation: int = 0

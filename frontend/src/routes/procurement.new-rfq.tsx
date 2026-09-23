@@ -16,6 +16,10 @@ import {
   Package,
   Sparkles,
   ClipboardList,
+  Send,
+  Check,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -23,15 +27,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
+import { requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/procurement/new-rfq")({
+  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
   component: NewRfq,
 });
 const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background";
 function NewRfq() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(true);
@@ -87,6 +102,75 @@ function NewRfq() {
   const handleItemChange = (index: number, field: string, value: any) => {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
   };
+  const supplierIdOf = (supplier: any) =>
+    String(supplier?.supplierId || supplier?.supplier_id || supplier?.id || "");
+  const supplierNameOf = (supplier: any) =>
+    supplier?.supplierName || supplier?.supplier_name || supplier?.registeredCompanyName || supplier?.registered_company_name || "Supplier";
+  const supplierCategories = (supplier: any) =>
+    supplier?.category || supplier?.categories || supplier?.materialCategories || supplier?.material_categories || [];
+  const supplierMaterials = (supplier: any) =>
+    supplier?.mainMaterials || supplier?.main_materials || supplier?.materials || [];
+  const normalizeMatchText = (value: unknown) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(" ")
+      .map((part) => part.trim())
+      .filter((part) => part && part !== "and")
+      .map((part) => (part.length > 3 && part.endsWith("s") ? part.slice(0, -1) : part));
+  const normalizedValues = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values.flatMap((entry) => normalizeMatchText(entry));
+  };
+  const hasSharedMatchToken = (left: unknown, right: unknown) => {
+    const leftTokens = new Set(normalizedValues(left));
+    if (leftTokens.size === 0) return false;
+    return normalizedValues(right).some((token) => leftTokens.has(token));
+  };
+  const supplierMatchesFilters = (supplier: any) => {
+    const search = filters.search.trim().toLowerCase();
+    const material = filters.material.trim();
+    const category = filters.category.trim();
+    const city = filters.city.trim().toLowerCase();
+    const supplierText = [
+      supplierNameOf(supplier),
+      supplier?.supplierCode,
+      supplier?.supplier_code,
+      supplier?.gstin,
+      supplier?.registeredCompanyName,
+      supplier?.registered_company_name,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const supplierCityText = [
+      supplier?.city,
+      supplier?.location,
+      supplier?.address?.city,
+      supplier?.registeredAddress?.city,
+      supplier?.registered_address?.city,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return (
+      (!search || supplierText.includes(search)) &&
+      (!city || supplierCityText.includes(city)) &&
+      (!category ||
+        hasSharedMatchToken(category, supplierCategories(supplier)) ||
+        hasSharedMatchToken(category, supplierMaterials(supplier))) &&
+      (!material ||
+        hasSharedMatchToken(material, supplierMaterials(supplier)) ||
+        hasSharedMatchToken(material, supplierCategories(supplier)))
+    );
+  };
+  const supplierCategoryText = (supplier: any, fallback = "Category not set") => {
+    const category = supplierCategories(supplier);
+    if (Array.isArray(category)) return category.filter(Boolean).join(", ") || fallback;
+    return String(category || "").trim() || fallback;
+  };
 
   const applyMaterialRequest = (requestId: string, requests = materialRequests) => {
     const mr = requests.find(
@@ -121,21 +205,39 @@ function NewRfq() {
           uom: item.uom || "PCS",
         })),
       );
+
+      const mrCats = [...new Set(mr.items.map((it: any) => it.category).filter(Boolean))];
+      if (mrCats.length > 0) {
+        const primaryCat = mrCats[0];
+        setFilters((prev) => ({
+          ...prev,
+          category: primaryCat,
+        }));
+      }
     }
   };
   useEffect(() => {
     async function fetchSuppliers() {
       try {
         setLoadingSuppliers(true);
-        const data = await api.getSuppliers({ ...filters, status: "Active" });
-        setSuppliers(
-          data.filter(
-            (supplier: any) =>
-              String(supplier.status ?? "")
-                .trim()
-                .toLowerCase() === "active",
-          ),
+        const data = await api.getSuppliers({ status: "Active" });
+        const activeSuppliers = data.filter(
+          (supplier: any) =>
+            String(supplier.status ?? "")
+              .trim()
+              .toLowerCase() === "active" && supplierIdOf(supplier),
         );
+        const matchedSuppliers = activeSuppliers.filter(supplierMatchesFilters);
+        setSuppliers(matchedSuppliers);
+        if (matchedSuppliers.length > 0) {
+          setSelectedSuppliers((current) => {
+            const validIds = new Set(matchedSuppliers.map(supplierIdOf));
+            const retained = current.filter((id) => validIds.has(id));
+            return retained.length > 0 ? retained : matchedSuppliers.map(supplierIdOf);
+          });
+        } else {
+          setSelectedSuppliers([]);
+        }
       } catch (err) {
         toast.error("Failed to load suppliers");
       } finally {
@@ -146,7 +248,7 @@ function NewRfq() {
       fetchSuppliers();
     }, 300);
     return () => clearTimeout(debounceTimer);
-  }, [filters]);
+  }, [filters, items]);
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -211,21 +313,26 @@ function NewRfq() {
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     );
   };
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedSuppliers.length === 0) {
-      toast.error("Please select at least one supplier");
+      toast.error("Please select at least one supplier for the RFQ invitation");
       return;
     }
     if (items.some((item) => !item.material_code.trim() || !item.material_name.trim())) {
       toast.error("Please fill in Material Code and Name for all items");
       return;
     }
+    setShowConfirmModal(true);
+  };
+
+  const executeSubmitRfq = async () => {
     setSubmitting(true);
     try {
+      const uniqueSupplierIds = [...new Set(selectedSuppliers.filter(Boolean))];
       const payload = {
         ...formData,
-        supplier_ids: selectedSuppliers,
+        supplier_ids: uniqueSupplierIds,
         items: items.map((item) => ({
           ...item,
           quantity: parseFloat(item.quantity) || 0,
@@ -233,10 +340,13 @@ function NewRfq() {
         required_delivery_date: formData.required_delivery_date || null,
       };
       await api.createRfq(payload);
-      toast.success("RFQ Draft created successfully");
+      toast.success("RFQ created", {
+        description: "Review and send it from the RFQ list to email suppliers.",
+      });
+      setShowConfirmModal(false);
       navigate({ to: "/procurement/rfqs" });
     } catch (error: any) {
-      toast.error("Failed to create RFQ", { description: error.message });
+      toast.error("Failed to create RFQ: " + (error.message || "Unknown error"));
     } finally {
       setSubmitting(false);
     }
@@ -255,7 +365,7 @@ function NewRfq() {
         </Button>
       }
     >
-      <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6">
+      <form onSubmit={handleOpenPreSubmitModal} className="mx-auto max-w-4xl space-y-6">
         <SectionCard
           title="RFQ Metadata"
           description="Core identification and scheduling for this request"
@@ -496,43 +606,47 @@ function NewRfq() {
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {suppliers.map((s) => (
-                <div
-                  key={s.supplierId}
-                  onClick={() => toggleSupplier(s.supplierId)}
-                  className={cn(
-                    "relative cursor-pointer rounded-2xl border p-4 transition-all hover:bg-accent/30",
-                    selectedSuppliers.includes(s.supplierId)
-                      ? "border-primary bg-primary-soft/10 ring-1 ring-primary"
-                      : "border-border/60 bg-card",
-                  )}
-                >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={cn(
-                        "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
-                        selectedSuppliers.includes(s.supplierId)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {selectedSuppliers.includes(s.supplierId) ? (
-                        <CheckCircle2 className="size-6" />
-                      ) : (
-                        <Building2 className="size-6" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-bold">{s.supplierName}</p>
+              {suppliers.map((s) => {
+                const supplierId = supplierIdOf(s);
+                const isSelected = selectedSuppliers.includes(supplierId);
+                return (
+                  <div
+                    key={supplierId}
+                    onClick={() => toggleSupplier(supplierId)}
+                    className={cn(
+                      "relative cursor-pointer rounded-2xl border p-4 transition-all hover:bg-accent/30",
+                      isSelected
+                        ? "border-primary bg-primary-soft/10 ring-1 ring-primary"
+                        : "border-border/60 bg-card",
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div
+                        className={cn(
+                          "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
+                          isSelected
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {isSelected ? (
+                          <CheckCircle2 className="size-6" />
+                        ) : (
+                          <Building2 className="size-6" />
+                        )}
                       </div>
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
-                        {s.category}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-bold">{supplierNameOf(s)}</p>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                          {supplierCategoryText(s)}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {selectedSuppliers.length > 0 && (
@@ -557,7 +671,7 @@ function NewRfq() {
 
         <div className="flex items-center justify-end gap-4 rounded-2xl border border-primary/10 bg-primary-soft/5 p-6 shadow-soft">
           <p className="hidden text-sm text-muted-foreground sm:block">
-            Creating this RFQ will notify the selected suppliers via the portal.
+            Creating this RFQ will save a draft for review before supplier emails are sent.
           </p>
           <Button type="submit" size="lg" className="rounded-xl shadow-glow" disabled={submitting}>
             {submitting ? (
@@ -569,6 +683,141 @@ function NewRfq() {
           </Button>
         </div>
       </form>
+
+      {/* PRE-SUBMISSION CATEGORIZED SUPPLIER REVIEW POPUP MODAL */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white">
+                  Pre-Submission Supplier Review
+                </DialogTitle>
+                <Badge className="bg-white/20 text-white border-white/30 text-[10px] uppercase font-black">
+                  Category Match
+                </Badge>
+              </div>
+              <DialogDescription className="text-blue-100 text-xs">
+                Review Material Request requirements and category-matched suppliers before publishing
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Selected Material Request Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Material Request</p>
+                <p className="font-mono font-bold text-primary text-sm mt-0.5">
+                  {formData.material_request_number || "Direct RFQ"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Procurement"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.warehouse}</p>
+              </div>
+            </div>
+
+            {/* Category & Matching Suppliers Count Banner */}
+            {(() => {
+              const primaryCategory = items[0]?.category || filters.category || "Raw Materials";
+
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-950 dark:text-blue-200">
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 font-bold shadow-sm">
+                        <Building2 className="size-5" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          Category: {primaryCategory}
+                        </p>
+                        <p className="text-sm font-bold text-foreground mt-0.5">
+                          {suppliers.length} Active Supplier(s) Found for Category
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="font-bold text-xs bg-card border-blue-500/30">
+                      {selectedSuppliers.length} Selected
+                    </Badge>
+                  </div>
+
+                  {/* List of Category Suppliers */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase font-black text-muted-foreground">
+                      Categorized Suppliers To Be Invited ({selectedSuppliers.length} of {suppliers.length})
+                    </p>
+                    <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+                      {suppliers.map((sup: any) => {
+                        const supplierId = supplierIdOf(sup);
+                        const isChecked = selectedSuppliers.includes(supplierId);
+                        return (
+                          <div
+                            key={supplierId}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-xl border text-xs transition-colors",
+                              isChecked
+                                ? "border-primary/50 bg-primary/5 text-foreground"
+                                : "border-border/50 bg-muted/20 opacity-60",
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <CheckCircle2
+                                className={cn(
+                                  "size-4 shrink-0",
+                                  isChecked ? "text-primary" : "text-muted-foreground/40",
+                                )}
+                              />
+                              <div>
+                                <p className="font-bold text-foreground">{supplierNameOf(sup)}</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">
+                                  {sup.gstin || sup.supplierCode || sup.supplier_code || "Active Vendor"}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border/40">
+                              {supplierCategoryText(sup, primaryCategory)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl font-bold text-xs uppercase"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              onClick={executeSubmitRfq}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 size-4" />
+              )}
+              Confirm &amp; Send RFQ
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

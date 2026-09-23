@@ -15,6 +15,8 @@ import {
   X,
   Check,
   Info,
+  Send,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -22,19 +24,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip,
@@ -272,6 +276,8 @@ function WarehouseMaterialRequests() {
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [activeSuppliers, setActiveSuppliers] = useState<any[]>([]);
   const [nextRequestNumber, setNextRequestNumber] = useState("");
   const [baseMaterialSequence, setBaseMaterialSequence] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
@@ -308,6 +314,10 @@ function WarehouseMaterialRequests() {
         api.getStorageLocations().catch(() => []),
         api.getMaterialUoms().catch(() => []),
       ]);
+
+      api.getSuppliers({ status: "Active" })
+        .then((sups) => setActiveSuppliers(sups || []))
+        .catch(() => {});
       setRequests(reqData);
       setMasterMaterials(matData);
       const warehouseIds = [...new Set(locationData.map((row: any) => row.warehouse_id).filter(Boolean))] as string[];
@@ -362,6 +372,9 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     setItems(
       items.map((it, i) =>
@@ -373,6 +386,7 @@ function WarehouseMaterialRequests() {
               material_code: foundMat.material_code,
               variant_code: formatSpecCode(defaultVariant?.variant_code) || "",
               material_name: nameWithSpec,
+              category: matCat,
               uom: defaultVariant?.uom || foundMat.base_uom || "",
             }
           : it,
@@ -433,6 +447,9 @@ function WarehouseMaterialRequests() {
     const nameWithSpec = specDetails
       ? `${foundMat.material_name} (${specDetails})`
       : foundMat.material_name;
+    const matCat = Array.isArray(foundMat.category)
+      ? foundMat.category[0] || "Raw Materials"
+      : foundMat.category || "Raw Materials";
 
     newItems[idx] = {
       ...newItems[idx],
@@ -441,6 +458,7 @@ function WarehouseMaterialRequests() {
       materialCode: foundMat.material_code,
       variantCode: formatSpecCode(defaultVariant?.variant_code) || "",
       materialName: nameWithSpec,
+      category: matCat,
       uom: defaultVariant?.uom || foundMat.base_uom || "",
     };
     setSelectedRequest({ ...selectedRequest, items: newItems });
@@ -489,7 +507,7 @@ function WarehouseMaterialRequests() {
     const newItems = selectedRequest.items.filter((_: any, i: number) => i !== idx);
     setSelectedRequest({ ...selectedRequest, items: newItems });
   };
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
     const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     if (!requester) {
@@ -512,19 +530,48 @@ function WarehouseMaterialRequests() {
       toast.error("Quantity must be strictly greater than 0 for all items");
       return;
     }
+    setShowConfirmModal(true);
+  };
+
+  const executeSubmitRequest = async () => {
+    const requester = formData.requested_by.trim() || getUserInfo()?.username?.trim() || "";
     setSubmitting(true);
     try {
+      const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+      const primaryCategory = itemCategories[0] || "Raw Materials";
+      const matchingSuppliers = activeSuppliers.filter((s: any) =>
+        Array.isArray(s.category)
+          ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+          : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+      );
+
+      let finalRemarks = formData.remarks.trim();
+      if (matchingSuppliers.length === 0) {
+        const note = `[Note to Procurement: No active suppliers found in master data for category '${primaryCategory}'. Sourcing & vendor onboarding required.]`;
+        finalRemarks = finalRemarks ? `${finalRemarks}\n${note}` : note;
+      }
+
       const itemsToSubmit = items.map((it) => ({
         ...it,
+        category: it.category || "Raw Materials",
         variant_code: formatSpecCode(it.variant_code),
       }));
+
       await api.createMaterialRequest({
         ...formData,
+        remarks: finalRemarks,
         warehouse_id: formData.warehouse_id || "Main Warehouse",
         requested_by: requester,
         items: itemsToSubmit,
       });
+
+      toast.success(
+        matchingSuppliers.length === 0
+          ? "Request submitted to Procurement (Vendor Sourcing Required)"
+          : "Material request submitted to Procurement",
+      );
       toast.success("Material request submitted to Procurement");
+      setShowConfirmModal(false);
       setIsCreating(false);
       setItems([
         {
@@ -545,6 +592,7 @@ function WarehouseMaterialRequests() {
         suggested_supplier: "",
         attachments: [],
       }));
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Failed to submit request: " + (error.message || "Unknown error"));
@@ -661,6 +709,7 @@ function WarehouseMaterialRequests() {
       toast.success("Request updated successfully");
       setIsEditing(false);
       setIsRequestModalOpen(false);
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error("Update failed: " + (error.message || "Unknown error"));
@@ -683,6 +732,7 @@ function WarehouseMaterialRequests() {
         current.map((req) => (req.id === selectedRequest.id ? updated : req)),
       );
       toast.success(`Material request moved to ${nextStatus}`);
+      window.dispatchEvent(new Event("material-requests:changed"));
       fetchData();
     } catch (error: any) {
       toast.error(error.message || "Unable to update material request status");
@@ -737,7 +787,7 @@ function WarehouseMaterialRequests() {
             </div>
           </CardHeader>
           <CardContent className="p-5 sm:p-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleOpenPreSubmitModal} className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Request Number</Label>
@@ -792,17 +842,6 @@ function WarehouseMaterialRequests() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium">Suggested Supplier</Label>
-                  <Input
-                    value={formData.suggested_supplier}
-                    onChange={(e) =>
-                      setFormData({ ...formData, suggested_supplier: e.target.value })
-                    }
-                    className="h-10 rounded-xl text-sm"
-                    placeholder="Optional"
-                  />
-                </div>
               </div>
 
               <div className="space-y-3">
@@ -827,73 +866,95 @@ function WarehouseMaterialRequests() {
                     return (
                       <div
                         key={idx}
-                        className="grid gap-x-3 gap-y-4 rounded-xl border border-border/70 bg-muted/10 p-4 md:grid-cols-2 xl:grid-cols-12 xl:items-start"
+                        className="grid gap-3 rounded-2xl border border-border/70 bg-muted/10 p-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-12 items-end transition-all shadow-xs"
                       >
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-3">
-                            <Label className="flex h-4 items-center text-xs font-medium">Material Master</Label>
-                            <MaterialMasterSearchCombobox
-                              value={item.material_id || "CUSTOM"}
-                              onSelect={(val) => {
-                                if (val === "CUSTOM") {
-                                  setItems(
-                                    items.map((it, i) =>
-                                      i === idx
-                                        ? {
-                                            ...it,
-                                            material_id: "",
-                                            material_variant_id: "",
-                                            variant_code: "",
-                                          }
-                                        : it,
-                                    ),
-                                  );
-                                } else {
-                                  handleSelectMasterMaterial(idx, val);
-                                }
-                              }}
-                              masterMaterials={masterMaterials}
-                              className="h-10"
-                            />
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Material Master</Label>
+                          <MaterialMasterSearchCombobox
+                            value={item.material_id || "CUSTOM"}
+                            onSelect={(val) => {
+                              if (val === "CUSTOM") {
+                                setItems(
+                                  items.map((it, i) =>
+                                    i === idx
+                                      ? {
+                                          ...it,
+                                          material_id: "",
+                                          material_variant_id: "",
+                                          variant_code: "",
+                                        }
+                                      : it,
+                                  ),
+                                );
+                              } else {
+                                handleSelectMasterMaterial(idx, val);
+                              }
+                            }}
+                            masterMaterials={masterMaterials}
+                            className="h-10"
+                          />
+                        </div>
 
-                          <div className="flex min-w-0 flex-col gap-2 xl:col-span-2">
-                            <Label className="flex h-4 items-center text-xs font-medium">Specification</Label>
-                            <Select
-                              value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
-                              onValueChange={(val) => handleSelectVariant(idx, val)}
-                              disabled={!selectedMat?.variants?.length}
-                            >
-                              <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                                <SelectValue placeholder="No specification" />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-xl">
-                                {selectedMat?.variants?.map((v: any) => {
-                                  const spec = [v.size, v.color, v.grade]
-                                    .filter(Boolean)
-                                    .join(" · ");
-                                  return (
-                                    <SelectItem key={v.id} value={v.id} className="text-xs">
-                                      <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
-                                      {spec && `(${spec})`}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Specification</Label>
+                          <Select
+                            value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
+                            onValueChange={(val) => handleSelectVariant(idx, val)}
+                            disabled={!selectedMat?.variants?.length}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
+                              <SelectValue placeholder="No specification" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              {selectedMat?.variants?.map((v: any) => {
+                                const spec = [v.size, v.color, v.grade]
+                                  .filter(Boolean)
+                                  .join(" · ");
+                                return (
+                                  <SelectItem key={v.id} value={v.id} className="text-xs">
+                                    <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
+                                    {spec && `(${spec})`}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 md:col-span-2 xl:col-span-4">
-                          <Label className="flex h-4 items-center text-xs font-medium">Material Description</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-3">
+                          <Label className="text-xs font-semibold text-foreground">Material Description</Label>
                           <Input
                             placeholder="e.g. Wire 1.5mm Red PVC..."
-                            className="h-10 rounded-xl bg-background text-sm"
+                            className={cn(
+                              "h-10 rounded-xl text-sm transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 font-medium cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
                             value={item.material_name}
+                            readOnly={Boolean(item.material_id)}
                             onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">Quantity</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
+                          <Label className="text-xs font-semibold text-foreground">Category</Label>
+                          <Input
+                            placeholder="Category..."
+                            className={cn(
+                              "h-10 rounded-xl text-sm font-medium transition-colors",
+                              Boolean(item.material_id)
+                                ? "bg-muted/50 cursor-not-allowed text-foreground border-border/60"
+                                : "bg-background"
+                            )}
+                            value={item.category || selectedMat?.category || "Raw Materials"}
+                            readOnly={Boolean(item.material_id)}
+                            onChange={(e) => handleItemChange(idx, "category", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">Quantity</Label>
                           <Input
                             type="number"
                             min="1"
@@ -903,8 +964,8 @@ function WarehouseMaterialRequests() {
                           />
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 xl:col-span-1">
-                          <Label className="flex h-4 items-center text-xs font-medium">UOM</Label>
+                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
+                          <Label className="text-xs font-semibold text-foreground">UOM</Label>
                           <Select
                             value={item.uom}
                             onValueChange={(value) => handleItemChange(idx, "uom", value)}
@@ -922,12 +983,12 @@ function WarehouseMaterialRequests() {
                           </Select>
                         </div>
 
-                        <div className="flex h-[64px] items-end justify-end md:col-span-2 xl:col-span-1">
+                        <div className="flex items-center justify-center h-10 xl:col-span-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-10 rounded-xl text-destructive disabled:pointer-events-none disabled:opacity-30"
+                            className="size-10 rounded-xl text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-30"
                             onClick={() => removeItem(idx)}
                             disabled={items.length === 1}
                             aria-label={`Remove material item ${idx + 1}`}
@@ -1151,25 +1212,6 @@ function WarehouseMaterialRequests() {
                       <p className="font-bold text-sm truncate">{selectedRequest.priority || "MEDIUM"}</p>
                     )}
                   </div>
-                  <div className="space-y-1 min-w-0 sm:col-span-3">
-                    <Label className="text-[10px] uppercase font-black text-muted-foreground">
-                      Suggested Supplier
-                    </Label>
-                    {isEditing ? (
-                      <Input
-                        value={selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || ""}
-                        onChange={(e) =>
-                          setSelectedRequest({ ...selectedRequest, suggestedSupplier: e.target.value })
-                        }
-                        className="h-9 rounded-xl text-sm bg-background w-full min-w-0"
-                        placeholder="Optional"
-                      />
-                    ) : (
-                      <p className="font-bold text-sm truncate">
-                        {selectedRequest.suggestedSupplier || selectedRequest.suggested_supplier || "Not specified"}
-                      </p>
-                    )}
-                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -1193,11 +1235,12 @@ function WarehouseMaterialRequests() {
                   <div className="rounded-2xl border border-border/60 overflow-hidden bg-muted/5 shadow-inner">
                     <table className="w-full table-fixed text-left text-sm border-collapse">
                       <colgroup>
-                        <col className="w-[23%]" />
-                        <col className="w-[27%]" />
-                        <col className="w-[28%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[20%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[17%]" />
                         <col className="w-[10%]" />
-                        <col className="w-[12%]" />
+                        <col className="w-[10%]" />
                         {isEditing && <col className="w-10" />}
                       </colgroup>
                       <thead>
@@ -1209,7 +1252,10 @@ function WarehouseMaterialRequests() {
                             Specification Code
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
-                            Material Name & Specs
+                            Material Name &amp; Specs
+                          </th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">
+                            Category
                           </th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">
                             Qty
@@ -1302,14 +1348,42 @@ function WarehouseMaterialRequests() {
                                   <Input
                                     value={item.materialName || item.material_name || ""}
                                     placeholder="Material Name / Specification"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
                                     onChange={(e) =>
                                       handleEditItemChange(idx, "materialName", e.target.value)
                                     }
-                                    className="h-9 text-xs bg-background rounded-xl w-full min-w-0"
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 font-medium cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
                                   />
                                 ) : (
                                   <span className="text-xs font-medium truncate block">
                                     {item.materialName || item.material_name}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5 min-w-0 overflow-hidden">
+                                {isEditing ? (
+                                  <Input
+                                    value={item.category || selectedMat?.category || "Raw Materials"}
+                                    placeholder="Category"
+                                    readOnly={currentMaterialId !== "CUSTOM"}
+                                    onChange={(e) =>
+                                      handleEditItemChange(idx, "category", e.target.value)
+                                    }
+                                    className={cn(
+                                      "h-9 text-xs rounded-xl w-full min-w-0 font-medium",
+                                      currentMaterialId !== "CUSTOM"
+                                        ? "bg-muted/50 cursor-not-allowed text-foreground"
+                                        : "bg-background"
+                                    )}
+                                  />
+                                ) : (
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block truncate">
+                                    {item.category || selectedMat?.category || "Raw Materials"}
                                   </span>
                                 )}
                               </td>
@@ -1392,6 +1466,25 @@ function WarehouseMaterialRequests() {
                       }
                       className="rounded-2xl min-h-[100px] text-sm"
                     />
+                  ) : selectedRequest.remarks?.includes("[Note to Procurement:") ? (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                        <AlertCircle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Vendor Sourcing Action Required
+                          </p>
+                          <p className="text-xs font-bold mt-1 leading-relaxed">
+                            {selectedRequest.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0] || selectedRequest.remarks}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim() && (
+                        <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                          {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim()}
+                        </p>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
                       {selectedRequest.remarks || "No remarks provided."}
@@ -1399,32 +1492,7 @@ function WarehouseMaterialRequests() {
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <Label className="text-[10px] uppercase font-black text-muted-foreground">
-                    Approval History
-                  </Label>
-                  <div className="rounded-2xl border border-border/40 bg-muted/20 p-4">
-                    {(selectedRequest.approvalHistory || selectedRequest.approval_history)?.length ? (
-                      <div className="space-y-3">
-                        {(selectedRequest.approvalHistory || selectedRequest.approval_history).map((entry: any, idx: number) => (
-                          <div key={idx} className="flex items-start justify-between gap-4 text-sm">
-                            <div>
-                              <p className="font-bold text-foreground">{entry.status}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {entry.actor || "System"} {entry.comments ? `- ${entry.comments}` : ""}
-                              </p>
-                            </div>
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {entry.timestamp ? formatDisplayDate(entry.timestamp) : "—"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">No approval history recorded yet.</p>
-                    )}
-                  </div>
-                </div>
+
               </div>
 
               <div className="p-6 bg-muted/10 border-t border-border/60 flex items-center justify-between">
@@ -1468,41 +1536,7 @@ function WarehouseMaterialRequests() {
                           Submit Request
                         </Button>
                       )}
-                      {selectedRequest.status === "Submitted" && (
-                        <>
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
-                            onClick={() => changeStatus("Rejected", "Rejected during manager review")}
-                          >
-                            <X className="mr-2 size-4" /> Reject
-                          </Button>
-                          <Button
-                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
-                            onClick={() => changeStatus("Pending Approval", "Manager approved; sent to Procurement")}
-                          >
-                            <Check className="mr-2 size-4" /> Manager Approve
-                          </Button>
-                        </>
-                      )}
-                      {selectedRequest.status === "Pending Approval" && (
-                        <>
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-11 px-6 font-bold text-xs uppercase border-rose-300 text-rose-700 hover:bg-rose-50"
-                            onClick={() => changeStatus("Rejected", "Rejected during procurement review")}
-                          >
-                            <X className="mr-2 size-4" /> Reject
-                          </Button>
-                          <Button
-                            className="rounded-full h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-glow font-bold text-xs uppercase"
-                            onClick={() => changeStatus("Approved", "Procurement approved")}
-                          >
-                            <Check className="mr-2 size-4" /> Approve
-                          </Button>
-                        </>
-                      )}
-                      {["Draft", "Submitted", "Rejected"].includes(selectedRequest.status) && (
+                      {["Draft", "Submitted", "Rejected", "Pending Approval"].includes(selectedRequest.status) && (
                         <Button
                           className="rounded-full h-11 px-8 bg-blue-600 hover:bg-blue-700 shadow-glow font-bold text-xs uppercase"
                           onClick={() => setIsEditing(true)}
@@ -1516,6 +1550,187 @@ function WarehouseMaterialRequests() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* PRE-SUBMISSION MATERIAL REQUEST CONFIRMATION POPUP MODAL */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white">
+                  Confirm Material Request Submission
+                </DialogTitle>
+                <Badge className="bg-white/20 text-white border-white/30 text-[10px] uppercase font-black">
+                  Pre-Submission Review
+                </Badge>
+              </div>
+              <DialogDescription className="text-blue-100 text-xs">
+                Review request details and category supplier availability before sending to Procurement
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Request Summary Metadata */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Request Number</p>
+                <p className="font-mono font-bold text-primary text-sm mt-0.5">
+                  {formData.request_number || "MR-PENDING"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.warehouse_id || "Main Warehouse"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Inventory"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">Priority</p>
+                <Badge className="mt-0.5 bg-amber-500/10 text-amber-700 border-amber-500/30 text-[10px] font-bold">
+                  {formData.priority || "MEDIUM"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Material Items List */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase font-black text-muted-foreground">
+                Requested Materials ({items.length} item{items.length === 1 ? "" : "s"})
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-border/60 bg-card overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-muted/40 font-bold uppercase text-[10px] text-muted-foreground border-b border-border/60">
+                    <tr>
+                      <th className="p-2.5">Material</th>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5 text-right">Qty</th>
+                      <th className="p-2.5">UOM</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {items.map((it, i) => (
+                      <tr key={i} className="hover:bg-muted/10">
+                        <td className="p-2.5">
+                          <p className="font-mono font-bold text-primary">{it.material_code || "CUSTOM"}</p>
+                          <p className="text-foreground font-medium truncate max-w-[220px]">{it.material_name}</p>
+                        </td>
+                        <td className="p-2.5 font-semibold text-muted-foreground uppercase text-[10px]">
+                          {it.category || "Raw Materials"}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-foreground tabular-nums">
+                          {it.quantity}
+                        </td>
+                        <td className="p-2.5 font-medium text-muted-foreground uppercase text-[10px]">
+                          {it.uom || "PCS"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Categorized Suppliers Availability Banner */}
+            {(() => {
+              const itemCategories = [...new Set(items.map((it) => it.category).filter(Boolean))];
+              const primaryCategory = itemCategories[0] || "Raw Materials";
+              const matchingSuppliers = activeSuppliers.filter((s: any) =>
+                Array.isArray(s.category)
+                  ? s.category.some((c: string) => c.toLowerCase() === primaryCategory.toLowerCase())
+                  : (s.category || "").toLowerCase() === primaryCategory.toLowerCase(),
+              );
+
+              const hasSuppliers = matchingSuppliers.length > 0;
+
+              return (
+                <div
+                  className={cn(
+                    "p-4 rounded-2xl flex items-center justify-between gap-3 border transition-colors",
+                    hasSuppliers
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-950 dark:text-emerald-200"
+                      : "bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-200",
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "size-10 rounded-xl text-white flex items-center justify-center shrink-0 font-bold shadow-sm",
+                        hasSuppliers ? "bg-emerald-600" : "bg-amber-600",
+                      )}
+                    >
+                      {hasSuppliers ? <Building2 className="size-5" /> : <AlertCircle className="size-5" />}
+                    </div>
+                    <div>
+                      <p
+                        className={cn(
+                          "text-[10px] font-black uppercase tracking-wider",
+                          hasSuppliers
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400",
+                        )}
+                      >
+                        Procurement Supplier Master
+                      </p>
+                      {hasSuppliers ? (
+                        <p className="text-sm font-bold text-foreground mt-0.5">
+                          {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
+                        </p>
+                      ) : (
+                        <div>
+                          <p className="text-sm font-bold text-foreground mt-0.5">
+                            0 Active Suppliers for Category '{primaryCategory}'
+                          </p>
+                          <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 font-medium">
+                            Request will notify Procurement to source / suggest suppliers for this material.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-bold text-xs bg-card shrink-0",
+                      hasSuppliers
+                        ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                        : "border-amber-500/30 text-amber-700 dark:text-amber-400",
+                    )}
+                  >
+                    {hasSuppliers ? "Ready for RFQ" : "Procurement Action Required"}
+                  </Badge>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl font-bold text-xs uppercase"
+              onClick={() => setShowConfirmModal(false)}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              onClick={executeSubmitRequest}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 size-4" />
+              )}
+              Confirm &amp; Submit Request
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppShell>

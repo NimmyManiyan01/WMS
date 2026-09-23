@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
-  Ban,
   Building2,
   FileText,
   Loader2,
@@ -16,7 +15,6 @@ import {
   X,
   AlertCircle,
   ChevronRight,
-  ChevronDown,
   Download,
   Star,
 } from "lucide-react";
@@ -35,16 +33,6 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
@@ -61,8 +49,6 @@ function SupplierProfile() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [blocking, setBlocking] = useState(false);
-  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [form, setForm] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -76,23 +62,25 @@ function SupplierProfile() {
   useEffect(() => {
     api
       .getSupplier(supplierId)
-      .then(setSupplier)
+      .then((data) => {
+        setSupplier(data);
+        if (data) {
+          api
+            .getPurchaseOrders({ supplierId: supplierId })
+            .then((pos) => {
+              if (Array.isArray(pos)) setPurchaseOrders(pos);
+            })
+            .catch(() => {});
+        }
+      })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Unable to load supplier profile."),
       );
 
     api
-      .getPurchaseOrders()
+      .getPurchaseOrders({ supplierId: supplierId })
       .then((pos) => {
-        if (Array.isArray(pos)) {
-          setPurchaseOrders(
-            pos.filter(
-              (p) =>
-                String(p.supplierId || p.supplier_id) === String(supplierId) ||
-                (supplier?.supplierName && p.supplierName === supplier.supplierName),
-            ),
-          );
-        }
+        if (Array.isArray(pos)) setPurchaseOrders(pos);
       })
       .catch(() => {});
 
@@ -102,7 +90,7 @@ function SupplierProfile() {
         if (cats.length > 0) setCategories(cats.map((c: any) => c.name));
       })
       .catch((err) => console.warn("Failed to fetch categories", err));
-  }, [supplierId, supplier?.supplierName]);
+  }, [supplierId]);
 
   const title = supplier?.supplierName || "Supplier profile";
   const openEditor = () => {
@@ -291,27 +279,93 @@ function SupplierProfile() {
       setSaving(false);
     }
   };
-  const changeSupplierStatus = async (nextStatus: string, successMessage: string) => {
-    const previousSupplier = supplier;
-    setSupplier((prev: any) => ({ ...prev, status: nextStatus }));
-    setBlocking(true);
-
+  const handleDownloadRealtimePdf = (doc: any) => {
     try {
-      const updated = await api.updateSupplierStatus(supplierId, nextStatus);
-      setSupplier(updated);
-      toast.success(successMessage);
-    } catch (err) {
-      setSupplier(previousSupplier);
-      toast.error("Unable to update supplier status", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setBlocking(false);
+      const docType = doc.documentType || doc.document_type || "Compliance Document";
+      const fileName =
+        doc.fileName || doc.file_name || `${supplier?.supplierName || "Supplier"}_${docType}.pdf`;
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${fileName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; background: #fff; }
+            .header { border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 20px; }
+            .title { font-size: 20px; font-weight: bold; color: #2563eb; }
+            .subtitle { font-size: 12px; color: #64748b; margin-top: 4px; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+            .field { background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+            .label { font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: bold; margin-top: 4px; color: #0f172a; }
+            .footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 10px; color: #94a3b8; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">${docType}</div>
+            <div class="subtitle">Official Vendor Compliance Document · ${supplier?.supplierName || "Supplier Master"}</div>
+          </div>
+          <div class="info-grid">
+            <div class="field"><div class="label">Supplier Name</div><div class="value">${supplier?.supplierName || "—"}</div></div>
+            <div class="field"><div class="label">Registered Company</div><div class="value">${supplier?.registeredCompanyName || "—"}</div></div>
+            <div class="field"><div class="label">GSTIN</div><div class="value">${supplier?.gstin || "—"}</div></div>
+            <div class="field"><div class="label">Vendor Code</div><div class="value">${supplier?.supplierCode || supplier?.supplierId || "—"}</div></div>
+            <div class="field"><div class="label">Document Category</div><div class="value">${docType}</div></div>
+            <div class="field"><div class="label">Verification Status</div><div class="value" style="color:#059669;">Verified &amp; Active</div></div>
+          </div>
+          <div style="margin-top: 30px; padding: 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;">
+            <p style="font-size: 12px; font-weight: bold; color: #065f46; margin: 0;">Verified Compliance Record</p>
+            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in NexusWMS platform master data.</p>
+          </div>
+          <div class="footer">
+            Generated automatically by NexusWMS Procurement Portal · ${new Date().toLocaleString("en-IN")}
+          </div>
+        </body>
+        </html>
+      `;
+
+      const printWin = window.open("", "_blank");
+      if (printWin) {
+        printWin.document.write(htmlContent);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => {
+          printWin.print();
+        }, 500);
+      } else {
+        toast.error("Popup blocked. Please allow popups to download real-time PDF.");
+      }
+    } catch (e: any) {
+      toast.error("Failed to generate real-time PDF", { description: e.message });
     }
   };
-  const blockSupplier = async () => {
-    await changeSupplierStatus("Blocked", "Supplier blocked");
-    setShowBlockConfirm(false);
+
+  const handleDownloadDocument = async (doc: any, downloadUrl: string) => {
+    const fileName = doc.fileName || doc.file_name || "supplier-document.pdf";
+
+    try {
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`File not found (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      toast.error("Stored document file is missing", {
+        description: "Generating the supplier compliance PDF instead.",
+      });
+      handleDownloadRealtimePdf(doc);
+    }
   };
 
   return (
@@ -325,104 +379,10 @@ function SupplierProfile() {
             <Button variant="outline" className="rounded-xl font-bold" onClick={openEditor}>
               <Pencil className="mr-1.5 size-3.5" /> Edit Supplier
             </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="rounded-xl font-bold">
-                  More <ChevronDown className="ml-1.5 size-3.5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-52 p-2 rounded-xl" align="end">
-                <div className="space-y-1">
-                  {(supplier.status === "Draft" || supplier.status === "Suspended") && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9"
-                      disabled={blocking}
-                      onClick={() =>
-                        changeSupplierStatus("Pending Approval", "Supplier submitted for approval")
-                      }
-                    >
-                      <FileText className="mr-2 size-3.5 text-primary" /> Submit Approval
-                    </Button>
-                  )}
-                  {supplier.status === "Pending Approval" && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
-                        disabled={blocking}
-                        onClick={() => changeSupplierStatus("Active", "Supplier approved and active")}
-                      >
-                        <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Approve
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
-                        disabled={blocking}
-                        onClick={() => changeSupplierStatus("Draft", "Supplier rejected to draft")}
-                      >
-                        <X className="mr-2 size-3.5 text-amber-600" /> Reject
-                      </Button>
-                    </>
-                  )}
-                  {supplier.status === "Active" && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-amber-600 hover:bg-amber-50"
-                      disabled={blocking}
-                      onClick={() => changeSupplierStatus("Suspended", "Supplier suspended")}
-                    >
-                      <Ban className="mr-2 size-3.5 text-amber-600" /> Suspend
-                    </Button>
-                  )}
-                  {(supplier.status === "Blocked" || supplier.status === "Suspended") && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-emerald-600 hover:bg-emerald-50"
-                      disabled={blocking}
-                      onClick={() => changeSupplierStatus("Active", "Supplier activated")}
-                    >
-                      <ShieldCheck className="mr-2 size-3.5 text-emerald-600" /> Activate
-                    </Button>
-                  )}
-                  {supplier.status !== "Blocked" && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-xs font-semibold rounded-lg h-9 text-rose-600 hover:bg-rose-50"
-                      disabled={blocking}
-                      onClick={() => setShowBlockConfirm(true)}
-                    >
-                      <Ban className="mr-2 size-3.5 text-rose-600" /> Block Supplier
-                    </Button>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
           </div>
         )
       }
     >
-      <AlertDialog open={showBlockConfirm} onOpenChange={setShowBlockConfirm}>
-        <AlertDialogContent className="rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Block supplier?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to block <strong>{supplier?.supplierName}</strong>? This action
-              will prevent the supplier from being used in any active operational processes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={blockSupplier}
-              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Confirm block
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <Button variant="ghost" className="mb-4 rounded-xl font-bold text-xs" asChild>
         <Link to="/master-data">
           <ArrowLeft className="mr-2 size-4" /> Back to Suppliers
@@ -835,11 +795,13 @@ function SupplierProfile() {
                           <SelectValue placeholder="Select payment terms" />
                         </SelectTrigger>
                         <SelectContent>
-                          {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map((term) => (
-                            <SelectItem key={term} value={term}>
-                              {term}
-                            </SelectItem>
-                          ))}
+                          {["Immediate", "Net 15", "Net 30", "Net 45", "Net 60", "Advance"].map(
+                            (term) => (
+                              <SelectItem key={term} value={term}>
+                                {term}
+                              </SelectItem>
+                            ),
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -848,7 +810,11 @@ function SupplierProfile() {
                       value={form.creditPeriodDays ? String(form.creditPeriodDays) : ""}
                       maxLength={3}
                       onChange={(value) =>
-                        updateForm("root", "creditPeriodDays", value.replace(/\D/g, "").substring(0, 3))
+                        updateForm(
+                          "root",
+                          "creditPeriodDays",
+                          value.replace(/\D/g, "").substring(0, 3),
+                        )
                       }
                     />
                   </>
@@ -883,7 +849,10 @@ function SupplierProfile() {
                   key={tab.id}
                   variant={isActive ? "default" : "outline"}
                   size="sm"
-                  className={cn("rounded-xl font-bold text-xs transition-all", isActive && "shadow-soft")}
+                  className={cn(
+                    "rounded-xl font-bold text-xs transition-all",
+                    isActive && "shadow-soft",
+                  )}
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon className="mr-1.5 size-3.5" />
@@ -1010,7 +979,10 @@ function SupplierProfile() {
             >
               {supplier.contact ? (
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  <Field label="Contact Person" value={supplier.contact.primaryContactName || "—"} />
+                  <Field
+                    label="Contact Person"
+                    value={supplier.contact.primaryContactName || "—"}
+                  />
                   <Field label="Designation" value={supplier.contact.designation || "—"} />
                   <Field label="Phone" value={supplier.contact.phone || "—"} mono />
                   <Field label="Primary Email" value={supplier.contact.primaryEmail || "—"} />
@@ -1099,25 +1071,58 @@ function SupplierProfile() {
             >
               {supplier.documents?.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  {supplier.documents.map((document: any) => (
-                    <div
-                      key={document.uploadId || document.fileName}
-                      className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft"
-                    >
-                      <div className="min-w-0 pr-2">
-                        <p className="text-sm font-semibold truncate">{document.fileName}</p>
-                        <p className="text-xs text-muted-foreground">{document.documentType || "Compliance Doc"}</p>
-                      </div>
-                      <a
-                        href={document.fileUrl || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+                  {supplier.documents.map((document: any) => {
+                    const rawUrl =
+                      document.fileUrl ||
+                      document.file_url ||
+                      document.storagePath ||
+                      document.storage_path;
+                    const downloadUrl =
+                      rawUrl && rawUrl !== "#" ? api.resolveMediaUrl(rawUrl) : null;
+
+                    return (
+                      <div
+                        key={
+                          document.uploadId ||
+                          document.upload_id ||
+                          document.fileName ||
+                          document.file_name
+                        }
+                        className="flex items-center justify-between rounded-xl border border-border/70 p-4 bg-card shadow-soft hover:border-primary/40 transition-colors"
                       >
-                        <Download className="size-3.5" /> PDF
-                      </a>
-                    </div>
-                  ))}
+                        <div className="min-w-0 pr-2">
+                          <p className="text-sm font-semibold truncate text-foreground">
+                            {document.fileName || document.file_name || "Compliance Doc"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {document.documentType ||
+                              document.document_type ||
+                              "Compliance Document"}
+                          </p>
+                        </div>
+                        {downloadUrl ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDownloadDocument(document, downloadUrl)}
+                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                          >
+                            <Download className="size-3.5" /> PDF
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-lg h-8 text-xs font-bold border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                            onClick={() => handleDownloadRealtimePdf(document)}
+                          >
+                            <Download className="mr-1 size-3.5" /> PDF
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptySection text="No compliance documents have been attached." />
@@ -1147,7 +1152,9 @@ function SupplierProfile() {
                     <tbody className="divide-y divide-border/60">
                       {purchaseOrders.map((po) => (
                         <tr key={po.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3 font-mono font-bold text-primary">{po.poNumber}</td>
+                          <td className="px-4 py-3 font-mono font-bold text-primary">
+                            {po.poNumber}
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground">{po.poDate || "—"}</td>
                           <td className="px-4 py-3">
                             <StatusBadge status={po.status} />
@@ -1156,7 +1163,12 @@ function SupplierProfile() {
                             ₹{Number(po.totalAmount || 0).toLocaleString("en-IN")}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Button size="sm" variant="outline" className="rounded-xl h-7 text-[10px] font-bold" asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-xl h-7 text-[10px] font-bold"
+                              asChild
+                            >
                               <Link to="/purchase-order" search={{ poId: po.id }}>
                                 View PO <ChevronRight className="ml-1 size-3" />
                               </Link>
@@ -1199,7 +1211,13 @@ function SupplierProfile() {
                 />
                 <Field
                   label="Purchase Orders Executed"
-                  value={purchaseOrders.length ? String(purchaseOrders.length) : (supplier.purchaseOrderCount ? String(supplier.purchaseOrderCount) : "0")}
+                  value={
+                    purchaseOrders.length
+                      ? String(purchaseOrders.length)
+                      : supplier.purchaseOrderCount
+                        ? String(supplier.purchaseOrderCount)
+                        : "0"
+                  }
                 />
                 <Field
                   label="Total Purchase Value"

@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import asyncio
 import uuid
+import hashlib
+import secrets
 from io import BytesIO
 from datetime import date, datetime
 from decimal import Decimal
@@ -149,10 +151,21 @@ from app.modules.procurement.infrastructure.persistence.repository_impl import (
 )
 from app.common.email_utils import render_premium_email, send_email
 from app.security.dependencies import CurrentUser, get_current_user
+from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/procurement", tags=["procurement"])
+
+
+def verify_procurement_role(_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    roles_upper = {r.upper() for r in (_user.roles or [])}
+    if not any(r in roles_upper for r in ["PROCUREMENT", "PROCUREMENT_OFFICER", "MANAGER", "ADMIN", "SUPERUSER"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Procurement role required."
+        )
+    return _user
 
 
 @router.get("/health", tags=["ops"])
@@ -171,6 +184,33 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         total_suppliers_stmt = select(func.count(SupplierModel.id))
         total_suppliers_res = await uow.session.execute(total_suppliers_stmt)
         total_suppliers = total_suppliers_res.scalar() or 0
+
+        pending_supplier_registrations_stmt = select(func.count(SupplierModel.id)).where(
+            func.lower(SupplierModel.status).like("%pending%")
+        )
+        pending_supplier_registrations_res = await uow.session.execute(pending_supplier_registrations_stmt)
+        pending_supplier_registrations = pending_supplier_registrations_res.scalar() or 0
+
+        pending_material_requests_stmt = select(func.count(MaterialRequestModel.id)).where(
+            MaterialRequestModel.status == "Submitted"
+        )
+        pending_material_requests_res = await uow.session.execute(pending_material_requests_stmt)
+        pending_material_requests = pending_material_requests_res.scalar() or 0
+
+        pending_request_sources_stmt = (
+            select(MaterialRequestModel.warehouse_id, MaterialRequestModel.department)
+            .where(MaterialRequestModel.status == "Submitted")
+            .order_by(MaterialRequestModel.created_at.desc())
+            .limit(3)
+        )
+        pending_request_sources_res = await uow.session.execute(pending_request_sources_stmt)
+        pending_material_request_sources = []
+        for warehouse_id, department in pending_request_sources_res.all():
+            source_parts = [part for part in (warehouse_id, department) if part]
+            if source_parts:
+                pending_material_request_sources.append(" / ".join(source_parts))
+
+        expiring_supplier_documents = 0
 
 
         open_pos_stmt = select(func.count(PurchaseOrderModel.id)).where(
@@ -287,6 +327,10 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
             active_suppliers=active_suppliers,
             total_suppliers=total_suppliers,
             open_pos=open_pos,
+            pending_material_requests=pending_material_requests,
+            pending_material_request_sources=pending_material_request_sources,
+            pending_supplier_registrations=pending_supplier_registrations,
+            expiring_supplier_documents=expiring_supplier_documents,
             pending_approvals=pending_approvals,
             pending_quotations=pending_quotations,
             awaiting_supplier_confirmation=awaiting_supplier_confirmation,
@@ -425,7 +469,7 @@ MR_ALLOWED_STATUSES = {
 }
 MR_STATUS_TRANSITIONS = {
     "Draft": {"Submitted", "Closed"},
-    "Submitted": {"Pending Approval", "Rejected", "Closed"},
+    "Submitted": {"Approved", "Rejected", "Closed"},
     "Pending Approval": {"Approved", "Rejected", "Closed"},
     "Approved": {"Converted to RFQ", "Closed"},
     "Rejected": {"Draft", "Closed"},
@@ -440,6 +484,11 @@ def _normalize_mr_status(value: str | None) -> str:
 
 
 def _material_request_response(m: MaterialRequestModel) -> MaterialRequestResponse:
+    def loaded_item_category(item: MaterialRequestItemModel) -> str | None:
+        if not _is_rel_loaded(item, "material"):
+            return None
+        return getattr(item.material, "category", None)
+
     return MaterialRequestResponse(
         id=str(m.id),
         request_number=m.request_number,
@@ -460,6 +509,7 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
                 material_code=it.material_code,
                 variant_code=it.variant_code,
                 material_name=it.material_name,
+                category=loaded_item_category(it),
                 quantity=it.quantity,
                 uom=it.uom,
             )
@@ -472,7 +522,13 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
 
 @router.get("/material-requests", response_model=List[MaterialRequestResponse])
 async def list_material_requests(uow: UnitOfWork = Depends(get_uow)):
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).order_by(MaterialRequestModel.created_at.desc())
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .order_by(MaterialRequestModel.created_at.desc())
+    )
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
     return [_material_request_response(m) for m in entities]
@@ -652,7 +708,13 @@ async def get_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     req = res.scalar_one_or_none()
     if not req:
@@ -700,7 +762,13 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     mr = res.scalar_one_or_none()
     if not mr:
@@ -832,7 +900,13 @@ async def update_material_request_status(
             detail=f"Unsupported material request status '{request.status}'.",
         )
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     mr = res.scalar_one_or_none()
     if not mr:
@@ -856,8 +930,9 @@ async def update_material_request_status(
     })
     mr.approval_history = history
     await uow.commit()
-    await uow.session.refresh(mr)
-    return _material_request_response(mr)
+    refreshed_res = await uow.session.execute(stmt)
+    refreshed_mr = refreshed_res.scalar_one_or_none()
+    return _material_request_response(refreshed_mr or mr)
 
 
 @router.get("/material-stock", response_model=List[MaterialStockResponse])
@@ -1389,9 +1464,8 @@ async def unblock_supplier(
 @router.post("/rfqs", response_model=RfqResponse, status_code=status.HTTP_201_CREATED)
 async def create_rfq(
     request: CreateRfqRequest,
-    background_tasks: BackgroundTasks,
     uow: UnitOfWork = Depends(get_uow),
-    _user: CurrentUser = Depends(get_current_user),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ) -> RfqResponse:
     try:
         if request.material_request_number:
@@ -1439,9 +1513,6 @@ async def create_rfq(
                 mr.approval_history = history
         await uow.commit()
 
-        if request.supplier_ids:
-            background_tasks.add_task(_notify_suppliers_rfq, str(rfq_id.value))
-
         stmt = select(RfqModel).options(
             selectinload(RfqModel.items),
             selectinload(RfqModel.suppliers).options(
@@ -1465,7 +1536,8 @@ async def create_rfq(
 @router.post("/rfqs/{id}/send")
 async def send_rfq_endpoint(
     id: str,
-    uow: UnitOfWork = Depends(get_uow)
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ):
     repo = SqlAlchemyRfqRepository(uow.session)
 
@@ -1556,7 +1628,13 @@ async def _notify_suppliers_rfq(rfq_id: str):
             logger.error(f"RFQ notify failed: RFQ {rfq_id} not found in database")
             return {"total": 0, "sent": 0, "failed": 1}
 
+        notified_supplier_ids = set()
+        notified_emails = set()
         for supplier in rfq.suppliers:
+            supplier_key = str(supplier.id)
+            if supplier_key in notified_supplier_ids:
+                continue
+            notified_supplier_ids.add(supplier_key)
             total += 1
 
             su_stmt = select(SupplierUserModel).where(SupplierUserModel.supplier_id == supplier.id)
@@ -1601,7 +1679,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
 
             email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
             email_valid = bool(raw_email and re.match(email_pattern, raw_email))
-            email = raw_email if email_valid else None
+            email = raw_email.lower() if email_valid else None
             subject = f"Request for Quotation - {rfq.rfq_number}"
 
             logger.info(
@@ -1615,56 +1693,37 @@ async def _notify_suppliers_rfq(rfq_id: str):
                 f"-----------------------------------------"
             )
 
+            if email and email in notified_emails:
+                logger.info(
+                    f"Skipping duplicate RFQ notification recipient {email} for RFQ {rfq.rfq_number}"
+                )
+                continue
             if email:
-                materials_str = ""
-                items_payload = []
-                for idx, item in enumerate(rfq.items):
-                    m_name = getattr(item, "material_name", "Material") or getattr(item, "material_code", "Material")
-                    m_qty = f"{item.quantity} {item.uom}"
-                    m_del = str(item.required_delivery_date) if item.required_delivery_date else (str(rfq.required_delivery_date) if rfq.required_delivery_date else "Standard")
-                    m_wh = str(item.warehouse) if item.warehouse else (str(rfq.warehouse) if rfq.warehouse else "Main")
-                    materials_str += f"\nMaterial: {m_name}\nQuantity: {m_qty}\nRequired Delivery: {m_del}\nWarehouse: {m_wh}\n"
-                    items_payload.append({
-                        "material": m_name,
-                        "quantity": m_qty,
-                        "delivery": m_del,
-                        "warehouse": m_wh,
-                    })
-
+                notified_emails.add(email)
                 login_link = f"http://localhost:8080/login?redirect=/submit-quotation?rfqId={rfq.id}"
 
                 body = (
                     f"Dear {supplier.supplier_name},\n\n"
-                    f"We request you to submit a quotation for the following materials:\n"
-                    f"{materials_str}\n"
-                    f"Please use the following link to login and submit your quotation:\n\n"
-                    f"{login_link}\n\n"
-                    f"Your Credentials:\n"
+                    f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}.\n\n"
+                    f"Please use your authorized email address and password to log in and open your supplier portal:\n\n"
+                    f"Login Portal: {login_link}\n"
+                    f"Authorized Email ID: {email}\n"
                     f"Username: {username}\n"
-                    f"Temporary Password: {temp_password}\n\n"
-                    f"Note: This temporary access password was generated for your quotation submission.\n"
+                    f"Password: {temp_password}\n\n"
+                    f"Note: Keep these credentials secure. Log in using your email ID and password to access the supplier portal and submit your quotation.\n"
                 )
-
-                details_payload = [
-                    ("RFQ Number", rfq.rfq_number),
-                    ("RFQ Date", str(rfq.rfq_date)),
-                    ("Procurement Officer", rfq.procurement_officer or "Procurement Team"),
-                    ("Warehouse", rfq.warehouse or "Main Warehouse"),
-                ]
-                if rfq.closing_date:
-                    details_payload.append(("Closing Date", str(rfq.closing_date)))
 
                 html_body = render_premium_email(
                     eyebrow="Request for quotation",
                     title=f"Quotation requested · {rfq.rfq_number}",
                     greeting=f"Hello {supplier.supplier_name},",
-                    intro="You have been invited to submit a commercial quotation. Review the requirements and respond through the secure supplier portal.",
-                    details=details_payload,
-                    items=items_payload,
-                    items_heading="Requested Materials",
-                    credentials=[("Username", username), ("Temporary password", temp_password)],
-                    primary_cta=("Review & submit quotation", login_link),
-                    note="Please submit your quotation before the RFQ closing date. Pricing and delivery commitments entered in the portal will form part of your official response.",
+                    intro=f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}. Log in to your supplier portal using your authorized email ID and password below.",
+                    details=(),
+                    items=(),
+                    items_heading=None,
+                    credentials=[("Authorized Email ID", email), ("Username", username), ("Password", temp_password)],
+                    primary_cta=("Login to supplier portal", login_link),
+                    note=f"This account is uniquely associated with your authorized email address ({email}). Use your email ID and password to log in and open your supplier portal.",
                 )
 
                 os.makedirs(os.path.join("media_uploads", "emails"), exist_ok=True)
@@ -2001,11 +2060,10 @@ async def _get_purchase_order_quotation(
 @router.get("/purchase-orders", response_model=List[PurchaseOrderResponse])
 async def list_purchase_orders(
     search: Optional[str] = Query(None),
+    supplier_id: Optional[str] = Query(None),
     uow: UnitOfWork = Depends(get_uow)
 ):
     try:
-        repo = SqlAlchemyPurchaseOrderRepository(uow.session)
-
         stmt = select(PurchaseOrderModel).options(
             selectinload(PurchaseOrderModel.items),
             selectinload(PurchaseOrderModel.history),
@@ -2014,6 +2072,16 @@ async def list_purchase_orders(
             selectinload(PurchaseOrderModel.quotation).selectinload(QuotationModel.documents),
             selectinload(PurchaseOrderModel.rfq),
         )
+
+        if supplier_id:
+            try:
+                supp_uuid = uuid.UUID(supplier_id)
+                stmt = stmt.where(or_(
+                    PurchaseOrderModel.supplier_id == supp_uuid,
+                    cast(PurchaseOrderModel.supplier_id, String) == supplier_id,
+                ))
+            except ValueError:
+                stmt = stmt.where(PurchaseOrderModel.supplier_name.ilike(f"%{supplier_id}%"))
 
         if search:
             search_term = f"%{search}%"
@@ -3151,7 +3219,7 @@ def _to_rfq_response(rfq) -> RfqResponse:
     return RfqResponse(
         id=str(rfq.id),
         rfq_number=getattr(rfq, "rfq_number", None),
-        rfq_date=getattr(rfq, "rfq_date", None),
+        rfq_date=getattr(rfq, "rfq_date", None) or date.today(),
         status=getattr(rfq, "status", None),
         material_request_number=getattr(rfq, "material_request_number", None),
         required_delivery_date=getattr(rfq, "required_delivery_date", None),
@@ -3275,17 +3343,22 @@ async def submit_quotation(
     _user: CurrentUser = Depends(get_current_user),
 ) -> QuotationResponse:
     try:
+        supplier_id = request.supplier_id or _user.raw_claims.get("supplier_id")
+        if not supplier_id:
+            raise HTTPException(status_code=400, detail="Supplier ID is required for quotation submission")
+
         repo = SqlAlchemyQuotationRepository(uow.session)
         rfq_repo = SqlAlchemyRfqRepository(uow.session)
         use_case = SubmitQuotationUseCase(repo, rfq_repo)
         command = SubmitQuotationCommand(
             rfq_id=request.rfq_id,
-            supplier_id=request.supplier_id,
+            supplier_id=supplier_id,
             lines=[QuotationLineCommand(**l.dict()) for l in request.lines],
             documents=[QuotationDocumentCommand(**d.dict()) for d in request.documents] if request.documents else [],
             **request.dict(exclude={"lines", "rfq_id", "supplier_id", "documents"})
         )
         q_id = await use_case.handle(command)
+        await uow.commit()
         q = await repo.get_by_id(q_id)
         if not q:
             raise HTTPException(status_code=404, detail="Quotation could not be retrieved after save")
@@ -3492,12 +3565,21 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
     for l in q.lines:
         mat_name = getattr(l, "material_name", None)
         uom_val = getattr(l, "uom", None)
-        state = inspect(l)
-        if not mat_name and state and "material" not in state.unloaded:
-            mat_obj = getattr(l, "material", None)
-            if mat_obj:
-                mat_name = getattr(mat_obj, "material_name", None)
-                uom_val = getattr(mat_obj, "uom", None)
+        if not mat_name:
+            try:
+                mat_inst = l.__dict__.get("material")
+                if mat_inst:
+                    mat_name = getattr(mat_inst, "material_name", None)
+                    uom_val = getattr(mat_inst, "uom", None)
+                else:
+                    state = inspect(l)
+                    if state and "material" not in state.unloaded:
+                        mat_obj = getattr(l, "material", None)
+                        if mat_obj:
+                            mat_name = getattr(mat_obj, "material_name", None)
+                            uom_val = getattr(mat_obj, "uom", None)
+            except Exception:
+                pass
 
         lines.append(QuotationLineSchema(
             material_id=str(getattr(l, "material_id", None)) if getattr(l, "material_id", None) else None,
@@ -4242,47 +4324,90 @@ async def change_password(
 @router.post("/auth/dev-login")
 async def dev_login(
     request: DevLoginRequest,
+    uow: UnitOfWork = Depends(get_uow),
 ) -> dict:
     from app.config.settings import get_settings
     settings = get_settings()
+    if settings.environment.lower() not in {"local", "test", "development"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Development login is disabled outside local/test/development environments.",
+        )
 
-    if request.username == settings.admin_username and request.password == settings.admin_password:
+    account_result = await uow.session.execute(
+        select(StoreManagerUserModel).where(
+            func.lower(StoreManagerUserModel.username) == request.username.strip().lower(),
+            StoreManagerUserModel.status == "ACTIVE",
+        )
+    )
+    account = account_result.scalar_one_or_none()
+    if account and account.password_hash == hashlib.sha256(request.password.encode()).hexdigest():
+        session_token = secrets.token_urlsafe(48)
+        account.auth_token_hash = hashlib.sha256(session_token.encode()).hexdigest()
+        account.last_login = datetime.utcnow()
+        await uow.commit()
+        role_key = account.role.strip().upper().replace(" ", "_")
+        role = {
+            "SUPER_ADMIN": "ADMIN",
+            "ADMIN_OFFICER": "ADMIN",
+            "PROCUREMENT_MANAGER": "MANAGER",
+            "PROCUREMENT_OFFICER": "PROCUREMENT",
+            "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
+            "STORE_OPERATOR": "STORE_KEEPER",
+        }.get(role_key, role_key)
+        return {
+            "token": f"mock-jwt-db-user-{session_token}",
+            "username": account.username,
+            "full_name": account.full_name,
+            "employee_id": account.employee_id,
+            "roles": [role],
+            "applications": account.applications or [],
+        }
+
+    normalized_username = request.username.strip().lower()
+    if normalized_username == settings.admin_username.lower() and request.password == settings.admin_password:
         return {
             "token": "mock-jwt-admin-token",
             "username": settings.admin_username,
             "roles": ["ADMIN"]
         }
-    elif request.username == settings.procurement_username and request.password == settings.procurement_password:
+    elif normalized_username == settings.procurement_username.lower() and request.password == settings.procurement_password:
         return {
             "token": "mock-jwt-procurement-token",
             "username": settings.procurement_username,
             "roles": ["PROCUREMENT"]
         }
-    elif request.username == settings.finance_username and request.password == settings.finance_password:
+    elif normalized_username == settings.finance_username.lower() and request.password == settings.finance_password:
         return {
             "token": "mock-jwt-finance-token",
             "username": settings.finance_username,
             "roles": ["FINANCE"]
         }
-    elif request.username == settings.warehouse_username and request.password == settings.warehouse_password:
+    elif normalized_username == settings.warehouse_username.lower() and request.password == settings.warehouse_password:
         return {
             "token": "mock-jwt-warehouse-token",
             "username": settings.warehouse_username,
             "roles": ["WAREHOUSE"]
         }
-    elif request.username == settings.gate_security_username and request.password == settings.gate_security_password:
+    elif normalized_username == settings.manager_username.lower() and request.password == settings.manager_password:
+        return {
+            "token": "mock-jwt-manager-token",
+            "username": settings.manager_username,
+            "roles": ["MANAGER"]
+        }
+    elif normalized_username == settings.gate_security_username.lower() and request.password == settings.gate_security_password:
         return {
             "token": "mock-jwt-gate-entry-token",
             "username": settings.gate_security_username,
             "roles": ["GATE_SECURITY"]
         }
-    elif request.username == settings.supplier_username and request.password == settings.supplier_password:
+    elif normalized_username == settings.supplier_username.lower() and request.password == settings.supplier_password:
         return {
             "token": "mock-jwt-supplier-token",
             "username": settings.supplier_username,
             "roles": ["SUPPLIER"]
         }
-    elif (hasattr(settings, "grn_username") and request.username == settings.grn_username and request.password == settings.grn_password) or request.username.lower() in ("grn", "grn_manager", "operations_manager"):
+    elif (hasattr(settings, "grn_username") and normalized_username == settings.grn_username.lower() and request.password == settings.grn_password) or normalized_username in {"grn", "grn_manager", "operations_manager"}:
         return {
             "token": "mock-jwt-grn-token",
             "username": request.username,
@@ -4314,7 +4439,11 @@ async def global_search(
             or_(
                 SupplierModel.supplier_name.ilike(search_term),
                 SupplierModel.supplier_code.ilike(search_term),
-                SupplierModel.registered_company_name.ilike(search_term)
+                SupplierModel.registered_company_name.ilike(search_term),
+                SupplierModel.gstin.ilike(search_term),
+                SupplierModel.vendor_type.ilike(search_term),
+                SupplierModel.industry.ilike(search_term),
+                SupplierModel.status.ilike(search_term)
             )
         ).limit(5)
         supplier_res = await uow.session.execute(supplier_stmt)
@@ -4323,7 +4452,7 @@ async def global_search(
                 "id": str(s.id),
                 "type": "SUPPLIER",
                 "title": s.supplier_name,
-                "subtitle": f"Vendor Code: {s.supplier_code or 'N/A'}",
+                "subtitle": f"Code: {s.supplier_code or 'N/A'} · GSTIN: {s.gstin or 'N/A'} · Type: {s.vendor_type} · Status: {s.status}",
                 "link": f"/master-data?search={s.supplier_name}"
             })
 
@@ -4331,7 +4460,13 @@ async def global_search(
         po_stmt = select(PurchaseOrderModel).where(
             or_(
                 PurchaseOrderModel.po_number.ilike(search_term),
-                PurchaseOrderModel.supplier_name.ilike(search_term)
+                PurchaseOrderModel.supplier_name.ilike(search_term),
+                PurchaseOrderModel.supplier_code.ilike(search_term),
+                PurchaseOrderModel.supplier_gstin.ilike(search_term),
+                PurchaseOrderModel.warehouse_id.ilike(search_term),
+                PurchaseOrderModel.procurement_officer.ilike(search_term),
+                PurchaseOrderModel.department.ilike(search_term),
+                PurchaseOrderModel.status.ilike(search_term)
             )
         ).limit(5)
         po_res = await uow.session.execute(po_stmt)
@@ -4340,7 +4475,7 @@ async def global_search(
                 "id": str(po.id),
                 "type": "PO",
                 "title": f"PO: {po.po_number}",
-                "subtitle": f"Vendor: {po.supplier_name} · Status: {po.status}",
+                "subtitle": f"Vendor: {po.supplier_name or 'N/A'} · Code: {po.supplier_code or 'N/A'} · Warehouse: {po.warehouse_id or 'N/A'} · Status: {po.status}",
                 "link": f"/purchase-order?poId={po.id}"
             })
 
@@ -4350,7 +4485,12 @@ async def global_search(
                 AsnModel.asn_number.ilike(search_term),
                 AsnModel.po_number.ilike(search_term),
                 AsnModel.vehicle_number.ilike(search_term),
-                AsnModel.driver_name.ilike(search_term)
+                AsnModel.driver_name.ilike(search_term),
+                AsnModel.driver_contact.ilike(search_term),
+                AsnModel.transporter.ilike(search_term),
+                AsnModel.invoice_number.ilike(search_term),
+                AsnModel.status.ilike(search_term),
+                AsnModel.warehouse_id.ilike(search_term)
             )
         ).limit(5)
         asn_res = await uow.session.execute(asn_stmt)
@@ -4359,7 +4499,7 @@ async def global_search(
                 "id": str(asn.id),
                 "type": "ASN",
                 "title": f"ASN: {asn.asn_number}",
-                "subtitle": f"Vehicle: {asn.vehicle_number or 'N/A'} · Status: {asn.status}",
+                "subtitle": f"PO: {asn.po_number or 'N/A'} · Vehicle: {asn.vehicle_number or 'N/A'} · Driver: {asn.driver_name or 'N/A'} · Transporter: {asn.transporter or 'N/A'} · Status: {asn.status}",
                 "link": f"/procurement/asns/{asn.id}"
             })
 
@@ -4368,7 +4508,11 @@ async def global_search(
             or_(
                 MaterialRequestModel.request_number.ilike(search_term),
                 MaterialRequestModel.requested_by.ilike(search_term),
-                MaterialRequestModel.department.ilike(search_term)
+                MaterialRequestModel.department.ilike(search_term),
+                MaterialRequestModel.warehouse_id.ilike(search_term),
+                MaterialRequestModel.priority.ilike(search_term),
+                MaterialRequestModel.status.ilike(search_term),
+                MaterialRequestModel.suggested_supplier.ilike(search_term)
             )
         ).limit(5)
         mr_res = await uow.session.execute(mr_stmt)
@@ -4377,7 +4521,7 @@ async def global_search(
                 "id": str(mr.id),
                 "type": "MATERIAL_REQUEST",
                 "title": f"Req: {mr.request_number}",
-                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department}",
+                "subtitle": f"By: {mr.requested_by} · Dept: {mr.department} · Warehouse: {mr.warehouse_id} · Priority: {mr.priority} · Status: {mr.status}",
                 "link": f"/procurement/material-requests"
             })
 
@@ -4385,7 +4529,10 @@ async def global_search(
         rfq_stmt = select(RfqModel).where(
             or_(
                 RfqModel.rfq_number.ilike(search_term),
-                RfqModel.procurement_officer.ilike(search_term)
+                RfqModel.procurement_officer.ilike(search_term),
+                RfqModel.material_request_number.ilike(search_term),
+                RfqModel.warehouse.ilike(search_term),
+                RfqModel.status.ilike(search_term)
             )
         ).limit(5)
         rfq_res = await uow.session.execute(rfq_stmt)
@@ -4394,7 +4541,7 @@ async def global_search(
                 "id": str(rfq.id),
                 "type": "RFQ",
                 "title": f"RFQ: {rfq.rfq_number}",
-                "subtitle": f"Status: {rfq.status} · Officer: {rfq.procurement_officer}",
+                "subtitle": f"Warehouse: {rfq.warehouse} · MR: {rfq.material_request_number or 'N/A'} · Officer: {rfq.procurement_officer} · Status: {rfq.status}",
                 "link": f"/procurement/rfqs"
             })
 
@@ -4495,6 +4642,14 @@ async def get_user_navigation(
             "items": [
                 {"label": "Dashboard", "to": "/finance-dashboard", "icon": "LayoutDashboard"},
                 {"label": "Pending Approvals", "to": "/finance/approvals", "icon": "FileCheck2"},
+            ]
+        },
+        "MANAGER": {
+            "module_label": "Manager Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/manager-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
+                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
             ]
         },
         "GATE_SECURITY": {

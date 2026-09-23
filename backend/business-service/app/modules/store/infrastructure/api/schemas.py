@@ -197,6 +197,8 @@ class StoreManagerCreate(BaseModel):
     password: str = Field(..., min_length=4, max_length=128)
     store_id: str = Field(..., description="UUID or Store Code of assigned store")
     status: str = Field(default="ACTIVE", max_length=32)
+    role: str = Field(default="Store Manager", max_length=64)
+    applications: List[str] = Field(default_factory=lambda: ["WMS"])
 
 
 class StoreManagerUpdate(BaseModel):
@@ -205,6 +207,8 @@ class StoreManagerUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=4, max_length=128)
     store_id: Optional[str] = Field(None, description="UUID or Store Code of assigned store")
     status: Optional[str] = Field(None, max_length=32)
+    role: Optional[str] = Field(None, max_length=64)
+    applications: Optional[List[str]] = None
 
 
 class StoreManagerStatusUpdate(BaseModel):
@@ -223,6 +227,8 @@ class StoreManagerUserResponse(BaseModel):
     manager_id: Optional[str] = None
     manager_name: Optional[str] = None
     status: str
+    role: str = "Store Manager"
+    applications: List[str] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

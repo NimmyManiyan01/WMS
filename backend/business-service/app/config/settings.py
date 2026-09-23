@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     finance_password: str = Field(default="finance")
     warehouse_username: str = Field(default="warehouse")
     warehouse_password: str = Field(default="warehouse")
+    manager_username: str = Field(default="manager")
+    manager_password: str = Field(..., description="Required manager login secret; must be configured via environment variables.")
     assembly_manager_username: str = Field(default="assembly_manager")
     assembly_manager_password: str = Field(default="assembly123")
     gate_security_username: str = Field(default="gate_entry")
