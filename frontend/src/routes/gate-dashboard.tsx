@@ -30,11 +30,18 @@ function GateDashboard() {
 
   useEffect(() => {
     void loadDashboard();
-    const timer = window.setInterval(loadDashboard, 10_000);
-    window.addEventListener("focus", loadDashboard);
+    const timer = window.setInterval(loadDashboard, 3_000);
+    const handleRefresh = () => { void loadDashboard(); };
+
+    window.addEventListener("focus", handleRefresh);
+    window.addEventListener("storage", handleRefresh);
+    window.addEventListener("gate-entries:refresh", handleRefresh);
+
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", loadDashboard);
+      window.removeEventListener("focus", handleRefresh);
+      window.removeEventListener("storage", handleRefresh);
+      window.removeEventListener("gate-entries:refresh", handleRefresh);
     };
   }, []);
 

@@ -101,8 +101,8 @@ const financeNav = [
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
-  { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
+  { label: "Inbound Arrivals", to: "/vehicle-queue?module=gate", icon: ListOrdered },
+  { label: "Vehicle Exit", to: "/vehicle-exit?module=gate", icon: LogOut },
 ];
 
 const ICON_MAP: Record<string, any> = {
@@ -272,7 +272,14 @@ export function AppShell({
     path === "/finance-dashboard" ||
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
-  const isGateSecurityUser = mounted && user?.roles?.includes("GATE_SECURITY");
+  const isGateSecurityUser =
+    mounted &&
+    (user?.roles?.includes("GATE_SECURITY") ||
+      user?.roles?.includes("GATE_ENTRY") ||
+      
+      user?.roles?.includes("GATE") ||
+      user?.username?.toLowerCase() === "gate_entry" ||
+      user?.username?.toLowerCase()?.includes("gate"));
   const isNotificationsRoute = path.startsWith("/notifications");
   const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-queue", "/vehicle-exit"].some(
     (route) => path.startsWith(route),
@@ -297,6 +304,8 @@ export function AppShell({
       "/dock-assignment",
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
+    (path === "/vehicle-queue" && currentQueryModule === "gate") ||
+    (path === "/vehicle-exit" && currentQueryModule === "gate") ||
     (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
   const resolvedNav = (isGrnUser || isGrnRoute)
     ? grnNav
@@ -714,6 +723,8 @@ export function StatusBadge({ status }: { status: string }) {
     SENT: "bg-primary-soft text-primary border-primary/25",
     SHIPPED: "bg-teal-soft text-teal border-teal/30",
     DISPATCHED: "bg-teal-soft text-teal border-teal/30",
+    VEHICLE_EXITED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    "Vehicle Exited": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
   };
   const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active"].includes(status);
   let displayLabel = status.replace(/_/g, " ");
