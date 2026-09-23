@@ -213,11 +213,11 @@ function GateEntry() {
 
   const handleMarkVehicleExited = async (entry: GateEntryRecord) => {
     const vehName = entry.vehiclePlate || "this vehicle";
-    if (!confirm(`Confirm vehicle exit for ${vehName}? Confirm that vehicle has cleared the facility.`)) return;
+    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`)) return;
     setExitingId(entry.id);
     try {
       const updated = await api.markInboundVehicleExited(entry.id);
-      toast.success(`Vehicle ${vehName} exit recorded successfully`, {
+      toast.success(`Gate exit approved for ${vehName}`, {
         description: `Status updated to VEHICLE_EXITED by ${updated.exited_by || "Security"}.`,
       });
       await loadEntries(true);
@@ -225,8 +225,8 @@ function GateEntry() {
         window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
       }
     } catch (error: any) {
-      toast.error("Vehicle exit action failed", {
-        description: error?.message || "Ensure receiving/unloading is complete before clearing vehicle exit.",
+      toast.error("Gate exit approval failed", {
+        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
       });
     } finally {
       setExitingId(null);
@@ -1506,17 +1506,17 @@ function GateEntry() {
                       {(entry.status === "VEHICLE_EXITED" || entry.exited_at || entry.exitedAt) ? (
                         <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs space-y-0.5">
                           <p className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                            <LogOut className="size-3" /> Status: Vehicle Exited
+                            <ShieldCheck className="size-3.5" /> Status: Gate Exit Approved
                           </p>
                           {(entry.exited_at || entry.exitedAt) && (
                             <p className="text-[10px] text-muted-foreground">
-                              <span className="font-medium text-foreground">Exit Date/Time:</span>{" "}
+                              <span className="font-medium text-foreground">Approved Exit Time:</span>{" "}
                               {new Date(entry.exited_at || entry.exitedAt!).toLocaleString()}
                             </p>
                           )}
                           {(entry.exited_by || entry.exitedBy) && (
                             <p className="text-[10px] text-muted-foreground">
-                              <span className="font-medium text-foreground">Exited By:</span>{" "}
+                              <span className="font-medium text-foreground">Approved By:</span>{" "}
                               {entry.exited_by || entry.exitedBy}
                             </p>
                           )}
@@ -1525,7 +1525,7 @@ function GateEntry() {
                         <div className="mt-2">
                           <Button
                             size="sm"
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm gap-1.5 text-xs h-7"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm gap-1.5 text-xs h-8"
                             disabled={exitingId === entry.id}
                             onClick={(e) => {
                               e.preventDefault();
@@ -1534,11 +1534,11 @@ function GateEntry() {
                             }}
                           >
                             {exitingId === entry.id ? (
-                              <Loader2 className="size-3 animate-spin" />
+                              <Loader2 className="size-3.5 animate-spin" />
                             ) : (
-                              <LogOut className="size-3" />
+                              <ShieldCheck className="size-3.5" />
                             )}
-                            Vehicle Exited
+                            Approve Gate Exit
                           </Button>
                         </div>
                       ) : null}

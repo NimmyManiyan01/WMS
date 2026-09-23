@@ -62,11 +62,11 @@ function GateDashboard() {
 
   const handleMarkVehicleExited = async (entry: any) => {
     const vehName = entry.vehicle_number || "this vehicle";
-    if (!confirm(`Confirm vehicle exit for ${vehName}? Confirm that vehicle has cleared the facility.`)) return;
+    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`)) return;
     setExitingId(entry.id);
     try {
       const updated = await api.markInboundVehicleExited(entry.id);
-      toast.success(`Vehicle ${vehName} exit recorded successfully`, {
+      toast.success(`Gate exit approved for ${vehName}`, {
         description: `Status updated to VEHICLE_EXITED by ${updated.exited_by || "Security"}.`,
       });
       await loadDashboard();
@@ -74,8 +74,8 @@ function GateDashboard() {
         window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
       }
     } catch (error: any) {
-      toast.error("Vehicle exit action failed", {
-        description: error?.message || "Ensure receiving/unloading is complete before clearing vehicle exit.",
+      toast.error("Gate exit approval failed", {
+        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
       });
     } finally {
       setExitingId(null);
@@ -189,7 +189,7 @@ function GateDashboard() {
                       </p>
                       {isExited && (
                         <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-1">
-                          <LogOut className="size-3" /> Exited at {entry.exited_at ? new Date(entry.exited_at).toLocaleString() : "Recently"} {entry.exited_by ? `by ${entry.exited_by}` : ""}
+                          <ShieldCheck className="size-3.5" /> Approved Exit at {entry.exited_at ? new Date(entry.exited_at).toLocaleString() : "Recently"} {entry.exited_by ? `by ${entry.exited_by}` : ""}
                         </p>
                       )}
                     </div>
@@ -212,9 +212,9 @@ function GateDashboard() {
                           {exitingId === entry.id ? (
                             <Loader2 className="size-3.5 animate-spin" />
                           ) : (
-                            <LogOut className="size-3.5" />
+                            <ShieldCheck className="size-3.5" />
                           )}
-                          Vehicle Exited
+                          Approve Gate Exit
                         </Button>
                       )}
                     </div>
