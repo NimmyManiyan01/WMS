@@ -73,6 +73,17 @@ async def get_uow() -> AsyncIterator[UnitOfWork]:
         yield uow
 
 
+async def get_db() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency: yields an AsyncSession scoped to one request."""
+    async with AsyncSessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
     """Plain session context manager for non-request contexts (workers, scripts)."""
