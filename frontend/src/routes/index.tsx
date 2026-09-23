@@ -16,12 +16,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getDefaultRouteForUser, getUserInfo, isAuthenticated } from "@/lib/auth-utils";
 import logoUrl from "@/assets/Logo.png";
+import truckGateUrl from "@/assets/truck-gate.jpg";
+import truckRearUrl from "@/assets/truck-rear.jpg";
+import driverUrl from "@/assets/driver.jpg";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-type FlowModule = {
+type StoryStep = {
   id: string;
   number: string;
   title: string;
@@ -29,109 +32,101 @@ type FlowModule = {
   route: string;
   description: string;
   icon: typeof Truck;
+  image: string;
   badge: string;
   metric: string;
+  align: "left" | "right";
 };
 
-const flowModules: FlowModule[] = [
+const storySteps: StoryStep[] = [
   {
     id: "gate-entry",
     number: "01",
     title: "Gate Entry",
     subtitle: "Inbound Security & Vehicle Logging",
     route: "/gate-entry",
-    description: "Inbound trucks arrive at perimeter security. Drivers, vehicle registration, ASN, and PO documents are verified and logged.",
+    description: "Inbound delivery trucks arrive at perimeter security. Operators capture driver details, vehicle registration, ASN, and PO documents, logging every arrival into the secure gate queue.",
     icon: ShieldCheck,
+    image: truckGateUrl,
     badge: "Security Checkpoint",
-    metric: "18 Vehicles in Queue",
+    metric: "18 Vehicles in Active Queue",
+    align: "left",
   },
   {
     id: "grn",
     number: "02",
     title: "GRN & Receiving",
     subtitle: "Goods Receipt & Quality Inspection",
-    description: "Cargo is unloaded at designated dock bays. Items are inspected and Goods Receipt Notes (GRNs) are posted.",
+    description: "Cargo is unloaded at designated dock bays. Items undergo rigorous quality inspection and verification against purchase orders before Goods Receipt Notes (GRNs) are posted.",
     icon: FileCheck2,
+    image: driverUrl,
     badge: "Receiving Dock",
     metric: "126 GRNs Posted Today",
+    align: "right",
   },
   {
     id: "putaway",
     number: "03",
     title: "Store / Putaway",
     subtitle: "Algorithmic Bin Placement & Zoning",
-    description: "Accepted inventory is routed via putaway tasks into optimal store zones and racks with QR location tags.",
+    description: "Accepted inventory is routed via putaway tasks into optimal store zones and storage racks, generating QR location tags for exact traceability.",
     icon: PackageCheck,
+    image: truckRearUrl,
     badge: "Storage Engine",
     metric: "31 Putaway Tasks Active",
+    align: "left",
   },
   {
     id: "inventory",
     number: "04",
     title: "Inventory Control",
     subtitle: "Real-Time Stock Ledgers & Balances",
-    description: "Stock levels update instantly across available, allocated, and quarantined bins for complete visibility.",
+    description: "Stock levels update instantly across available, allocated, and quarantined bins, providing complete multi-warehouse visibility and live ledger tracking.",
     icon: Boxes,
+    image: truckGateUrl,
     badge: "Stock Ledger",
     metric: "99.8% Accuracy Rate",
+    align: "right",
   },
   {
     id: "assembly",
     number: "05",
     title: "Assembly & Production",
     subtitle: "Material Requisitions & Work Orders",
-    description: "Raw materials are issued to assembly work orders. Production lines consume components and track finished goods.",
+    description: "Raw materials are issued to assembly work orders. Production lines consume components and track finished goods output seamlessly.",
     icon: Factory,
+    image: driverUrl,
     badge: "Manufacturing Line",
     metric: "14 Active Work Orders",
+    align: "left",
   },
   {
     id: "dispatch",
     number: "06",
     title: "Dispatch & Gate Exit",
     subtitle: "Outbound Logistics & Final Clearance",
-    description: "Finished products are loaded onto outbound trucks. Security reviews dispatch documentation and grants final gate exit.",
+    description: "Finished products are loaded onto outbound trucks. Security reviews dispatch documentation, approves outbound movement, and grants final gate exit.",
     icon: Truck,
+    image: truckRearUrl,
     badge: "Outbound Gate",
     metric: "07 Trucks Cleared Today",
+    align: "right",
   },
 ];
 
 function HomePage() {
   const navigate = useNavigate();
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [activeModule, setActiveModule] = useState(0);
+  const [scrollY, setScrollY] = useState(0);
   const loggedIn = isAuthenticated();
   const userInfo = getUserInfo();
 
   useEffect(() => {
     const handleScroll = () => {
-      const el = containerRef.current;
-      if (!el) return;
-
-      const rect = el.getBoundingClientRect();
-      const windowHeight = window.innerHeight;
-      const totalScrollable = rect.height - windowHeight;
-      if (totalScrollable <= 0) return;
-
-      const currentScroll = -rect.top;
-      const progress = Math.min(Math.max(currentScroll / totalScrollable, 0), 1);
-
-      setScrollProgress(progress);
-      const activeIdx = Math.min(
-        flowModules.length - 1,
-        Math.floor(progress * flowModules.length + 0.05)
-      );
-      setActiveModule(activeIdx);
+      setScrollY(window.scrollY);
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
-
-  const current = flowModules[activeModule];
 
   const goToDashboard = () => {
     if (loggedIn) {
@@ -156,7 +151,7 @@ function HomePage() {
             </span>
             <div>
               <span className="block text-xs font-bold tracking-tight text-white">NexusWMS</span>
-              <span className="block text-[10px] text-blue-400 font-mono">Horizontal Roadmap Story</span>
+              <span className="block text-[10px] text-blue-400 font-mono">Vertical Story Roadmap</span>
             </div>
           </button>
 
@@ -171,140 +166,121 @@ function HomePage() {
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-12 text-center px-6 border-b border-white/10 bg-gradient-to-b from-slate-900 to-slate-950">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.2),transparent_60%)]" />
+      {/* Hero Intro */}
+      <section className="relative pt-32 pb-20 text-center px-6 border-b border-white/10 bg-gradient-to-b from-slate-900 to-slate-950">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.25),transparent_60%)]" />
         <div className="relative z-10 max-w-4xl mx-auto">
           <Badge className="mb-4 border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-1 text-xs font-bold uppercase tracking-widest">
             <Sparkles className="size-3.5 inline mr-1.5" />
-            Horizontal Storyline Roadmap
+            Cinematic Vertical Storyline Roadmap
           </Badge>
           <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl leading-tight">
             The Supply Chain <br />
             <span className="bg-gradient-to-r from-blue-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-              Horizontal Roadmap Flow
+              Step-by-Step Vertical Flow
             </span>
           </h1>
           <p className="mt-4 text-base text-slate-400 sm:text-lg max-w-2xl mx-auto">
-            Scroll down to scrub through the horizontal story roadmap. Watch the glowing sine-wave pipeline weave seamlessly across all 6 core logistics modules.
+            Scroll down to journey through the end-to-end logistics lifecycle. Each module features immersive photography and sliding explanation panels tied to your scroll position.
           </p>
         </div>
       </section>
 
-      {/* Scrollable Horizontal Roadmap Section (300vh height for smooth vertical scroll scrubbing) */}
-      <div id="horizontal-roadmap" ref={containerRef} className="relative h-[300vh] bg-slate-950">
-        <div className="sticky top-0 h-screen w-full overflow-hidden flex flex-col justify-center px-6 lg:px-16">
+      {/* Vertical Story Roadmap Container */}
+      <main className="relative max-w-7xl mx-auto px-6 py-24 space-y-32 lg:space-y-48">
 
-          {/* Background Wavy Sine-Wave SVG Pipeline */}
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-40">
-            <svg
-              className="w-full h-[500px] overflow-visible"
-              viewBox="0 0 2400 400"
-              fill="none"
-              preserveAspectRatio="none"
-            >
-              {/* Sine Wave Path weaving up and down */}
-              <path
-                d="M 0 200 Q 200 50, 400 200 T 800 200 T 1200 200 T 1600 200 T 2000 200 T 2400 200"
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth="10"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 0 200 Q 200 50, 400 200 T 800 200 T 1200 200 T 1600 200 T 2000 200 T 2400 200"
-                stroke="url(#sineWaveGradient)"
-                strokeWidth="8"
-                strokeLinecap="round"
-                strokeDasharray="3000"
-                strokeDashoffset={3000 - scrollProgress * 3000}
-                style={{ filter: "drop-shadow(0 0 16px rgba(16, 185, 129, 0.8))" }}
-              />
-              <defs>
-                <linearGradient id="sineWaveGradient" x1="0" y1="0" x2="2400" y2="0" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#3b82f6" />
-                  <stop offset="0.33" stopColor="#06b6d4" />
-                  <stop offset="0.66" stopColor="#10b981" />
-                  <stop offset="1" stopColor="#8b5cf6" />
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
+        {/* Background Glowing Connecting Pipeline */}
+        <div className="absolute left-1/2 top-40 bottom-40 w-1 -translate-x-1/2 hidden lg:block pointer-events-none z-0">
+          <div className="h-full w-full bg-gradient-to-b from-blue-500 via-teal-400 to-emerald-500 opacity-40 shadow-glow" />
+        </div>
 
-          {/* Horizontal Cards Container translated via scroll progress */}
-          <div className="relative z-10 max-w-7xl mx-auto w-full overflow-hidden">
+        {storySteps.map((step, idx) => {
+          const Icon = step.icon;
+          const isLeft = step.align === "left";
+          return (
             <div
-              className="flex items-center gap-8 transition-transform duration-100 ease-out py-10"
-              style={{
-                transform: `translateX(-${scrollProgress * (flowModules.length - 1) * 340}px)`,
-              }}
+              key={step.id}
+              className={`relative z-10 flex flex-col lg:flex-row items-center gap-12 lg:gap-20 ${
+                isLeft ? "lg:flex-row" : "lg:flex-row-reverse"
+              }`}
             >
-              {flowModules.map((mod, idx) => {
-                const Icon = mod.icon;
-                const isActive = activeModule === idx;
-                return (
-                  <div
-                    key={mod.id}
-                    onClick={() => setActiveModule(idx)}
-                    className={`cursor-pointer group shrink-0 w-[320px] sm:w-[360px] rounded-3xl border p-8 transition-all duration-500 backdrop-blur-2xl transform ${
-                      isActive
-                        ? "border-blue-500 bg-slate-900/95 shadow-2xl shadow-blue-500/30 scale-105 ring-4 ring-blue-500/30"
-                        : "border-white/15 bg-slate-900/50 hover:bg-slate-900/80 hover:scale-102"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-6">
-                      <span className="text-sm font-mono font-bold text-blue-400">{mod.number}</span>
-                      <span className={`grid size-14 place-items-center rounded-2xl border transition-transform group-hover:scale-110 ${
-                        isActive ? "bg-blue-600 text-white border-blue-400 shadow-glow" : "bg-white/5 text-slate-400 border-white/10"
-                      }`}>
-                        <Icon className="size-7" />
+              {/* Image Showcase Box with 3D Tilt / Depth */}
+              <div className="w-full lg:w-1/2 group">
+                <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-slate-900 shadow-2xl shadow-blue-500/10 transition duration-700 group-hover:scale-102 group-hover:border-blue-500/50">
+                  <div className="relative h-72 sm:h-96 w-full">
+                    <img
+                      src={step.image}
+                      alt={step.title}
+                      className="h-full w-full object-cover brightness-90 transition duration-700 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+                    <div className="absolute top-6 left-6">
+                      <span className="text-3xl font-black font-mono text-blue-400 tracking-wider">
+                        {step.number}
                       </span>
                     </div>
-
-                    <h3 className="font-extrabold text-white text-xl mb-1">{mod.title}</h3>
-                    <p className="text-xs font-bold text-blue-400 font-mono mb-3">{mod.subtitle}</p>
-                    <p className="text-sm text-slate-300 leading-relaxed line-clamp-3 mb-6">{mod.description}</p>
-
-                    <div className="pt-4 border-t border-white/10 flex items-center justify-between">
-                      <span className="text-xs font-mono text-emerald-400 font-semibold">{mod.metric}</span>
-                      <Button
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate({ to: mod.route as any });
-                        }}
-                        className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-glow"
-                      >
-                        Explore <ArrowRight className="size-3.5 ml-1" />
-                      </Button>
+                    <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
+                      <Badge className="bg-blue-600/90 text-white border-blue-400/30 text-xs font-bold font-mono px-3.5 py-1">
+                        {step.badge}
+                      </Badge>
+                      <span className="text-xs font-mono font-semibold text-emerald-400 bg-slate-950/80 px-3 py-1 rounded-full border border-white/10">
+                        {step.metric}
+                      </span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                </div>
+              </div>
 
-          {/* Bottom Interactive Scroll Scrubber Bar (matching reference UI) */}
-          <div className="relative z-10 max-w-4xl mx-auto w-full mt-8">
-            <div className="h-4 rounded-full bg-white/10 p-1 backdrop-blur-md overflow-hidden relative border border-white/10">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-500 via-teal-400 to-emerald-400 transition-all duration-100"
-                style={{ width: `${Math.max(15, scrollProgress * 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between items-center mt-3 text-xs text-slate-400 font-mono">
-              <span>Step {activeModule + 1} of {flowModules.length}: {current.title}</span>
-              <span>Scroll to scrub story roadmap</span>
-            </div>
-          </div>
+              {/* Collapsing / Sliding Content & Explanation Panel (Left or Right) */}
+              <div className="w-full lg:w-1/2">
+                <div className="rounded-3xl border border-white/15 bg-slate-900/80 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="size-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-glow">
+                      <Icon className="size-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
+                        Milestone {step.number}
+                      </p>
+                      <p className="text-xs text-slate-400 font-mono">{step.route}</p>
+                    </div>
+                  </div>
 
-        </div>
-      </div>
+                  <h2 className="text-3xl font-extrabold text-white tracking-tight mb-2">
+                    {step.title}
+                  </h2>
+                  <p className="text-sm font-bold text-teal-400 font-mono mb-4">
+                    {step.subtitle}
+                  </p>
+                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed mb-8">
+                    {step.description}
+                  </p>
+
+                  <div className="pt-6 border-t border-white/10 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 font-mono">
+                      <CheckCircle2 className="size-4" /> Live Execution Active
+                    </div>
+                    <Button
+                      onClick={() => navigate({ to: step.route as any })}
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl px-6 h-11 shadow-glow"
+                    >
+                      Launch {step.title} <ArrowRight className="size-3.5 ml-1.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          );
+        })}
+
+      </main>
 
       {/* Footer */}
       <footer className="border-t border-white/10 bg-slate-950 py-10 text-center text-xs text-slate-500 relative z-10">
         <div className="mx-auto max-w-7xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Kaizentrix Global Solutions. NexusWMS Enterprise Logistics OS.</p>
-          <p className="font-mono">Horizontal Roadmap • Gate • GRN • Putaway • Inventory • Assembly • Dispatch</p>
+          <p className="font-mono">Vertical Roadmap • Gate • GRN • Putaway • Inventory • Assembly • Dispatch</p>
         </div>
       </footer>
     </div>
