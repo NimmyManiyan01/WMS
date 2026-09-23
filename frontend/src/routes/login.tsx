@@ -65,14 +65,18 @@ function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!employeeId || !password) {
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const submittedEmployeeId = String(formData.get("employeeId") ?? "").trim();
+    const submittedPassword = String(formData.get("password") ?? "");
+
+    if (!submittedEmployeeId || !submittedPassword) {
       toast.error("Please enter both Employee ID and password");
       return;
     }
 
     setIsLoading(true);
     try {
-      const data = await api.login(employeeId, password, rememberMe);
+      const data = await api.login(submittedEmployeeId, submittedPassword, rememberMe);
       completeAuthentication(data);
     } catch (error: any) {
       toast.error(error.message || "Login failed. Please check your credentials.");
@@ -84,7 +88,6 @@ function LoginPage() {
   const completeAuthentication = (data: any) => {
     toast.success(`Welcome back, ${data.username}!`);
     const targetPath = redirectPath || getDefaultRouteForUser(data);
-
     setTimeout(() => {
       // Keep route transitions internal. `redirectPath` has already rejected external URLs.
       const target = new URL(targetPath, window.location.origin);
@@ -171,7 +174,8 @@ function LoginPage() {
               <Label htmlFor="employeeId">Employee ID / Username</Label>
               <Input
                 id="employeeId"
-                placeholder="EMP-001 or supplier_acme"
+                name="employeeId"
+                placeholder="e.g. emp_001"
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
                 required
@@ -191,6 +195,7 @@ function LoginPage() {
               <div className="relative">
                 <Input
                   id="password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
@@ -207,6 +212,7 @@ function LoginPage() {
                 </button>
               </div>
             </div>
+
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="remember"
@@ -220,7 +226,7 @@ function LoginPage() {
                 Remember me on this device
               </Label>
             </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full font-bold" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

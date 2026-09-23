@@ -7,7 +7,6 @@ import com.ams.auth.domain.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -46,28 +45,28 @@ public class JwtTokenProvider {
             .collect(Collectors.toList());
 
         return Jwts.builder()
-            .setHeaderParam("kid", keyProvider.keyId())
-            .setIssuer(properties.issuer())
-            .setAudience(properties.audience())
-            .setSubject(user.getId().toString())
+            .header().keyId(keyProvider.keyId()).and()
+            .issuer(properties.issuer())
+            .audience().add(properties.audience()).and()
+            .subject(user.getId().toString())
             .claim("username", user.getUsername())
             .claim("roles", roleNames)
             .claim("permissions", permissionNames)
-            .setIssuedAt(java.util.Date.from(now))
-            .setExpiration(java.util.Date.from(expiry))
-            .signWith(keyProvider.privateKey(), SignatureAlgorithm.RS256)
+            .issuedAt(java.util.Date.from(now))
+            .expiration(java.util.Date.from(expiry))
+            .signWith(keyProvider.privateKey(), Jwts.SIG.RS256)
             .compact();
     }
 
     public Claims parseAndValidate(String token) {
         try {
-            return Jwts.parserBuilder()
-                .setSigningKey(keyProvider.publicKey())
+            return Jwts.parser()
+                .verifyWith(keyProvider.publicKey())
                 .requireIssuer(properties.issuer())
                 .requireAudience(properties.audience())
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
         } catch (JwtException e) {
             throw new InvalidTokenException("Invalid or expired access token", e);
         }

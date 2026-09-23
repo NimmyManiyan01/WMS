@@ -31,6 +31,7 @@ from app.modules.receiving.infrastructure.api.router import router as receiving_
 from app.modules.returns.infrastructure.api.router import router as returns_router
 from app.modules.storage.infrastructure.api.router import router as storage_router
 from app.modules.assembly.infrastructure.api.router import router as assembly_router
+from app.modules.dispatch.infrastructure.api.router import router as dispatch_router
 from app.workers.notification_consumer import start_notification_consumer
 from app.workers.outbox_relay import relay_once
 
@@ -137,6 +138,22 @@ async def lifespan(app: FastAPI):
                     UPDATE material
                     SET base_uom = COALESCE(NULLIF(base_uom, ''), uom, 'PCS');
                 END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'material' AND column_name = 'code'
+                ) THEN
+                    ALTER TABLE material ALTER COLUMN code DROP NOT NULL;
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'material' AND column_name = 'name'
+                ) THEN
+                    ALTER TABLE material ALTER COLUMN name DROP NOT NULL;
+                END IF;
             END $$;
         """)
         await run_ddl(
@@ -144,6 +161,13 @@ async def lifespan(app: FastAPI):
             "ON material (material_code) WHERE material_code IS NOT NULL"
         )
         logger.info("Ensured canonical Material Master columns and legacy data mapping")
+
+        for column, column_type in [
+            ("material_id", "UUID"),
+            ("material_variant_id", "UUID"),
+            ("variant_code", "VARCHAR(128)"),
+        ]:
+            await run_ddl(f"ALTER TABLE rfq_item ADD COLUMN IF NOT EXISTS {column} {column_type}")
 
         # Add columns to asn
         for col in [
@@ -301,6 +325,9 @@ async def lifespan(app: FastAPI):
             try:
                 await run_ddl(f"ALTER TABLE rfq ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
             except Exception: pass
+        try:
+            await run_ddl("UPDATE rfq SET rfq_date = CURRENT_DATE WHERE rfq_date IS NULL")
+        except Exception: pass
         logger.debug("Ensured columns exist on rfq")
 
         # Ensure quotation has missing columns
@@ -435,7 +462,24 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            logger.debug("Ensured notification table exists")
+            for col, col_type in [
+                ("dock_code", "VARCHAR(32)"),
+                ("dock_name", "VARCHAR(128)"),
+                ("dock_location", "VARCHAR(128)"),
+                ("dock_type", "VARCHAR(64)"),
+                ("warehouse_name", "VARCHAR(128)"),
+                ("allocation_time", "TIMESTAMP"),
+                ("gate_pass_number", "VARCHAR(64)"),
+                ("vehicle_number", "VARCHAR(64)"),
+                ("driver_name", "VARCHAR(128)"),
+                ("driver_phone", "VARCHAR(32)"),
+                ("asn_number", "VARCHAR(64)"),
+                ("po_number", "VARCHAR(64)"),
+            ]:
+                try:
+                    await run_ddl(f"ALTER TABLE notification ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                except Exception: pass
+            logger.debug("Ensured notification table and columns exist")
         except Exception as e:
             logger.warning(f"Failed to create notification table: {e}")
 
@@ -546,6 +590,105 @@ async def lifespan(app: FastAPI):
             logger.debug("Ensured material_stock table exists")
         except Exception as e:
             logger.warning(f"Failed to create material_stock table: {e}")
+
+        # Ensure grn table and all columns exist
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn (
+                    id UUID PRIMARY KEY,
+                    po_id UUID,
+                    po_number VARCHAR(64),
+                    grn_number VARCHAR(64),
+                    asn_id UUID,
+                    asn_number VARCHAR(64),
+                    gate_entry_id UUID,
+                    gate_entry_number VARCHAR(64),
+                    supplier_name VARCHAR(255),
+                    supplier_company_name VARCHAR(255),
+                    warehouse_id VARCHAR(64),
+                    warehouse_name VARCHAR(255),
+                    dock_number VARCHAR(32),
+                    vehicle_number VARCHAR(64),
+                    driver_name VARCHAR(128),
+                    invoice_number VARCHAR(64),
+                    receipt_type VARCHAR(32),
+                    receipt_date TIMESTAMP WITH TIME ZONE,
+                    received_by VARCHAR(128),
+                    status VARCHAR(32) DEFAULT 'DRAFT',
+                    posted_by VARCHAR(128),
+                    posted_at TIMESTAMP WITH TIME ZONE,
+                    verification_notes TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            grn_cols = [
+                ("po_id", "UUID"),
+                ("po_number", "VARCHAR(64)"),
+                ("grn_number", "VARCHAR(64)"),
+                ("asn_id", "UUID"),
+                ("asn_number", "VARCHAR(64)"),
+                ("gate_entry_id", "UUID"),
+                ("gate_entry_number", "VARCHAR(64)"),
+                ("supplier_name", "VARCHAR(255)"),
+                ("supplier_company_name", "VARCHAR(255)"),
+                ("warehouse_id", "VARCHAR(64)"),
+                ("warehouse_name", "VARCHAR(255)"),
+                ("dock_number", "VARCHAR(32)"),
+                ("vehicle_number", "VARCHAR(64)"),
+                ("driver_name", "VARCHAR(128)"),
+                ("invoice_number", "VARCHAR(64)"),
+                ("receipt_type", "VARCHAR(32)"),
+                ("receipt_date", "TIMESTAMP WITH TIME ZONE"),
+                ("received_by", "VARCHAR(128)"),
+                ("status", "VARCHAR(32)"),
+                ("posted_by", "VARCHAR(128)"),
+                ("posted_at", "TIMESTAMP WITH TIME ZONE"),
+                ("verification_notes", "TEXT"),
+                ("created_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+                ("updated_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+            ]
+            for col_name, col_type in grn_cols:
+                try:
+                    await run_ddl(f"ALTER TABLE grn ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+                except Exception:
+                    pass
+            logger.debug("Ensured grn table and all columns exist")
+        except Exception as e:
+            logger.warning(f"Failed to create or alter grn table: {e}")
+
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_damage_lot (
+                    id UUID PRIMARY KEY,
+                    grn_line_id UUID NOT NULL REFERENCES grn_line(id) ON DELETE CASCADE,
+                    damage_lot_number VARCHAR(64) NOT NULL UNIQUE,
+                    damaged_quantity NUMERIC(18, 4) NOT NULL,
+                    uom VARCHAR(32),
+                    reason TEXT,
+                    qa_status VARCHAR(32) DEFAULT 'REJECTED',
+                    quarantine_location VARCHAR(64) DEFAULT 'QUARANTINE-ZONE-A',
+                    status VARCHAR(32) NOT NULL DEFAULT 'DAMAGED',
+                    created_by VARCHAR(128) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_damage_qr (
+                    id UUID PRIMARY KEY,
+                    damage_lot_id UUID NOT NULL UNIQUE REFERENCES grn_damage_lot(id) ON DELETE CASCADE,
+                    grn_line_id UUID NOT NULL REFERENCES grn_line(id) ON DELETE CASCADE,
+                    grn_number VARCHAR(64) NOT NULL,
+                    item_code VARCHAR(64) NOT NULL,
+                    qr_code VARCHAR(128) NOT NULL UNIQUE,
+                    qr_payload TEXT NOT NULL,
+                    generated_by VARCHAR(128),
+                    generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            logger.debug("Ensured grn_damage_lot and grn_damage_qr tables exist")
+        except Exception as e:
+            logger.warning(f"Failed to create grn_damage_lot/grn_damage_qr tables: {e}")
 
         # Create arrival_notification table
         try:
@@ -691,6 +834,12 @@ async def lifespan(app: FastAPI):
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            for column, column_type in [
+                ("material_id", "UUID"),
+                ("material_variant_id", "UUID"),
+                ("variant_code", "VARCHAR(128)"),
+            ]:
+                await run_ddl(f"ALTER TABLE inventory_receipt_posting ADD COLUMN IF NOT EXISTS {column} {column_type}")
         except Exception: pass
 
         try:
@@ -731,6 +880,13 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            await run_ddl("ALTER TABLE storage_location ADD COLUMN IF NOT EXISTS location_code VARCHAR(64)")
+            await run_ddl("""
+                UPDATE storage_location
+                SET location_code = CONCAT(warehouse_id, '-', zone, '-', rack, '-', bin)
+                WHERE location_code IS NULL
+            """)
+            await run_ddl("CREATE UNIQUE INDEX IF NOT EXISTS ix_storage_location_location_code ON storage_location (location_code)")
         except Exception: pass
 
         try:
@@ -901,6 +1057,241 @@ async def lifespan(app: FastAPI):
             try:
                 await run_ddl(f"ALTER TABLE putaway_movement ADD COLUMN IF NOT EXISTS {column} {column_type}")
             except Exception: pass
+
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn (
+                    id UUID PRIMARY KEY,
+                    po_id UUID UNIQUE,
+                    po_number VARCHAR(64) UNIQUE,
+                    grn_number VARCHAR(64) UNIQUE,
+                    asn_id UUID,
+                    asn_number VARCHAR(64),
+                    gate_entry_id UUID,
+                    gate_entry_number VARCHAR(64),
+                    supplier_name VARCHAR(255),
+                    supplier_company_name VARCHAR(255),
+                    warehouse_id VARCHAR(64),
+                    warehouse_name VARCHAR(255),
+                    dock_number VARCHAR(32),
+                    vehicle_number VARCHAR(64),
+                    driver_name VARCHAR(128),
+                    invoice_number VARCHAR(128),
+                    receipt_type VARCHAR(32) NOT NULL DEFAULT 'PO_RECEIPT',
+                    receipt_date TIMESTAMP WITH TIME ZONE,
+                    received_by VARCHAR(128),
+                    status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+                    posted_by VARCHAR(128),
+                    posted_at TIMESTAMP WITH TIME ZONE,
+                    verification_notes TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_line (
+                    id UUID PRIMARY KEY,
+                    grn_id UUID NOT NULL REFERENCES grn(id) ON DELETE CASCADE,
+                    item_code VARCHAR(64) NOT NULL,
+                    material_name VARCHAR(256),
+                    material_category VARCHAR(128),
+                    uom VARCHAR(32),
+                    ordered_quantity NUMERIC(18, 4),
+                    received_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    good_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    damaged_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    accepted_quantity NUMERIC(18, 4),
+                    rejected_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quality_approved_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    balance_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quality_result VARCHAR(32)
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_damage_evidence (
+                    id UUID PRIMARY KEY,
+                    grn_line_id UUID NOT NULL REFERENCES grn_line(id) ON DELETE CASCADE,
+                    damaged_quantity NUMERIC(18, 4) NOT NULL,
+                    reason TEXT,
+                    remarks TEXT,
+                    file_name VARCHAR(255) NOT NULL,
+                    file_path VARCHAR(512) NOT NULL,
+                    uploaded_by VARCHAR(128) NOT NULL,
+                    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_batch (
+                    id UUID PRIMARY KEY,
+                    grn_line_id UUID NOT NULL REFERENCES grn_line(id) ON DELETE CASCADE,
+                    batch_number VARCHAR(64) UNIQUE NOT NULL,
+                    batch_quantity NUMERIC(18, 4) NOT NULL,
+                    created_by VARCHAR(128) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_document (
+                    id UUID PRIMARY KEY,
+                    grn_id UUID NOT NULL REFERENCES grn(id) ON DELETE CASCADE,
+                    document_type VARCHAR(64) NOT NULL,
+                    file_name VARCHAR(255) NOT NULL,
+                    file_path VARCHAR(512) NOT NULL,
+                    uploaded_by VARCHAR(128) NOT NULL,
+                    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS grn_batch_qr (
+                    id UUID PRIMARY KEY,
+                    item_code VARCHAR(64) UNIQUE NOT NULL,
+                    qr_code VARCHAR(128) UNIQUE NOT NULL,
+                    qr_payload TEXT NOT NULL,
+                    batch_id UUID REFERENCES grn_batch(id) ON DELETE SET NULL,
+                    generated_by VARCHAR(128),
+                    generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("ALTER TABLE grn_batch_qr ADD COLUMN IF NOT EXISTS item_code VARCHAR(64);")
+            await run_ddl("ALTER TABLE grn_batch_qr ADD COLUMN IF NOT EXISTS qr_payload TEXT;")
+            await run_ddl("ALTER TABLE grn_batch_qr ALTER COLUMN batch_id DROP NOT NULL;")
+            await run_ddl("CREATE UNIQUE INDEX IF NOT EXISTS uq_grn_batch_qr_item_code ON grn_batch_qr (item_code);")
+            logger.debug("Ensured GRN module tables exist")
+        except Exception as e:
+            logger.warning(f"Failed to create GRN module tables: {e}")
+
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS dispatch_order (
+                    id UUID PRIMARY KEY,
+                    dispatch_number VARCHAR(64) UNIQUE NOT NULL,
+                    order_number VARCHAR(64) NOT NULL,
+                    customer_name VARCHAR(255) NOT NULL,
+                    warehouse_id VARCHAR(64) NOT NULL DEFAULT 'WH-01',
+                    status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+                    driver_id VARCHAR(36),
+                    vehicle_id VARCHAR(36),
+                    route_code VARCHAR(64),
+                    delivery_address TEXT,
+                    destination TEXT,
+                    scheduled_date TIMESTAMP WITH TIME ZONE,
+                    expected_delivery_date TIMESTAMP WITH TIME ZONE,
+                    priority VARCHAR(32) NOT NULL DEFAULT 'Normal',
+                    notes TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS dispatch_item (
+                    id UUID PRIMARY KEY,
+                    dispatch_order_id UUID NOT NULL REFERENCES dispatch_order(id) ON DELETE CASCADE,
+                    material_code VARCHAR(64) NOT NULL,
+                    material_name VARCHAR(255) NOT NULL,
+                    quantity_ordered NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_available NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_reserved NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_picked NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_packed NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_loaded NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    quantity_pending NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    uom VARCHAR(32) NOT NULL DEFAULT 'PCS',
+                    status VARCHAR(32) NOT NULL DEFAULT 'PENDING'
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS driver (
+                    id UUID PRIMARY KEY,
+                    driver_name VARCHAR(128) NOT NULL,
+                    license_number VARCHAR(64) UNIQUE NOT NULL,
+                    phone VARCHAR(32) NOT NULL,
+                    email VARCHAR(128),
+                    status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE',
+                    rating NUMERIC(3, 2) NOT NULL DEFAULT 5.0,
+                    assigned_vehicle_id VARCHAR(36),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS vehicle (
+                    id UUID PRIMARY KEY,
+                    vehicle_number VARCHAR(64) UNIQUE NOT NULL,
+                    vehicle_type VARCHAR(64) NOT NULL DEFAULT 'Truck 10T',
+                    capacity_tons NUMERIC(10, 2) NOT NULL DEFAULT 10.0,
+                    status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE',
+                    current_driver_id VARCHAR(36),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS dispatch_pod (
+                    id UUID PRIMARY KEY,
+                    dispatch_order_id UUID NOT NULL REFERENCES dispatch_order(id) ON DELETE CASCADE UNIQUE,
+                    delivery_datetime TIMESTAMP WITH TIME ZONE NOT NULL,
+                    receiver_name VARCHAR(128) NOT NULL,
+                    signature TEXT NOT NULL,
+                    delivery_photo VARCHAR(255),
+                    delivered_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    damaged_quantity NUMERIC(18, 4) NOT NULL DEFAULT 0,
+                    remarks TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS destination TEXT")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS warehouse_id VARCHAR(64) DEFAULT 'WH-01'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS priority VARCHAR(32) DEFAULT 'Normal'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS expected_delivery_date TIMESTAMP WITH TIME ZONE")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS dispatch_type VARCHAR(64) DEFAULT 'Standard'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS contact_person VARCHAR(128)")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(32)")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS delivery_instructions TEXT")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS transport_mode VARCHAR(64) DEFAULT 'Road'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS transport_type VARCHAR(64) DEFAULT 'Full Truckload'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS transporter VARCHAR(128)")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS batch VARCHAR(64)")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS bin VARCHAR(64)")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_ordered NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_available NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_reserved NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_picked NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_packed NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_loaded NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS quantity_pending NUMERIC(18, 4) DEFAULT 0")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS uom VARCHAR(32) DEFAULT 'PCS'")
+            await run_ddl("ALTER TABLE dispatch_item ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'PENDING'")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS current_location VARCHAR(255)")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS distance_travelled_km NUMERIC(10, 2) DEFAULT 0.0")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS remaining_distance_km NUMERIC(10, 2) DEFAULT 140.0")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS eta_minutes NUMERIC(10, 2) DEFAULT 180.0")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS route_path VARCHAR(255)")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS route_deviation VARCHAR(128)")
+            await run_ddl("ALTER TABLE dispatch_order ADD COLUMN IF NOT EXISTS driver_status VARCHAR(64)")
+            await run_ddl("ALTER TABLE driver ADD COLUMN IF NOT EXISTS license_type VARCHAR(32) DEFAULT 'Heavy'")
+            await run_ddl("ALTER TABLE driver ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE driver ADD COLUMN IF NOT EXISTS photo_path VARCHAR(255)")
+            await run_ddl("ALTER TABLE driver ADD COLUMN IF NOT EXISTS address TEXT")
+            await run_ddl("ALTER TABLE driver ADD COLUMN IF NOT EXISTS aadhaar_number VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS insurance_valid BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS fitness_valid BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS permit_valid BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS gps_available BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS ownership_type VARCHAR(64) DEFAULT 'Owned'")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS rc_number VARCHAR(64)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS chassis_number VARCHAR(64)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS registration_date VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS registration_expiry_date VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS puc_valid BOOLEAN DEFAULT TRUE")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS puc_expiry VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS insurance_expiry VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS fitness_expiry VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS permit_expiry VARCHAR(32)")
+            await run_ddl("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS rc_book_number VARCHAR(64)")
+            logger.debug("Ensured dispatch module tables and columns exist")
+        except Exception as e:
+            logger.warning(f"Failed to create dispatch module tables: {e}")
     except Exception as e:
         logger.warning(f"Auto-migration failed: {e}", exc_info=True)
 
@@ -972,23 +1363,25 @@ def create_app() -> FastAPI:
     else:
         origins = list(raw_origins)
 
-    # Always ensure common local dev origins are present for ease of use
-    for o in ["http://localhost:8080", "http://127.0.0.1:8080"]:
+    for o in [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://localhost:8082",
+        "http://127.0.0.1:8082",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]:
         if o not in origins:
             origins.append(o)
 
-    # Register request context first so CORS wraps normal application responses.
-    # Top-level exception responses are covered in the centralized error handler.
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_origin_regex=(
-            r"^https?://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|"
-            r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}):8080$"
-            if settings.environment.lower() in ("local", "test", "development")
-            else None
-        ),
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|.*\.loca\.lt)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -1023,6 +1416,7 @@ def create_app() -> FastAPI:
     app.include_router(damage_claims_router)
     app.include_router(procurement_router)
     app.include_router(assembly_router)
+    app.include_router(dispatch_router)
 
     @app.get("/api/debug-assembly")
     async def debug_assembly():
