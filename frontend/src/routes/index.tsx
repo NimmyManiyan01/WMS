@@ -194,20 +194,17 @@ function HomePage() {
           <div className="h-full w-full bg-gradient-to-b from-blue-500 via-teal-400 to-emerald-500 opacity-40 shadow-glow" />
         </div>
 
-        {storySteps.map((step, idx) => {
+        {storySteps.map((step) => {
           const Icon = step.icon;
-          const isLeft = step.align === "left";
           return (
             <div
               key={step.id}
-              className={`relative z-10 flex flex-col lg:flex-row items-center gap-12 lg:gap-20 ${
-                isLeft ? "lg:flex-row" : "lg:flex-row-reverse"
-              }`}
+              className="relative z-10 flex flex-col items-center gap-8 max-w-4xl mx-auto w-full"
             >
-              {/* Image Showcase Box with 3D Tilt / Depth */}
-              <div className="w-full lg:w-1/2 group">
+              {/* Image Showcase Box */}
+              <div className="w-full group">
                 <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-slate-900 shadow-2xl shadow-blue-500/10 transition duration-700 group-hover:scale-102 group-hover:border-blue-500/50">
-                  <div className="relative h-72 sm:h-96 w-full">
+                  <div className="relative h-72 sm:h-[420px] w-full">
                     <img
                       src={step.image}
                       alt={step.title}
@@ -231,8 +228,8 @@ function HomePage() {
                 </div>
               </div>
 
-              {/* Collapsing / Sliding Content & Explanation Panel (Left or Right) */}
-              <div className="w-full lg:w-1/2">
+              {/* Explanation Panel Below Image */}
+              <div className="w-full">
                 <div className="rounded-3xl border border-white/15 bg-slate-900/80 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="size-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-glow">
