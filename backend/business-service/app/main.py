@@ -27,6 +27,7 @@ from app.modules.gate.infrastructure.api.damage_claims import router as damage_c
 from app.modules.notification.infrastructure.api.router import router as notification_router
 from app.modules.procurement.infrastructure.api.material_router import router as material_router
 from app.modules.procurement.infrastructure.api.router import router as procurement_router
+from app.modules.finance.infrastructure.api.router import router as finance_router
 from app.modules.receiving.infrastructure.api.router import router as receiving_router
 from app.modules.returns.infrastructure.api.router import router as returns_router
 from app.modules.storage.infrastructure.api.router import router as storage_router
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI):
         from app.modules.returns.infrastructure.persistence import models as returns_models  # noqa: F401
         from app.modules.storage.infrastructure.persistence import models as storage_models  # noqa: F401
         from app.modules.assembly.infrastructure.persistence import models as assembly_models  # noqa: F401
+        from app.modules.finance.infrastructure.persistence import models as finance_models  # noqa: F401
 
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -1398,6 +1400,7 @@ def create_app() -> FastAPI:
     app.include_router(quality_router)
     app.include_router(damage_claims_router)
     app.include_router(procurement_router)
+    app.include_router(finance_router)
     app.include_router(assembly_router)
 
     @app.get("/api/debug-assembly")

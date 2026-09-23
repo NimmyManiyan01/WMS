@@ -49,7 +49,13 @@ async def get_current_user(
         roles_upper = {r.upper() for r in roles}
         perms = []
         if "ADMIN" in roles_upper or "SUPERUSER" in roles_upper:
-            perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "procurement:read", "procurement:create", "procurement:write", "store:read", "store:write"])
+            perms.extend([
+                "gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create",
+                "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write",
+                "procurement:read", "procurement:create", "procurement:write", "store:read", "store:write",
+                "finance:read", "finance:approve", "finance:write", "finance:match", "finance:pay", "finance:adjust",
+                "finance:reports", "finance:invoice:read", "finance:invoice:write", "finance:invoice:approve"
+            ])
         if "WAREHOUSE" in roles_upper or "WAREHOUSE_MANAGER" in roles_upper:
             perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"])
         if "GATE_SECURITY" in roles_upper:
@@ -57,7 +63,18 @@ async def get_current_user(
         if "PROCUREMENT" in roles_upper:
             perms.extend(["procurement:read", "procurement:create", "procurement:write"])
         if "FINANCE" in roles_upper:
-            perms.extend(["finance:read", "finance:approve"])
+            perms.extend([
+                "finance:read",
+                "finance:approve",
+                "finance:write",
+                "finance:invoice:read",
+                "finance:invoice:write",
+                "finance:invoice:approve",
+                "finance:match",
+                "finance:pay",
+                "finance:adjust",
+                "finance:reports",
+            ])
         if "STORE_MANAGER" in roles_upper:
             perms.extend(["store:read", "store:write", "storage:read", "putaway:execute", "pickup:execute"])
         if "STORE_KEEPER" in roles_upper:
@@ -181,7 +198,22 @@ async def get_current_user(
                 subject="finance",
                 username="finance",
                 roles=["FINANCE", "ADMIN"],
-                permissions=["gate:write", "gate:entry:create", "gate:entry:read", "gate:entry:verify"],
+                permissions=[
+                    "finance:read",
+                    "finance:approve",
+                    "finance:write",
+                    "finance:invoice:read",
+                    "finance:invoice:write",
+                    "finance:invoice:approve",
+                    "finance:match",
+                    "finance:pay",
+                    "finance:adjust",
+                    "finance:reports",
+                    "gate:write",
+                    "gate:entry:create",
+                    "gate:entry:read",
+                    "gate:entry:verify",
+                ],
                 raw_claims={},
             )
         elif token == "mock-jwt-warehouse-token":
@@ -345,7 +377,15 @@ async def get_current_user(
 def require_permission(*permissions: str):
     async def _checker(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         user_roles = set(user.roles)
-        if "ADMIN" in user_roles or "WAREHOUSE" in user_roles or "PROCUREMENT" in user_roles or "GRN" in user_roles:
+        if "ADMIN" in user_roles or "SUPERUSER" in user_roles:
+            return user
+        if "FINANCE" in user_roles and any(permission.startswith("finance:") for permission in permissions):
+            return user
+        if "PROCUREMENT" in user_roles and any(permission.startswith("procurement:") for permission in permissions):
+            return user
+        if "WAREHOUSE" in user_roles and any(permission.startswith(("storage:", "receiving:", "returns:", "store:", "warehouse:", "gate:")) for permission in permissions):
+            return user
+        if "GRN" in user_roles and any(permission.startswith(("receiving:", "gate:", "grn:", "storage:")) for permission in permissions):
             return user
         if "GATE_SECURITY" in user_roles and any(
             permission in {"gate:read", "gate:write", "gate:verify", "gate:entry:read", "gate:entry:create", "gate:entry:verify"}

@@ -54,6 +54,12 @@ import { Route as WarehouseDashboardRouteImport } from './routes/warehouse-dashb
 import { Route as WarehouseStorageRouteImport } from './routes/warehouse-storage'
 import { Route as AssemblyRequestsRouteImport } from './routes/assembly.requests'
 import { Route as FinanceApprovalsRouteImport } from './routes/finance.approvals'
+import { Route as FinanceExceptionsRouteImport } from './routes/finance.exceptions'
+import { Route as FinanceInvoicesRouteImport } from './routes/finance.invoices'
+import { Route as FinanceMatchingRouteImport } from './routes/finance.matching'
+import { Route as FinancePayablesRouteImport } from './routes/finance.payables'
+import { Route as FinancePaymentsRouteImport } from './routes/finance.payments'
+import { Route as FinanceReportsRouteImport } from './routes/finance.reports'
 import { Route as ProcurementAsnsRouteImport } from './routes/procurement.asns'
 import { Route as ProcurementFinishedGoodsRouteImport } from './routes/procurement.finished-goods'
 import { Route as ProcurementMaterialRequestsRouteImport } from './routes/procurement.material-requests'
@@ -72,6 +78,8 @@ import { Route as WarehouseQuarantineRouteImport } from './routes/warehouse.quar
 import { Route as WarehouseStoresRouteImport } from './routes/warehouse.stores'
 import { Route as FinanceApprovalsIndexRouteImport } from './routes/finance.approvals.index'
 import { Route as FinanceApprovalsApprovalIdRouteImport } from './routes/finance.approvals.$approvalId'
+import { Route as FinanceInvoicesIndexRouteImport } from './routes/finance.invoices.index'
+import { Route as FinanceInvoicesInvoiceIdRouteImport } from './routes/finance.invoices.$invoiceId'
 import { Route as ProcurementAsnsIndexRouteImport } from './routes/procurement.asns.index'
 import { Route as ProcurementAsnsAsnIdRouteImport } from './routes/procurement.asns.$asnId'
 import { Route as SupplierAsnsNewRouteImport } from './routes/supplier.asns.new'
@@ -307,6 +315,36 @@ const FinanceApprovalsRoute = FinanceApprovalsRouteImport.update({
   path: '/finance/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FinanceExceptionsRoute = FinanceExceptionsRouteImport.update({
+  id: '/finance/exceptions',
+  path: '/finance/exceptions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinanceInvoicesRoute = FinanceInvoicesRouteImport.update({
+  id: '/finance/invoices',
+  path: '/finance/invoices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinanceMatchingRoute = FinanceMatchingRouteImport.update({
+  id: '/finance/matching',
+  path: '/finance/matching',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinancePayablesRoute = FinancePayablesRouteImport.update({
+  id: '/finance/payables',
+  path: '/finance/payables',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinancePaymentsRoute = FinancePaymentsRouteImport.update({
+  id: '/finance/payments',
+  path: '/finance/payments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinanceReportsRoute = FinanceReportsRouteImport.update({
+  id: '/finance/reports',
+  path: '/finance/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProcurementAsnsRoute = ProcurementAsnsRouteImport.update({
   id: '/procurement/asns',
   path: '/procurement/asns',
@@ -404,6 +442,17 @@ const FinanceApprovalsApprovalIdRoute =
     path: '/$approvalId',
     getParentRoute: () => FinanceApprovalsRoute,
   } as any)
+const FinanceInvoicesIndexRoute = FinanceInvoicesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => FinanceInvoicesRoute,
+} as any)
+const FinanceInvoicesInvoiceIdRoute =
+  FinanceInvoicesInvoiceIdRouteImport.update({
+    id: '/$invoiceId',
+    path: '/$invoiceId',
+    getParentRoute: () => FinanceInvoicesRoute,
+  } as any)
 const ProcurementAsnsIndexRoute = ProcurementAsnsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -472,6 +521,12 @@ export interface FileRoutesByFullPath {
   '/warehouse-storage': typeof WarehouseStorageRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
+  '/finance/exceptions': typeof FinanceExceptionsRoute
+  '/finance/invoices': typeof FinanceInvoicesRouteWithChildren
+  '/finance/matching': typeof FinanceMatchingRoute
+  '/finance/payables': typeof FinancePayablesRoute
+  '/finance/payments': typeof FinancePaymentsRoute
+  '/finance/reports': typeof FinanceReportsRoute
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -489,9 +544,11 @@ export interface FileRoutesByFullPath {
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
   '/warehouse/stores': typeof WarehouseStoresRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
+  '/finance/invoices/$invoiceId': typeof FinanceInvoicesInvoiceIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals/': typeof FinanceApprovalsIndexRoute
+  '/finance/invoices/': typeof FinanceInvoicesIndexRoute
   '/procurement/asns/': typeof ProcurementAsnsIndexRoute
   '/finance/approvals/compare/$rfqId': typeof FinanceApprovalsCompareRfqIdRoute
 }
@@ -540,6 +597,11 @@ export interface FileRoutesByTo {
   '/warehouse-dashboard': typeof WarehouseDashboardRoute
   '/warehouse-storage': typeof WarehouseStorageRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
+  '/finance/exceptions': typeof FinanceExceptionsRoute
+  '/finance/matching': typeof FinanceMatchingRoute
+  '/finance/payables': typeof FinancePayablesRoute
+  '/finance/payments': typeof FinancePaymentsRoute
+  '/finance/reports': typeof FinanceReportsRoute
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
   '/procurement/new-rfq': typeof ProcurementNewRfqRoute
@@ -556,9 +618,11 @@ export interface FileRoutesByTo {
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
   '/warehouse/stores': typeof WarehouseStoresRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
+  '/finance/invoices/$invoiceId': typeof FinanceInvoicesInvoiceIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals': typeof FinanceApprovalsIndexRoute
+  '/finance/invoices': typeof FinanceInvoicesIndexRoute
   '/procurement/asns': typeof ProcurementAsnsIndexRoute
   '/finance/approvals/compare/$rfqId': typeof FinanceApprovalsCompareRfqIdRoute
 }
@@ -609,6 +673,12 @@ export interface FileRoutesById {
   '/warehouse-storage': typeof WarehouseStorageRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
+  '/finance/exceptions': typeof FinanceExceptionsRoute
+  '/finance/invoices': typeof FinanceInvoicesRouteWithChildren
+  '/finance/matching': typeof FinanceMatchingRoute
+  '/finance/payables': typeof FinancePayablesRoute
+  '/finance/payments': typeof FinancePaymentsRoute
+  '/finance/reports': typeof FinanceReportsRoute
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -626,9 +696,11 @@ export interface FileRoutesById {
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
   '/warehouse/stores': typeof WarehouseStoresRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
+  '/finance/invoices/$invoiceId': typeof FinanceInvoicesInvoiceIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals/': typeof FinanceApprovalsIndexRoute
+  '/finance/invoices/': typeof FinanceInvoicesIndexRoute
   '/procurement/asns/': typeof ProcurementAsnsIndexRoute
   '/finance/approvals/compare/$rfqId': typeof FinanceApprovalsCompareRfqIdRoute
 }
@@ -680,6 +752,12 @@ export interface FileRouteTypes {
     | '/warehouse-storage'
     | '/assembly/requests'
     | '/finance/approvals'
+    | '/finance/exceptions'
+    | '/finance/invoices'
+    | '/finance/matching'
+    | '/finance/payables'
+    | '/finance/payments'
+    | '/finance/reports'
     | '/procurement/asns'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -697,9 +775,11 @@ export interface FileRouteTypes {
     | '/warehouse/quarantine'
     | '/warehouse/stores'
     | '/finance/approvals/$approvalId'
+    | '/finance/invoices/$invoiceId'
     | '/procurement/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals/'
+    | '/finance/invoices/'
     | '/procurement/asns/'
     | '/finance/approvals/compare/$rfqId'
   fileRoutesByTo: FileRoutesByTo
@@ -748,6 +828,11 @@ export interface FileRouteTypes {
     | '/warehouse-dashboard'
     | '/warehouse-storage'
     | '/assembly/requests'
+    | '/finance/exceptions'
+    | '/finance/matching'
+    | '/finance/payables'
+    | '/finance/payments'
+    | '/finance/reports'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
     | '/procurement/new-rfq'
@@ -764,9 +849,11 @@ export interface FileRouteTypes {
     | '/warehouse/quarantine'
     | '/warehouse/stores'
     | '/finance/approvals/$approvalId'
+    | '/finance/invoices/$invoiceId'
     | '/procurement/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals'
+    | '/finance/invoices'
     | '/procurement/asns'
     | '/finance/approvals/compare/$rfqId'
   id:
@@ -816,6 +903,12 @@ export interface FileRouteTypes {
     | '/warehouse-storage'
     | '/assembly/requests'
     | '/finance/approvals'
+    | '/finance/exceptions'
+    | '/finance/invoices'
+    | '/finance/matching'
+    | '/finance/payables'
+    | '/finance/payments'
+    | '/finance/reports'
     | '/procurement/asns'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -833,9 +926,11 @@ export interface FileRouteTypes {
     | '/warehouse/quarantine'
     | '/warehouse/stores'
     | '/finance/approvals/$approvalId'
+    | '/finance/invoices/$invoiceId'
     | '/procurement/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals/'
+    | '/finance/invoices/'
     | '/procurement/asns/'
     | '/finance/approvals/compare/$rfqId'
   fileRoutesById: FileRoutesById
@@ -886,6 +981,12 @@ export interface RootRouteChildren {
   WarehouseStorageRoute: typeof WarehouseStorageRoute
   AssemblyRequestsRoute: typeof AssemblyRequestsRoute
   FinanceApprovalsRoute: typeof FinanceApprovalsRouteWithChildren
+  FinanceExceptionsRoute: typeof FinanceExceptionsRoute
+  FinanceInvoicesRoute: typeof FinanceInvoicesRouteWithChildren
+  FinanceMatchingRoute: typeof FinanceMatchingRoute
+  FinancePayablesRoute: typeof FinancePayablesRoute
+  FinancePaymentsRoute: typeof FinancePaymentsRoute
+  FinanceReportsRoute: typeof FinanceReportsRoute
   ProcurementAsnsRoute: typeof ProcurementAsnsRouteWithChildren
   ProcurementFinishedGoodsRoute: typeof ProcurementFinishedGoodsRoute
   ProcurementMaterialRequestsRoute: typeof ProcurementMaterialRequestsRoute
@@ -1222,6 +1323,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FinanceApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/finance/exceptions': {
+      id: '/finance/exceptions'
+      path: '/finance/exceptions'
+      fullPath: '/finance/exceptions'
+      preLoaderRoute: typeof FinanceExceptionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance/invoices': {
+      id: '/finance/invoices'
+      path: '/finance/invoices'
+      fullPath: '/finance/invoices'
+      preLoaderRoute: typeof FinanceInvoicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance/matching': {
+      id: '/finance/matching'
+      path: '/finance/matching'
+      fullPath: '/finance/matching'
+      preLoaderRoute: typeof FinanceMatchingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance/payables': {
+      id: '/finance/payables'
+      path: '/finance/payables'
+      fullPath: '/finance/payables'
+      preLoaderRoute: typeof FinancePayablesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance/payments': {
+      id: '/finance/payments'
+      path: '/finance/payments'
+      fullPath: '/finance/payments'
+      preLoaderRoute: typeof FinancePaymentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance/reports': {
+      id: '/finance/reports'
+      path: '/finance/reports'
+      fullPath: '/finance/reports'
+      preLoaderRoute: typeof FinanceReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/procurement/asns': {
       id: '/procurement/asns'
       path: '/procurement/asns'
@@ -1348,6 +1491,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FinanceApprovalsApprovalIdRouteImport
       parentRoute: typeof FinanceApprovalsRoute
     }
+    '/finance/invoices/': {
+      id: '/finance/invoices/'
+      path: '/'
+      fullPath: '/finance/invoices/'
+      preLoaderRoute: typeof FinanceInvoicesIndexRouteImport
+      parentRoute: typeof FinanceInvoicesRoute
+    }
+    '/finance/invoices/$invoiceId': {
+      id: '/finance/invoices/$invoiceId'
+      path: '/$invoiceId'
+      fullPath: '/finance/invoices/$invoiceId'
+      preLoaderRoute: typeof FinanceInvoicesInvoiceIdRouteImport
+      parentRoute: typeof FinanceInvoicesRoute
+    }
     '/procurement/asns/': {
       id: '/procurement/asns/'
       path: '/'
@@ -1393,6 +1550,20 @@ const FinanceApprovalsRouteChildren: FinanceApprovalsRouteChildren = {
 
 const FinanceApprovalsRouteWithChildren =
   FinanceApprovalsRoute._addFileChildren(FinanceApprovalsRouteChildren)
+
+interface FinanceInvoicesRouteChildren {
+  FinanceInvoicesInvoiceIdRoute: typeof FinanceInvoicesInvoiceIdRoute
+  FinanceInvoicesIndexRoute: typeof FinanceInvoicesIndexRoute
+}
+
+const FinanceInvoicesRouteChildren: FinanceInvoicesRouteChildren = {
+  FinanceInvoicesInvoiceIdRoute: FinanceInvoicesInvoiceIdRoute,
+  FinanceInvoicesIndexRoute: FinanceInvoicesIndexRoute,
+}
+
+const FinanceInvoicesRouteWithChildren = FinanceInvoicesRoute._addFileChildren(
+  FinanceInvoicesRouteChildren,
+)
 
 interface ProcurementAsnsRouteChildren {
   ProcurementAsnsAsnIdRoute: typeof ProcurementAsnsAsnIdRoute
@@ -1454,6 +1625,12 @@ const rootRouteChildren: RootRouteChildren = {
   WarehouseStorageRoute: WarehouseStorageRoute,
   AssemblyRequestsRoute: AssemblyRequestsRoute,
   FinanceApprovalsRoute: FinanceApprovalsRouteWithChildren,
+  FinanceExceptionsRoute: FinanceExceptionsRoute,
+  FinanceInvoicesRoute: FinanceInvoicesRouteWithChildren,
+  FinanceMatchingRoute: FinanceMatchingRoute,
+  FinancePayablesRoute: FinancePayablesRoute,
+  FinancePaymentsRoute: FinancePaymentsRoute,
+  FinanceReportsRoute: FinanceReportsRoute,
   ProcurementAsnsRoute: ProcurementAsnsRouteWithChildren,
   ProcurementFinishedGoodsRoute: ProcurementFinishedGoodsRoute,
   ProcurementMaterialRequestsRoute: ProcurementMaterialRequestsRoute,

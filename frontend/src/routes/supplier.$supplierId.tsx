@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Download,
   Star,
+  CreditCard,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
@@ -72,6 +73,36 @@ function SupplierProfile() {
     "Finished Goods",
     "Consumables",
   ]);
+
+  // Finance & Accounts state
+  const [financeStatement, setFinanceStatement] = useState<any>(null);
+  const [financeInvoices, setFinanceInvoices] = useState<any[]>([]);
+  const [financePayments, setFinancePayments] = useState<any[]>([]);
+  const [loadingFinance, setLoadingFinance] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === "finance" && supplierId) {
+      loadFinanceData();
+    }
+  }, [activeTab, supplierId]);
+
+  const loadFinanceData = async () => {
+    try {
+      setLoadingFinance(true);
+      const [stmt, invs, pmts] = await Promise.all([
+        api.getSupplierStatement(supplierId).catch(() => null),
+        api.listSupplierInvoices({ supplier_id: supplierId }).catch(() => []),
+        api.listPayments({ supplier_id: supplierId }).catch(() => []),
+      ]);
+      setFinanceStatement(stmt);
+      setFinanceInvoices(invs || []);
+      setFinancePayments(pmts || []);
+    } catch (err: any) {
+      console.warn("Failed to load supplier finance data", err);
+    } finally {
+      setLoadingFinance(false);
+    }
+  };
 
   useEffect(() => {
     api
@@ -975,6 +1006,7 @@ function SupplierProfile() {
               { id: "documents", label: "Documents", icon: FileText },
               { id: "purchases", label: "Purchase History", icon: ReceiptText },
               { id: "performance", label: "Performance", icon: ShieldCheck },
+              { id: "finance", label: "Finance & Accounts", icon: CreditCard },
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -1365,6 +1397,214 @@ function SupplierProfile() {
                 />
               </div>
             </SectionCard>
+          )}
+
+          {/* TAB CONTENT: FINANCE & ACCOUNTS */}
+          {activeTab === "finance" && (
+            <div className="space-y-6">
+              {/* Financial Health KPIs */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Total Invoiced
+                  </div>
+                  <div className="text-2xl font-bold text-foreground mt-1">
+                    ₹{(financeStatement?.total_invoiced || 0).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {financeInvoices.length} invoices processed
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Total Disbursed / Paid
+                  </div>
+                  <div className="text-2xl font-bold text-emerald-600 mt-1">
+                    ₹{(financeStatement?.total_paid || 0).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {financePayments.length} payments executed
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Net Outstanding AP
+                  </div>
+                  <div className="text-2xl font-bold text-rose-600 mt-1">
+                    ₹{(financeStatement?.closing_balance || 0).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Current debt balance</p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    Commercial Terms
+                  </div>
+                  <div className="text-sm font-semibold text-foreground mt-1">
+                    {supplier.paymentTerms || supplier.payment_terms || "Net 30"}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Credit Period: {supplier.creditPeriodDays ?? supplier.credit_period_days ?? 30} Days
+                  </p>
+                </div>
+              </div>
+
+              {/* Outstanding Invoices */}
+              <SectionCard
+                title="Invoices & Settlement Status"
+                description="Real-time supplier invoice registry and 3-way match statuses"
+                icon={FileText}
+                actions={
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/finance/invoices">All Finance Invoices</Link>
+                  </Button>
+                }
+              >
+                {loadingFinance ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    <Loader2 className="size-5 animate-spin mx-auto text-primary mb-2" />
+                    Loading invoices...
+                  </div>
+                ) : financeInvoices.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No invoices recorded for this supplier.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="border-b bg-muted/40 uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Invoice #</th>
+                          <th className="px-3 py-2">Date</th>
+                          <th className="px-3 py-2">Due Date</th>
+                          <th className="px-3 py-2 text-right">Grand Total</th>
+                          <th className="px-3 py-2 text-right">Paid Amount</th>
+                          <th className="px-3 py-2 text-right">Outstanding</th>
+                          <th className="px-3 py-2 text-center">Match Status</th>
+                          <th className="px-3 py-2 text-center">Status</th>
+                          <th className="px-3 py-2 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {financeInvoices.map((inv) => (
+                          <tr key={inv.id} className="hover:bg-muted/30">
+                            <td className="px-3 py-2 font-medium">
+                              <Link
+                                to={`/finance/invoices/${inv.id}` as any}
+                                className="text-primary hover:underline"
+                              >
+                                {inv.invoice_number}
+                              </Link>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">{inv.invoice_date}</td>
+                            <td className="px-3 py-2">{inv.due_date}</td>
+                            <td className="px-3 py-2 text-right font-medium">
+                              ₹{Number(inv.grand_total || 0).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-3 py-2 text-right text-emerald-600">
+                              ₹{Number(inv.paid_amount || 0).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-3 py-2 text-right font-bold text-rose-600">
+                              ₹{Number(inv.outstanding_amount || 0).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <StatusBadge status={inv.match_status} />
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <StatusBadge status={inv.status} />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                                <Link to={`/finance/invoices/${inv.id}` as any}>View</Link>
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </SectionCard>
+
+              {/* Payment History */}
+              <SectionCard
+                title="Disbursal & Payment History"
+                description="Completed transactions and allocations"
+                icon={CreditCard}
+              >
+                {loadingFinance ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    <Loader2 className="size-5 animate-spin mx-auto text-primary mb-2" />
+                    Loading payments...
+                  </div>
+                ) : financePayments.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No payment disbursals recorded for this supplier.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="border-b bg-muted/40 uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Payment Ref</th>
+                          <th className="px-3 py-2">Date</th>
+                          <th className="px-3 py-2">Method</th>
+                          <th className="px-3 py-2">Bank / UTR</th>
+                          <th className="px-3 py-2 text-right">Amount (₹)</th>
+                          <th className="px-3 py-2 text-right">Allocated (₹)</th>
+                          <th className="px-3 py-2 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {financePayments.map((pmt) => (
+                          <tr key={pmt.id} className="hover:bg-muted/30">
+                            <td className="px-3 py-2 font-mono font-medium">
+                              {pmt.payment_reference}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">{pmt.payment_date}</td>
+                            <td className="px-3 py-2">
+                              <span className="px-1.5 py-0.5 bg-muted rounded font-semibold text-[10px]">
+                                {pmt.payment_method}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-muted-foreground">
+                              {pmt.transaction_reference || pmt.bank_name || "-"}
+                            </td>
+                            <td className="px-3 py-2 text-right font-bold">
+                              ₹{Number(pmt.amount || 0).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-3 py-2 text-right text-emerald-600">
+                              ₹{Number(pmt.allocated_amount || 0).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <StatusBadge status={pmt.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </SectionCard>
+            </div>
           )}
           {supplier.remarks && (
             <SectionCard title="Remarks" icon={Mail}>

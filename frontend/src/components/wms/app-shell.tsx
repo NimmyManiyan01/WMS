@@ -34,6 +34,9 @@ import {
   Factory,
   Users,
   Inbox,
+  Receipt,
+  CreditCard,
+  Layers,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -47,6 +50,7 @@ const grnNav = [
   { label: "Create GRN", to: "/grn?tab=wizard", icon: PlusCircle },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=grn", icon: Truck },
   { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
+  { label: "Reports", to: "/reports?module=grn", icon: BarChart3 },
 ];
 
 const storeManagerNav = [
@@ -94,8 +98,13 @@ const supplierNav = [
 
 const financeNav = [
   { label: "Dashboard", to: "/finance-dashboard", icon: LayoutDashboard },
-  { label: "Pending Approvals", to: "/finance/approvals", icon: FileCheck2 },
-  { label: "Reports", to: "/reports", icon: BarChart3 },
+  { label: "PO Approvals", to: "/finance/approvals", icon: FileCheck2 },
+  { label: "Supplier Invoices", to: "/finance/invoices", icon: Receipt },
+  { label: "3-Way Matching", to: "/finance/matching", icon: Layers },
+  { label: "Accounts Payable", to: "/finance/payables", icon: FileText },
+  { label: "Payments & Disbursals", to: "/finance/payments", icon: CreditCard },
+  { label: "Finance Exceptions", to: "/finance/exceptions", icon: ShieldAlert },
+  { label: "Reports & Audit", to: "/finance/reports", icon: BarChart3 },
 ];
 
 const gateSecurityNav = [
@@ -133,6 +142,9 @@ const ICON_MAP: Record<string, any> = {
   Store,
   ShieldAlert,
   PlusCircle,
+  Receipt,
+  CreditCard,
+  Layers,
 };
 
 function getIconComponent(iconName: any) {
@@ -263,7 +275,8 @@ export function AppShell({
   const isGrnRoute =
     path === "/grn" ||
     path.startsWith("/grn") ||
-    (path === "/vehicle-queue" && currentQueryModule === "grn");
+    (path === "/vehicle-queue" && currentQueryModule === "grn") ||
+    (path === "/reports" && currentQueryModule === "grn");
   const isProcurementRoute =
     path === "/procurement-dashboard" ||
     path.startsWith("/procurement/") ||

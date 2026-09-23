@@ -39,6 +39,7 @@ class AllocationPriority(str, Enum):
 class AllocationAction(str, Enum):
     REQUESTED = "REQUESTED"
     ALLOCATED = "ALLOCATED"
+    ARRIVED = "ARRIVED"
     REASSIGNED = "REASSIGNED"
     RECEIVING_STARTED = "RECEIVING_STARTED"
     COMPLETED = "COMPLETED"

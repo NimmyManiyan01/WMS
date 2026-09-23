@@ -2411,5 +2411,229 @@ export const api = {
   resolveMediaUrl(path?: string | null): string {
     return resolveMediaUrl(path);
   },
+
+  // =========================================================
+  // Enterprise Finance & Procure-to-Pay (P2P) APIs
+  // =========================================================
+  async getFinanceDashboard(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/dashboard`);
+  },
+
+  async checkPoBudget(poId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/budget-check/${poId}`);
+  },
+
+  async putPoOnHold(
+    poId: string,
+    data: { hold_reason: string; hold_comment?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/purchase-orders/${poId}/hold`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async releasePoHold(
+    poId: string,
+    data?: { notes?: string; resolution_notes?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/purchase-orders/${poId}/release-hold`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data || { notes: "Hold released" }),
+    });
+  },
+
+  async listSupplierInvoices(params?: {
+    status?: string;
+    match_status?: string;
+    supplier_id?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "" && v !== "ALL") {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/finance/invoices${qs ? `?${qs}` : ""}`);
+  },
+
+  async getSupplierInvoice(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices/${id}`);
+  },
+
+  async createSupplierInvoice(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async matchSupplierInvoice(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices/${id}/match`, {
+      method: "POST",
+    });
+  },
+
+  async overrideInvoiceMatch(
+    id: string,
+    data: { override_reason: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices/${id}/override-match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async approveSupplierInvoice(
+    id: string,
+    data: { approved: boolean; notes?: string; rejection_reason?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices/${id}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async holdSupplierInvoice(
+    id: string,
+    data: { hold_reason: string; hold_comment?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/invoices/${id}/hold`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async listPayments(params?: {
+    supplier_id?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/finance/payments${qs ? `?${qs}` : ""}`);
+  },
+
+  async createPayment(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async listAdjustments(params?: {
+    supplier_id?: string;
+    note_type?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/finance/adjustments${qs ? `?${qs}` : ""}`);
+  },
+
+  async createAdjustment(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/adjustments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getSupplierStatement(
+    supplierId: string,
+    params?: { from_date?: string; to_date?: string },
+  ): Promise<any> {
+    const q = new URLSearchParams();
+    if (params?.from_date) q.append("from_date", params.from_date);
+    if (params?.to_date) q.append("to_date", params.to_date);
+    const qs = q.toString();
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/finance/suppliers/${supplierId}/statement${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getApAging(asOfDate?: string): Promise<any> {
+    const q = asOfDate ? `?as_of_date=${encodeURIComponent(asOfDate)}` : "";
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/reports/ap-aging${q}`);
+  },
+
+  async getFinanceAuditTrail(params?: {
+    entity_type?: string;
+    entity_id?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/finance/audit-trail${qs ? `?${qs}` : ""}`);
+  },
+
+  async listFinanceExceptions(params?: {
+    status?: string;
+    severity?: string;
+    entity_type?: string;
+    supplier_id?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "" && v !== "ALL") {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/finance/exceptions${qs ? `?${qs}` : ""}`);
+  },
+
+  async resolveFinanceException(
+    id: string,
+    data: { resolution_comment: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/finance/exceptions/${id}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
 };
 

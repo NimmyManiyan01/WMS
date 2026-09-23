@@ -387,8 +387,8 @@ class DockAllocationService:
             except Exception:
                 pass
 
-        dock.status = DockStatus.OCCUPIED.value
-        await DockAllocationService._sync_warehouse_dock_status(session, dock.dock_code, "OCCUPIED")
+        dock.status = DockStatus.RESERVED.value
+        await DockAllocationService._sync_warehouse_dock_status(session, dock.dock_code, "RESERVED")
 
         # Update GateEntryModel and DockAssignmentModel
         await DockAllocationService._sync_gate_entry_status(
@@ -470,7 +470,8 @@ class DockAllocationService:
             pass
 
         material_text = req.material_reference or req.material_description
-        notif_msg = f"Dock {dock.dock_code} has been assigned to vehicle {req.vehicle_number}."
+        gp_text = f" (Gate Pass {req.existing_gate_pass_id})" if req.existing_gate_pass_id else ""
+        notif_msg = f"Dock {dock.dock_code} has been assigned to vehicle {req.vehicle_number}{gp_text}."
         if material_text:
             notif_msg = f"{notif_msg[:-1]} for material {material_text}."
         
@@ -481,26 +482,6 @@ class DockAllocationService:
                 title="Dock Allocated — Ready for GRN",
                 message=f"Dock {dock.dock_code} allocated for vehicle {req.vehicle_number} (Gate Pass {req.existing_gate_pass_id}). Inbound goods are ready for receiving and GRN creation.",
                 link=f"/grn?tab=wizard&gatePassId={req.existing_gate_pass_id}&dock={dock.dock_code}",
-            )
-        )
-
-        # Notification to Warehouse Module
-        session.add(
-            NotificationModel(
-                user_role="WAREHOUSE",
-                title="DOCK ALLOCATED",
-                message=notif_msg,
-                link=f"/dock-management?requestId={req.id}",
-            )
-        )
-
-        # Mandatory Notification to Quality Inspector
-        session.add(
-            NotificationModel(
-                user_role="QUALITY_INSPECTOR",
-                title="DOCK ALLOCATED",
-                message=notif_msg,
-                link=f"/dock-management?requestId={req.id}",
             )
         )
 

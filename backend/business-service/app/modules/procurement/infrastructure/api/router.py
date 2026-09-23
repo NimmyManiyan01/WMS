@@ -148,11 +148,85 @@ from app.modules.procurement.infrastructure.persistence.repository_impl import (
     SqlAlchemyPurchaseOrderRepository,
 )
 from app.common.email_utils import render_premium_email, send_email
+from app.config.settings import get_settings
 from app.security.dependencies import CurrentUser, get_current_user
 
 logger = get_logger(__name__)
 
+async def _dispatch_asn_email(
+    asn: Any,
+    po_obj: Any = None,
+    supplier_name: Optional[str] = None,
+    warehouse_name: Optional[str] = None,
+    background_tasks: Optional[BackgroundTasks] = None,
+    is_resubmit: bool = False,
+    supplier_email: Optional[str] = None,
+) -> None:
+    settings = get_settings()
+    recipient = supplier_email or (getattr(po_obj, "supplier_email", None) if po_obj else None)
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Supplier email not found for PO {getattr(asn, 'po_number', '')}. Please provide supplier email.",
+        )
+
+    s_name = supplier_name or (getattr(po_obj, "supplier_name", None) if po_obj else "Supplier")
+    po_num = getattr(asn, "po_number", None) or (getattr(po_obj, "po_number", None) if po_obj else "N/A")
+    asn_num = getattr(asn, "asn_number", None) or "N/A"
+
+    driver = getattr(asn, "driver_name", None) or "N/A"
+    vehicle = getattr(asn, "vehicle_number", None) or "N/A"
+
+    subject = f"Advance Shipment Notice - ASN {asn_num} - PO {po_num}"
+    lines_list = getattr(asn, "lines", []) or []
+    lines_text = "\n".join(
+        f"- {line.item_code} | {getattr(line, 'material_name', '')} | Shipped: {Decimal(str(getattr(line, 'shipped_quantity', 0))):.4f} {getattr(line, 'uom', '')}"
+        for line in lines_list
+    )
+
+    body = (
+        f"Dear {s_name},\n\n"
+        f"An Advance Shipment Notice has been generated.\n\n"
+        f"ASN Number:\n{asn_num}\n\n"
+        f"PO Number:\n{po_num}\n\n"
+        f"Supplier:\n{s_name}\n\n"
+        f"Delivery Warehouse:\n{warehouse_name or 'Main Warehouse'}\n\n"
+        f"Driver: {driver}\n"
+        f"Vehicle: {vehicle}\n\n"
+        f"Items:\n{lines_text}\n\n"
+        f"Regards,\nNexusWMS Procurement"
+    )
+
+    html_body = render_premium_email(
+        eyebrow="Advance Shipment Notice",
+        title=f"Advance Shipment Notice: {asn_num}",
+        greeting=f"Dear {s_name},",
+        intro=f"An Advance Shipment Notice has been generated for Purchase Order {po_num}.",
+        details=[
+            ("ASN Number", asn_num),
+            ("PO Number", po_num),
+            ("Supplier", s_name),
+            ("Warehouse", warehouse_name or "Main Warehouse"),
+        ],
+        items=[
+            {
+                "item_code": line.item_code,
+                "material_name": getattr(line, "material_name", ""),
+                "quantity": str(getattr(line, "shipped_quantity", 0)),
+                "uom": getattr(line, "uom", ""),
+            }
+            for line in lines_list
+        ],
+    )
+
+    await send_email(recipient, subject, body, html_body)
+
+    wh_email = getattr(settings, "warehouse_email", None)
+    if background_tasks and wh_email:
+        background_tasks.add_task(send_email, wh_email, subject, body, html_body)
+
 router = APIRouter(prefix="/api/v1/procurement", tags=["procurement"])
+
 
 
 @router.get("/health", tags=["ops"])
@@ -662,6 +736,7 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
 
     return {
         "status": "success",
+        "id": str(new_mr.id),
         "request_number": req_no,
         "items": [
             {
@@ -1967,6 +2042,9 @@ async def select_supplier(rfq_id: str, request: SupplierSelectionRequest, uow: U
         raise HTTPException(status_code=500, detail=str(e))
 
 
+from app.modules.finance.domain.calculations import calculate_authoritative_financials
+
+
 def _calculate_quotation_financials(
     quotation: Optional[QuotationModel],
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]:
@@ -1974,16 +2052,27 @@ def _calculate_quotation_financials(
         zero = Decimal("0.0")
         return zero, zero, zero, zero, zero, zero
 
-    subtotal = sum((line.quantity * line.unit_price for line in quotation.lines), Decimal("0.0"))
-    discount_percentage = Decimal(str(quotation.discount or 0))
-    discount_amount = subtotal * discount_percentage / Decimal("100")
-    tax_percentage = Decimal(str(quotation.tax or 0))
-    taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-    tax_amount = taxable_amount * tax_percentage / Decimal("100")
-    freight_charges = Decimal(str(quotation.freight_charges or 0))
-    additional_charges = Decimal(str(getattr(quotation, "additional_charges", 0) or 0))
-    total_amount = taxable_amount + tax_amount + freight_charges + additional_charges
-    return subtotal, discount_amount, tax_percentage, tax_amount, freight_charges, total_amount
+    quote_lines = list(getattr(quotation, "lines", []) or [])
+    subtotal = sum((Decimal(str(line.quantity)) * Decimal(str(line.unit_price)) for line in quote_lines), Decimal("0.0")).quantize(Decimal("0.01"))
+    
+    raw_discount = Decimal(str(quotation.discount or 0))
+    disc_pct = raw_discount if (Decimal("0") <= raw_discount <= Decimal("100")) else None
+    disc_amt = raw_discount if (raw_discount > Decimal("100")) else None
+
+    raw_tax = Decimal(str(quotation.tax or 0))
+    tax_pct = raw_tax if (Decimal("0") <= raw_tax <= Decimal("100")) else None
+    tax_amt = raw_tax if (raw_tax > Decimal("100")) else None
+
+    fin = calculate_authoritative_financials(
+        subtotal=subtotal,
+        discount_amount=disc_amt,
+        discount_percentage=disc_pct,
+        tax_amount=tax_amt,
+        tax_percentage=tax_pct,
+        freight_charges=Decimal(str(quotation.freight_charges or 0)),
+        additional_charges=Decimal(str(getattr(quotation, "additional_charges", 0) or 0)),
+    )
+    return fin["subtotal"], fin["discount_amount"], fin["tax_percentage"], fin["tax_amount"], fin["freight_charges"], fin["grand_total"]
 
 async def _get_purchase_order_quotation(
     session,
@@ -2845,32 +2934,46 @@ def _to_po_response(
         logger.warning(f"Could not load rfq_number for PO {po.id}: {e}")
 
     if response_quotation:
-        subtotal, discount_amount, tax_percentage, tax_amount, freight_charges, total_amount = _calculate_quotation_financials(response_quotation)
+        quote_lines = list(getattr(response_quotation, "lines", []) or [])
+        subtotal = sum((Decimal(str(line.quantity)) * Decimal(str(line.unit_price)) for line in quote_lines), Decimal("0.0")).quantize(Decimal("0.01"))
+        raw_discount = Decimal(str(response_quotation.discount or 0))
+        disc_pct = raw_discount if (Decimal("0") <= raw_discount <= Decimal("100")) else None
+        disc_amt = raw_discount if (raw_discount > Decimal("100")) else None
+        raw_tax = Decimal(str(response_quotation.tax or 0))
+        tax_pct = raw_tax if (Decimal("0") <= raw_tax <= Decimal("100")) else None
+        tax_amt = raw_tax if (raw_tax > Decimal("100")) else None
+
+        fin = calculate_authoritative_financials(
+            subtotal=subtotal,
+            discount_amount=disc_amt,
+            discount_percentage=disc_pct,
+            tax_amount=tax_amt,
+            tax_percentage=tax_pct,
+            freight_charges=Decimal(str(response_quotation.freight_charges or 0)),
+            additional_charges=Decimal(str(getattr(response_quotation, "additional_charges", 0) or 0)),
+        )
     else:
-        subtotal = sum((item.quantity * item.unit_price for item in po.items), Decimal("0.0"))
-        discount_amount = Decimal(str(getattr(po, "discount_amount", 0) or 0))
+        item_subtotal = sum((Decimal(str(item.quantity)) * Decimal(str(item.unit_price)) for item in po.items), Decimal("0.0")).quantize(Decimal("0.01"))
         stored_subtotal = Decimal(str(getattr(po, "subtotal", 0) or 0))
-        stored_tax = Decimal(str(getattr(po, "tax_amount", 0) or 0))
-        freight_charges = Decimal(str(getattr(po, "freight_charges", 0) or 0))
-        if abs(stored_subtotal - subtotal) > Decimal("0.01") and Decimal("0") <= stored_tax <= Decimal("100"):
-            taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-            tax_percentage = stored_tax
-            tax_amount = taxable_amount * tax_percentage / Decimal("100")
-            total_amount = (
-                taxable_amount
-                + tax_amount
-                + freight_charges
-                + Decimal(str(getattr(po, "additional_charges", 0) or 0))
-            )
-        else:
-            tax_amount = stored_tax
-            taxable_amount = max(subtotal - discount_amount, Decimal("0.0"))
-            tax_percentage = (
-                (tax_amount * Decimal("100") / taxable_amount).quantize(Decimal("0.01"))
-                if taxable_amount > 0
-                else Decimal("0.0")
-            )
-            total_amount = Decimal(str(po.total_amount or 0))
+        subtotal = stored_subtotal if stored_subtotal > Decimal("0.0") else item_subtotal
+
+        fin = calculate_authoritative_financials(
+            subtotal=subtotal,
+            discount_amount=Decimal(str(getattr(po, "discount_amount", 0) or 0)),
+            tax_amount=Decimal(str(getattr(po, "tax_amount", 0) or 0)),
+            freight_charges=Decimal(str(getattr(po, "freight_charges", 0) or 0)),
+            additional_charges=Decimal(str(getattr(po, "additional_charges", 0) or 0)),
+        )
+
+    subtotal = fin["subtotal"]
+    discount_amount = fin["discount_amount"]
+    discount_percentage = fin["discount_percentage"]
+    taxable_amount = fin["taxable_amount"]
+    tax_amount = fin["tax_amount"]
+    tax_percentage = fin["tax_percentage"]
+    freight_charges = fin["freight_charges"]
+    additional_charges = fin["additional_charges"]
+    total_amount = fin["grand_total"]
 
     return PurchaseOrderResponse(
         id=str(po.id),
@@ -2901,10 +3004,12 @@ def _to_po_response(
         total_amount=total_amount,
         subtotal=subtotal,
         discount_amount=discount_amount,
+        discount_percentage=discount_percentage,
+        taxable_amount=taxable_amount,
         tax_amount=tax_amount,
         tax_percentage=tax_percentage,
         freight_charges=freight_charges,
-        additional_charges=getattr(po, "additional_charges", Decimal("0.0")),
+        additional_charges=additional_charges,
         expected_delivery_date=po.expected_delivery_date,
         payment_terms=getattr(po, "payment_terms", None),
         delivery_terms=getattr(po, "delivery_terms", None) or (getattr(response_quotation, "delivery_time", None) if response_quotation else None),
@@ -2929,6 +3034,7 @@ def _to_po_response(
         quotation=_to_quotation_response(response_quotation) if response_quotation else None,
         items=[
             PurchaseOrderItemSchema(
+                id=str(it.id) if getattr(it, "id", None) else None,
                 material_id=str(it.material_id) if getattr(it, "material_id", None) else None,
                 material_variant_id=str(it.material_variant_id) if getattr(it, "material_variant_id", None) else None,
                 material_code=it.material_code,
@@ -3531,9 +3637,11 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
     for l in q.lines:
         mat_name = getattr(l, "material_name", None)
         uom_val = getattr(l, "uom", None)
-        if not mat_name and getattr(l, "material", None):
-            mat_name = getattr(l.material, "material_name", None)
-            uom_val = getattr(l.material, "uom", None)
+        # Avoid triggering SQLAlchemy MissingGreenlet lazy load if relationship is not loaded
+        if not mat_name and hasattr(l, "__dict__") and "material" in l.__dict__ and l.__dict__["material"] is not None:
+            mat_obj = l.__dict__["material"]
+            mat_name = getattr(mat_obj, "material_name", None)
+            uom_val = getattr(mat_obj, "uom", None)
 
         lines.append(QuotationLineSchema(
             material_id=str(getattr(l, "material_id", None)) if getattr(l, "material_id", None) else None,
@@ -3580,6 +3688,7 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
 @router.post("/asns", response_model=AsnResponse, status_code=status.HTTP_201_CREATED)
 async def create_asn(
     request: CreateAsnRequest,
+    background_tasks: BackgroundTasks = None,
     uow: UnitOfWork = Depends(get_uow),
     _user: CurrentUser = Depends(get_current_user),
 ) -> AsnResponse:
@@ -3697,6 +3806,19 @@ async def create_asn(
         asn.challan_number = request.challan_number
         asn.challan_date = request.challan_date
         await uow.commit()
+
+        # Dispatch ASN notification email
+        try:
+            await _dispatch_asn_email(
+                asn=asn,
+                po_obj=po_obj,
+                supplier_name=po_obj.supplier_name if po_obj else None,
+                warehouse_name=po_obj.delivery_warehouse_name if po_obj else None,
+                background_tasks=background_tasks,
+                supplier_email=po_obj.supplier_email if po_obj else None,
+            )
+        except Exception as email_err:
+            logger.warning(f"Failed to dispatch ASN email: {email_err}")
 
         return AsnResponse(
             id=str(asn.id),

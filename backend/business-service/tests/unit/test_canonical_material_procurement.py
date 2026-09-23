@@ -131,6 +131,11 @@ async def test_canonical_material_master_and_procurement_flow():
         assert mr_data["items"][0]["material_variant_id"] == v2_id
         assert mr_data["items"][0]["variant_code"] == "MAT-003-V002"
 
+        # Approve MR so RFQ can be generated
+        mr_id = mr_data.get("id") or mr_data.get("request_id")
+        proc_res = await client.post(f"/api/v1/procurement/material-requests/{mr_id}/process", headers=headers)
+        assert proc_res.status_code == 200, f"Failed approving MR: {proc_res.text}"
+
         # -------------------------------------------------------------
         # 4. Create Supplier (if needed) & RFQ for MAT-003-V002
         # -------------------------------------------------------------

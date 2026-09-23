@@ -390,6 +390,7 @@ class PurchaseOrderAmendmentRequest(ApiModel):
 
 
 class PurchaseOrderItemSchema(ApiModel):
+    id: Optional[str] = None
     material_id: Optional[str] = None
     material_variant_id: Optional[str] = None
     material_code: str
@@ -434,6 +435,8 @@ class PurchaseOrderResponse(ApiModel):
     delivery_address: Optional[str] = None
     subtotal: Decimal = Decimal("0.0")
     discount_amount: Decimal = Decimal("0.0")
+    discount_percentage: Decimal = Decimal("0.0")
+    taxable_amount: Decimal = Decimal("0.0")
     tax_amount: Decimal = Decimal("0.0")
     freight_charges: Decimal = Decimal("0.0")
     additional_charges: Decimal = Decimal("0.0")

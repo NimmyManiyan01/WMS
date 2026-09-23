@@ -3047,6 +3047,13 @@ function GrnPageWorkflow() {
               {activeTab === "records" ? "Dashboard View" : "All GRN Records"}
             </Button>
             <Button
+              variant="outline"
+              className="rounded-xl gap-1.5"
+              onClick={() => navigate({ to: "/reports", search: { module: "grn", tab: "grn" } })}
+            >
+              <BarChart3 className="size-4 text-emerald-600" /> Reports
+            </Button>
+            <Button
               className="rounded-xl shadow-glow bg-primary text-primary-foreground font-bold"
               onClick={() => {
                 startNewGrn();

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import {
   Boxes,
@@ -16,8 +16,9 @@ import {
   FileSpreadsheet,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
 } from "lucide-react";
-import { AppShell } from "@/components/wms/app-shell";
+import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,13 +34,25 @@ import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/reports")({
+  validateSearch: (search: Record<string, unknown>): {
+    tab?: string;
+    module?: string;
+  } => ({
+    tab: (search.tab as string) || undefined,
+    module: (search.module as string) || undefined,
+  }),
   component: WarehouseReportsPage,
 });
 
-type ReportTab = "inventory" | "movement" | "putaway" | "low-stock" | "quarantine";
+type ReportTab = "inventory" | "movement" | "putaway" | "low-stock" | "quarantine" | "grn";
 
 function WarehouseReportsPage() {
-  const [activeTab, setActiveTab] = useState<ReportTab>("inventory");
+  const searchParams = Route.useSearch();
+  const initialTab: ReportTab =
+    searchParams.tab === "grn" || searchParams.module === "grn"
+      ? "grn"
+      : (searchParams.tab as ReportTab) || "inventory";
+  const [activeTab, setActiveTab] = useState<ReportTab>(initialTab);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +73,7 @@ function WarehouseReportsPage() {
   const [movementData, setMovementData] = useState<any[]>([]);
   const [putawayData, setPutawayData] = useState<any[]>([]);
   const [quarantineData, setQuarantineData] = useState<any[]>([]);
+  const [grnData, setGrnData] = useState<any[]>([]);
 
   // Load Store options
   useEffect(() => {
@@ -114,6 +128,13 @@ function WarehouseReportsPage() {
           search: search.trim() || undefined,
         });
         setQuarantineData(data || []);
+      } else if (activeTab === "grn") {
+        const res = await api.getGrns({
+          status: selectedStatus !== "ALL" ? selectedStatus : undefined,
+          search: search.trim() || undefined,
+          limit: 100,
+        });
+        setGrnData(res?.items || []);
       }
 
       if (isManual) {
@@ -224,6 +245,36 @@ function WarehouseReportsPage() {
       return list;
     }
 
+    if (activeTab === "grn") {
+      let list = grnData;
+      if (sTerm) {
+        list = list.filter(
+          (r) =>
+            r.grn_number?.toLowerCase().includes(sTerm) ||
+            r.po_number?.toLowerCase().includes(sTerm) ||
+            r.supplier_name?.toLowerCase().includes(sTerm) ||
+            r.supplier_company_name?.toLowerCase().includes(sTerm) ||
+            r.vehicle_number?.toLowerCase().includes(sTerm) ||
+            r.receiving_dock?.toLowerCase().includes(sTerm) ||
+            r.dock_number?.toLowerCase().includes(sTerm) ||
+            r.driver_name?.toLowerCase().includes(sTerm),
+        );
+      }
+      if (startDate) {
+        list = list.filter((r) => {
+          const d = r.receipt_date || r.created_at || "";
+          return d.slice(0, 10) >= startDate;
+        });
+      }
+      if (endDate) {
+        list = list.filter((r) => {
+          const d = r.receipt_date || r.created_at || "";
+          return d.slice(0, 10) <= endDate;
+        });
+      }
+      return list;
+    }
+
     return [];
   }, [
     activeTab,
@@ -231,6 +282,7 @@ function WarehouseReportsPage() {
     movementData,
     putawayData,
     quarantineData,
+    grnData,
     search,
     selectedStatus,
     startDate,
@@ -395,6 +447,35 @@ function WarehouseReportsPage() {
         r.reviewed_by || "",
         r.reviewed_at ? r.reviewed_at.slice(0, 19).replace("T", " ") : "",
         r.created_at ? r.created_at.slice(0, 19).replace("T", " ") : "",
+      ]);
+    } else if (activeTab === "grn") {
+      headers = [
+        "GRN Number",
+        "PO Number",
+        "ASN Number",
+        "Supplier",
+        "Warehouse",
+        "Dock",
+        "Vehicle Number",
+        "Driver Name",
+        "Receipt Type",
+        "Status",
+        "Received By",
+        "Receipt Date",
+      ];
+      rows = currentFilteredRecords.map((r) => [
+        r.grn_number || "",
+        r.po_number || "",
+        r.asn_number || "",
+        `"${(r.supplier_name || r.supplier_company_name || "").replace(/"/g, '""')}"`,
+        r.warehouse_name || "Main Warehouse",
+        r.receiving_dock || r.dock_number || "",
+        r.vehicle_number || "",
+        `"${(r.driver_name || "").replace(/"/g, '""')}"`,
+        r.receipt_type === "UNEXPECTED_DELIVERY" ? "Unexpected Delivery" : "PO Delivery",
+        r.status || "COMPLETED",
+        r.received_by || "",
+        r.receipt_date ? String(r.receipt_date).slice(0, 19).replace("T", " ") : "",
       ]);
     }
 
@@ -569,6 +650,24 @@ function WarehouseReportsPage() {
       ];
     }
 
+    if (activeTab === "grn") {
+      const completed = currentFilteredRecords.filter(
+        (r) => r.status === "COMPLETED" || r.status === "POSTED" || r.status === "FINISHED",
+      ).length;
+      const partial = currentFilteredRecords.filter(
+        (r) => r.status === "PARTIAL" || r.status === "PARTIALLY_RECEIVED",
+      ).length;
+      const damagedCount = currentFilteredRecords.filter(
+        (r) => (r.damage_lots && r.damage_lots.length > 0) || (r.damage_evidence && r.damage_evidence.length > 0) || r.has_damage,
+      ).length;
+      return [
+        { label: "Total GRN Receipts", value: totalCount, icon: ClipboardList, color: "text-primary" },
+        { label: "Completed Receipts", value: completed, icon: CheckCircle2, color: "text-emerald-600" },
+        { label: "Partial Receipts", value: partial, icon: Clock, color: "text-blue-600" },
+        { label: "Receipts with Damage", value: damagedCount, icon: AlertTriangle, color: "text-rose-600" },
+      ];
+    }
+
     return [];
   }, [activeTab, currentFilteredRecords]);
 
@@ -639,6 +738,18 @@ function WarehouseReportsPage() {
           >
             <ShieldAlert className="size-4 text-rose-500" />
             Quarantine & Quality Logs
+          </Button>
+          <Button
+            variant={activeTab === "grn" ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setActiveTab("grn");
+              handleClearFilters();
+            }}
+            className="h-9 gap-2 text-xs font-semibold rounded-lg"
+          >
+            <ClipboardList className="size-4 text-emerald-600" />
+            Goods Receiving (GRN)
           </Button>
         </div>
 
@@ -762,10 +873,24 @@ function WarehouseReportsPage() {
                     <SelectItem value="ALL">All QC Statuses</SelectItem>
                     <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
                     <SelectItem value="QUARANTINED">Quarantined</SelectItem>
+                    <SelectItem value="ACCEPTED_WITH_DEVIATION">Accepted Deviation</SelectItem>
                     <SelectItem value="SCRAPPED">Scrapped</SelectItem>
-                    <SelectItem value="REWORK">Rework</SelectItem>
-                    <SelectItem value="ACCEPTED_WITH_DEVIATION">Accepted with Deviation</SelectItem>
                     <SelectItem value="RETURN_TO_VENDOR">Return to Vendor</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+
+              {activeTab === "grn" && (
+                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                  <SelectTrigger className="w-[180px] h-9 text-xs">
+                    <SelectValue placeholder="GRN Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All GRN Statuses</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="POSTED">Posted</SelectItem>
+                    <SelectItem value="PARTIAL">Partial</SelectItem>
+                    <SelectItem value="IN_PROGRESS">In Progress / Draft</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -844,7 +969,9 @@ function WarehouseReportsPage() {
                   ? "Putaway Operations & Assignment Report"
                   : activeTab === "low-stock"
                     ? "Low Stock & Reorder Trigger Report"
-                    : "Quarantine & Material Rejection Report"
+                    : activeTab === "grn"
+                      ? "Goods Receiving (GRN) Inbound Report"
+                      : "Quarantine & Material Rejection Report"
           }
           description={`Showing ${currentFilteredRecords.length} authoritative database records`}
           icon={FileSpreadsheet}
@@ -968,6 +1095,20 @@ function WarehouseReportsPage() {
                           <th className="p-3">Damage Reason</th>
                           <th className="p-3 text-center">QC Status</th>
                           <th className="p-3 text-center pr-4">Disposition</th>
+                        </>
+                      )}
+
+                      {activeTab === "grn" && (
+                        <>
+                          <th className="p-3 pl-4">GRN Number</th>
+                          <th className="p-3">PO Number</th>
+                          <th className="p-3">Supplier</th>
+                          <th className="p-3">Receipt Type</th>
+                          <th className="p-3">Vehicle & Dock</th>
+                          <th className="p-3">Warehouse</th>
+                          <th className="p-3">Received By</th>
+                          <th className="p-3">Receipt Date</th>
+                          <th className="p-3 pr-4 text-center">Status</th>
                         </>
                       )}
                     </tr>
@@ -1200,6 +1341,52 @@ function WarehouseReportsPage() {
                                 >
                                   {row.disposition || "PENDING"}
                                 </span>
+                              </td>
+                            </>
+                          )}
+
+                          {activeTab === "grn" && (
+                            <>
+                              <td className="p-3 pl-4 font-mono font-bold text-primary">
+                                <Link
+                                  to="/grn"
+                                  search={{ tab: "records", page: 1, grn_id: row.id || row.grn_id }}
+                                  className="hover:underline flex items-center gap-1.5"
+                                >
+                                  {row.grn_number || "GRN-PENDING"}
+                                  <ChevronRight className="size-3 text-muted-foreground" />
+                                </Link>
+                              </td>
+                              <td className="p-3 font-mono font-semibold text-foreground">
+                                {row.po_number || "N/A"}
+                              </td>
+                              <td className="p-3 font-medium text-foreground max-w-[180px] truncate">
+                                {row.supplier_name || row.supplier_company_name || "Supplier"}
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-muted border border-border">
+                                  {row.receipt_type === "UNEXPECTED_DELIVERY" ? "Unexpected" : "PO Delivery"}
+                                </span>
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                <div className="font-mono text-[11px] font-semibold text-foreground">
+                                  {row.vehicle_number || "—"}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  Dock: {row.receiving_dock || row.dock_number || "—"}
+                                </div>
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                {row.warehouse_name || "Main Warehouse"}
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                {row.received_by || "GRN Officer"}
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground font-mono">
+                                {row.receipt_date ? String(row.receipt_date).slice(0, 10) : "—"}
+                              </td>
+                              <td className="p-3 text-center pr-4">
+                                <StatusBadge status={row.status || "COMPLETED"} />
                               </td>
                             </>
                           )}

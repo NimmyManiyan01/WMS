@@ -83,3 +83,15 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_db() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency: yields an AsyncSession scoped to one request."""
+    async with AsyncSessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
