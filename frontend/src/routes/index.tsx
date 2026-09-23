@@ -35,7 +35,7 @@ type StoryStep = {
   image: string;
   badge: string;
   metric: string;
-  align: "left" | "right";
+  align: "image-left" | "image-right";
 };
 
 const storySteps: StoryStep[] = [
@@ -50,83 +50,79 @@ const storySteps: StoryStep[] = [
     image: truckGateUrl,
     badge: "Security Checkpoint",
     metric: "18 Vehicles in Active Queue",
-    align: "left",
+    align: "image-left",
   },
   {
     id: "grn",
     number: "02",
     title: "GRN & Receiving",
     subtitle: "Goods Receipt & Quality Inspection",
+    route: "/grn",
     description: "Cargo is unloaded at designated dock bays. Items undergo rigorous quality inspection and verification against purchase orders before Goods Receipt Notes (GRNs) are posted.",
     icon: FileCheck2,
     image: driverUrl,
     badge: "Receiving Dock",
     metric: "126 GRNs Posted Today",
-    align: "right",
+    align: "image-right",
   },
   {
     id: "putaway",
     number: "03",
     title: "Store / Putaway",
     subtitle: "Algorithmic Bin Placement & Zoning",
+    route: "/putaway-tasks",
     description: "Accepted inventory is routed via putaway tasks into optimal store zones and storage racks, generating QR location tags for exact traceability.",
     icon: PackageCheck,
     image: truckRearUrl,
     badge: "Storage Engine",
     metric: "31 Putaway Tasks Active",
-    align: "left",
+    align: "image-left",
   },
   {
     id: "inventory",
     number: "04",
     title: "Inventory Control",
     subtitle: "Real-Time Stock Ledgers & Balances",
+    route: "/inventory",
     description: "Stock levels update instantly across available, allocated, and quarantined bins, providing complete multi-warehouse visibility and live ledger tracking.",
     icon: Boxes,
     image: truckGateUrl,
     badge: "Stock Ledger",
     metric: "99.8% Accuracy Rate",
-    align: "right",
+    align: "image-right",
   },
   {
     id: "assembly",
     number: "05",
     title: "Assembly & Production",
     subtitle: "Material Requisitions & Work Orders",
+    route: "/assembly-work-orders",
     description: "Raw materials are issued to assembly work orders. Production lines consume components and track finished goods output seamlessly.",
     icon: Factory,
     image: driverUrl,
     badge: "Manufacturing Line",
     metric: "14 Active Work Orders",
-    align: "left",
+    align: "image-left",
   },
   {
     id: "dispatch",
     number: "06",
     title: "Dispatch & Gate Exit",
     subtitle: "Outbound Logistics & Final Clearance",
+    route: "/vehicle-exit",
     description: "Finished products are loaded onto outbound trucks. Security reviews dispatch documentation, approves outbound movement, and grants final gate exit.",
     icon: Truck,
     image: truckRearUrl,
     badge: "Outbound Gate",
     metric: "07 Trucks Cleared Today",
-    align: "right",
+    align: "image-right",
   },
 ];
 
 function HomePage() {
   const navigate = useNavigate();
-  const [scrollY, setScrollY] = useState(0);
   const loggedIn = isAuthenticated();
   const userInfo = getUserInfo();
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrollY(window.scrollY);
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const goToDashboard = () => {
     if (loggedIn) {
@@ -151,7 +147,7 @@ function HomePage() {
             </span>
             <div>
               <span className="block text-xs font-bold tracking-tight text-white">NexusWMS</span>
-              <span className="block text-[10px] text-blue-400 font-mono">Vertical Story Roadmap</span>
+              <span className="block text-[10px] text-blue-400 font-mono">Snake Roadmap Story</span>
             </div>
           </button>
 
@@ -172,47 +168,65 @@ function HomePage() {
         <div className="relative z-10 max-w-4xl mx-auto">
           <Badge className="mb-4 border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-1 text-xs font-bold uppercase tracking-widest">
             <Sparkles className="size-3.5 inline mr-1.5" />
-            Cinematic Vertical Storyline Roadmap
+            Snake Pipeline Storyline Roadmap
           </Badge>
           <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl leading-tight">
             The Supply Chain <br />
             <span className="bg-gradient-to-r from-blue-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-              Step-by-Step Vertical Flow
+              Snake Pipeline Story
             </span>
           </h1>
           <p className="mt-4 text-base text-slate-400 sm:text-lg max-w-2xl mx-auto">
-            Scroll down to journey through the end-to-end logistics lifecycle. Each module features immersive photography and sliding explanation panels tied to your scroll position.
+            Scroll down to journey through the end-to-end logistics lifecycle. Immersive background photography alternates left and right with detailed explanation panels, connected by a winding snake pipeline.
           </p>
         </div>
       </section>
 
-      {/* Vertical Story Roadmap Container */}
-      <main className="relative max-w-7xl mx-auto px-6 py-24 space-y-32 lg:space-y-48">
+      {/* Vertical Snake Roadmap Container */}
+      <main className="relative max-w-7xl mx-auto px-6 py-28 space-y-36 lg:space-y-48">
 
-        {/* Background Glowing Connecting Pipeline */}
-        <div className="absolute left-1/2 top-40 bottom-40 w-1 -translate-x-1/2 hidden lg:block pointer-events-none z-0">
-          <div className="h-full w-full bg-gradient-to-b from-blue-500 via-teal-400 to-emerald-500 opacity-40 shadow-glow" />
+        {/* Background Wavy Snake SVG Connector Pipeline */}
+        <div className="absolute left-1/2 top-32 bottom-32 w-1 -translate-x-1/2 hidden lg:block pointer-events-none z-0">
+          <svg className="absolute -left-[300px] top-0 h-full w-[600px] overflow-visible" viewBox="0 0 600 2400" fill="none">
+            <path
+              d="M 300 0 C 100 300, 500 600, 300 900 C 100 1200, 500 1500, 300 1800 C 100 2100, 500 2400, 300 2700"
+              stroke="url(#snakeGradient)"
+              strokeWidth="6"
+              strokeLinecap="round"
+              className="opacity-60 shadow-glow"
+              strokeDasharray="16 12"
+            />
+            <defs>
+              <linearGradient id="snakeGradient" x1="300" y1="0" x2="300" y2="2700" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#3b82f6" />
+                <stop offset="0.33" stopColor="#06b6d4" />
+                <stop offset="0.66" stopColor="#10b981" />
+                <stop offset="1" stopColor="#8b5cf6" />
+              </linearGradient>
+            </defs>
+          </svg>
         </div>
 
         {storySteps.map((step) => {
           const Icon = step.icon;
+          const isImageLeft = step.align === "image-left";
           return (
             <div
               key={step.id}
-              className="relative z-10 flex flex-col items-center gap-8 max-w-4xl mx-auto w-full"
+              className={`relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center`}
             >
-              {/* Image Showcase Box */}
-              <div className="w-full group">
-                <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-slate-900 shadow-2xl shadow-blue-500/10 transition duration-700 group-hover:scale-102 group-hover:border-blue-500/50">
-                  <div className="relative h-72 sm:h-[420px] w-full">
+              {/* Image Section (Attached as ambient background visual, alternating left & right) */}
+              <div className={`w-full ${isImageLeft ? "lg:order-1" : "lg:order-2"}`}>
+                <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-slate-900 shadow-2xl shadow-blue-500/10 group">
+                  <div className="relative h-72 sm:h-96 w-full">
                     <img
                       src={step.image}
                       alt={step.title}
                       className="h-full w-full object-cover brightness-90 transition duration-700 group-hover:scale-105"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                     <div className="absolute top-6 left-6">
-                      <span className="text-3xl font-black font-mono text-blue-400 tracking-wider">
+                      <span className="text-4xl font-black font-mono text-blue-400 tracking-wider">
                         {step.number}
                       </span>
                     </div>
@@ -228,8 +242,8 @@ function HomePage() {
                 </div>
               </div>
 
-              {/* Explanation Panel Below Image */}
-              <div className="w-full">
+              {/* Details & Explanation Panel (Opposite side of image) */}
+              <div className={`w-full ${isImageLeft ? "lg:order-2" : "lg:order-1"}`}>
                 <div className="rounded-3xl border border-white/15 bg-slate-900/80 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="size-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-glow">
@@ -277,7 +291,7 @@ function HomePage() {
       <footer className="border-t border-white/10 bg-slate-950 py-10 text-center text-xs text-slate-500 relative z-10">
         <div className="mx-auto max-w-7xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Kaizentrix Global Solutions. NexusWMS Enterprise Logistics OS.</p>
-          <p className="font-mono">Vertical Roadmap • Gate • GRN • Putaway • Inventory • Assembly • Dispatch</p>
+          <p className="font-mono">Snake Roadmap • Gate • GRN • Putaway • Inventory • Assembly • Dispatch</p>
         </div>
       </footer>
     </div>
