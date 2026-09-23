@@ -27,6 +27,7 @@ import {
   Info,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
+import { requireRole } from "@/lib/auth-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -103,6 +104,7 @@ const rejectionReasons = [
 ] as const;
 
 export const Route = createFileRoute("/procurement/quotations")({
+  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
   component: Quotations,
   validateSearch: (search: Record<string, unknown>): QuotationsSearch => {
     return {

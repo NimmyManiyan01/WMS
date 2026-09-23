@@ -44,6 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { getUserInfo } from "@/lib/auth-utils";
+import { SecureAssistant } from "@/components/wms/secure-assistant";
 
 const grnNav = [
   { label: "Dashboard", to: "/grn?tab=dashboard", icon: LayoutDashboard },
@@ -107,11 +108,29 @@ const financeNav = [
   { label: "Reports & Audit", to: "/finance/reports", icon: BarChart3 },
 ];
 
+const managerNav = [
+  { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
+  { label: "Suppliers", to: "/master-data?module=manager&status=pending-approval", icon: Building2 },
+  {
+    label: "Material Requests",
+    to: "/procurement/material-requests?module=manager&status=manager-approval",
+    icon: ClipboardList,
+  },
+];
+
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
   { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
   { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
+];
+
+const adminNav = [
+  { label: "User Management", to: "/admin/users", icon: Users },
+  { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
+  { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
+  { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
 const ICON_MAP: Record<string, any> = {
@@ -259,10 +278,7 @@ export function AppShell({
       if (cleanup) cleanup();
     };
   }, [dark]);
-  const currentQueryModule =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("module")
-      : null;
+  const currentQueryModule = new URLSearchParams(searchStr).get("module");
   const isGrnUser =
     mounted &&
     (user?.roles?.includes("GRN") ||
@@ -290,8 +306,13 @@ export function AppShell({
     path === "/finance-dashboard" ||
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
+  const isManagerUser = mounted && user?.roles?.includes("MANAGER");
+  const isManagerRoute = path === "/manager-dashboard" || currentQueryModule === "manager";
   const isGateSecurityUser = mounted && user?.roles?.includes("GATE_SECURITY");
+  const isAdminUser =
+    mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
   const isNotificationsRoute = path.startsWith("/notifications");
+  const isAdminRoute = path.startsWith("/admin/");
   const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-queue", "/vehicle-exit"].some(
     (route) => path.startsWith(route),
   );
@@ -316,30 +337,68 @@ export function AppShell({
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
     (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
-  const resolvedNav =
-    isGrnUser || isGrnRoute
-      ? grnNav
-      : isSupplierRoute
-        ? supplierNav
-        : isFinanceRoute
-          ? financeNav
-          : isProcurementRoute
-            ? procurementNav
-            : isGateSecurityRoute
-              ? gateSecurityNav
-              : isWarehouseRoute
-                ? warehouseNav
-                : mounted && user?.roles?.includes("SUPPLIER")
-                  ? supplierNav
-                  : mounted && user?.roles?.includes("FINANCE")
-                    ? financeNav
-                    : mounted && user?.roles?.includes("PROCUREMENT")
-                      ? procurementNav
-                      : isGateSecurityUser
-                        ? gateSecurityNav
-                        : warehouseNav;
-  const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
-  const nav = navigationPending ? [] : resolvedNav;
+  const getPersistentNav = () => {
+    try {
+      const savedUser = localStorage.getItem("user_info");
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        const roles = (u.roles || []).map((r: string) => r.toUpperCase());
+        const username = (u.username || "").toLowerCase();
+        if (
+          roles.includes("PROCUREMENT") ||
+          roles.includes("PROCUREMENT_OFFICER") ||
+          username.includes("procurement") ||
+          username === "procurement"
+        ) {
+          return procurementNav;
+        }
+        if (roles.includes("MANAGER")) {
+          return managerNav;
+        }
+        if (roles.includes("SUPPLIER")) {
+          return supplierNav;
+        }
+        if (roles.includes("FINANCE")) {
+          return financeNav;
+        }
+        if (roles.includes("GATE_SECURITY")) {
+          return gateSecurityNav;
+        }
+        if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) {
+          return adminNav;
+        }
+      }
+    } catch {}
+
+    if (
+      path.startsWith("/procurement") ||
+      path === "/master-data" ||
+      path === "/new-supplier" ||
+      path.startsWith("/notifications")
+    ) {
+      // If user is navigating notifications or procurement routes, check stored user or default to procurement if previously on procurement
+      try {
+        const savedUser = localStorage.getItem("user_info");
+        if (savedUser) {
+          const u = JSON.parse(savedUser);
+          const roles = (u.roles || []).map((r: string) => r.toUpperCase());
+          if (roles.includes("PROCUREMENT") || (u.username || "").toLowerCase().includes("procurement")) {
+            return procurementNav;
+          }
+        }
+      } catch {}
+    }
+
+    if (path.startsWith("/procurement") || path === "/master-data" || path === "/new-supplier") return procurementNav;
+    if (path.startsWith("/manager")) return managerNav;
+    if (path.startsWith("/finance")) return financeNav;
+    if (path.startsWith("/supplier")) return supplierNav;
+    if (path.startsWith("/gate")) return gateSecurityNav;
+    return warehouseNav;
+  };
+
+  const nav = getPersistentNav();
+  const navigationPending = false;
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [fullHref]);
@@ -634,7 +693,9 @@ export function AppShell({
                   <p className="text-[10px] text-muted-foreground">
                     {user?.roles?.includes("PROCUREMENT")
                       ? "Procurement Manager"
-                      : user?.roles?.includes("FINANCE")
+                      : user?.roles?.includes("MANAGER")
+                        ? "Manager"
+                        : user?.roles?.includes("FINANCE")
                         ? "Finance Manager"
                         : user?.roles?.includes("GATE_SECURITY")
                           ? "Security Officer"
@@ -675,6 +736,7 @@ export function AppShell({
           </div>
         </main>
       </div>
+      <SecureAssistant />
     </div>
   );
 }

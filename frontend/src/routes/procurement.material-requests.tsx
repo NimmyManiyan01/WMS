@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ClipboardList,
@@ -13,6 +13,7 @@ import {
   X,
   Eye,
   Info,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
+import { requireRole } from "@/lib/auth-utils";
 
 function formatDisplayDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
@@ -58,10 +60,15 @@ function formatDisplayDate(dateStr: string | null | undefined): string {
 }
 
 export const Route = createFileRoute("/procurement/material-requests")({
+  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
   component: MaterialRequests,
 });
 function MaterialRequests() {
+  const location = useRouterState({ select: (state) => state.location });
+  const routeParams = new URLSearchParams(location.searchStr || "");
+  const routeStatus = routeParams.get("status");
   const [requests, setRequests] = useState<any[]>([]);
+  const [supplierAvailability, setSupplierAvailability] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,13 +76,15 @@ function MaterialRequests() {
   const [statusFilter, setStatusFilter] = useState(() => {
     if (typeof window === "undefined") return "all";
     const status = new URLSearchParams(window.location.search).get("status");
-    return status === "pending-procurement" ? "pending-procurement" : "all";
+    if (status === "manager-approval") return "manager-approval";
+    return "all";
   });
   const fetchData = async () => {
     try {
       setLoading(true);
       const data = await api.getMaterialRequests();
       setRequests(data);
+      void fetchSupplierAvailability(data);
     } catch (error) {
       console.error("Failed to fetch material requests:", error);
       toast.error("Failed to load material requests");
@@ -86,9 +95,14 @@ function MaterialRequests() {
   useEffect(() => {
     fetchData();
   }, []);
+  useEffect(() => {
+    if (routeStatus === "manager-approval") {
+      setStatusFilter("manager-approval");
+    }
+  }, [routeStatus]);
   const matchesStatusFilter = (request: any, filter: string) => {
     const normalizedStatus = String(request.status || "").toLowerCase();
-    if (filter === "pending-procurement") return normalizedStatus === "pending approval";
+    if (filter === "manager-approval") return normalizedStatus === "submitted";
     if (filter === "rfq-created") {
       return normalizedStatus === "converted to rfq" || normalizedStatus === "rfq created";
     }
@@ -103,7 +117,7 @@ function MaterialRequests() {
   };
   const statusTabs = [
     { id: "all", label: "All" },
-    { id: "pending-procurement", label: "Pending Procurement" },
+    { id: "manager-approval", label: "Manager Approval" },
     { id: "rfq-created", label: "RFQ Created" },
     { id: "po-created", label: "PO Created" },
     { id: "fulfilled", label: "Fulfilled" },
@@ -144,8 +158,76 @@ function MaterialRequests() {
   });
   const totalQuantity = (request: any) =>
     (request.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+  const itemCategory = (item: any) => item.category || item.materialCategory || item.material_category;
+  const itemMaterialName = (item: any) => item.materialName || item.material_name || item.materialCode || item.material_code;
+  const hasMatchingSuppliers = (request: any) => supplierAvailability[request.id] === true;
+  const normalizeMatchText = (value: unknown) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(" ")
+      .map((part) => part.trim())
+      .filter((part) => part && part !== "and")
+      .map((part) => (part.length > 3 && part.endsWith("s") ? part.slice(0, -1) : part));
+  const normalizedValues = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values.flatMap((entry) => normalizeMatchText(entry));
+  };
+  const hasSharedMatchToken = (left: unknown, right: unknown) => {
+    const leftTokens = new Set(normalizedValues(left));
+    if (leftTokens.size === 0) return false;
+    return normalizedValues(right).some((token) => leftTokens.has(token));
+  };
+  const supplierCategories = (supplier: any) =>
+    supplier.category || supplier.categories || supplier.materialCategories || supplier.material_categories || [];
+  const supplierMaterials = (supplier: any) =>
+    supplier.mainMaterials || supplier.main_materials || supplier.materials || [];
+  const supplierMatchesItem = (supplier: any, item: any) => {
+    const category = itemCategory(item);
+    const material = itemMaterialName(item);
+    return (
+      (!!category && hasSharedMatchToken(category, supplierCategories(supplier))) ||
+      (!!category && hasSharedMatchToken(category, supplierMaterials(supplier))) ||
+      (!!material && hasSharedMatchToken(material, supplierMaterials(supplier))) ||
+      (!!material && hasSharedMatchToken(material, supplierCategories(supplier)))
+    );
+  };
+  const fetchSupplierAvailability = async (materialRequests: any[]) => {
+    const approvedRequests = materialRequests.filter(
+      (request) => String(request.status || "").toLowerCase() === "approved",
+    );
+    if (approvedRequests.length === 0) {
+      setSupplierAvailability({});
+      return;
+    }
+
+    try {
+      const activeSuppliers = (await api.getSuppliers({ status: "Active" })).filter(
+        (supplier: any) =>
+          String(supplier.status ?? "")
+            .trim()
+            .toLowerCase() === "active",
+      );
+      const availabilityEntries = approvedRequests.map((request) => {
+        const items = request.items || [];
+        if (items.length === 0) return [request.id, false] as const;
+
+        const itemMatches = items.map((item: any) =>
+          activeSuppliers.some((supplier: any) => supplierMatchesItem(supplier, item)),
+        );
+        return [request.id, itemMatches.every(Boolean)] as const;
+      });
+
+      setSupplierAvailability(Object.fromEntries(availabilityEntries));
+    } catch (error) {
+      console.error("Failed to check matching suppliers:", error);
+      setSupplierAvailability(
+        Object.fromEntries(approvedRequests.map((request) => [request.id, false])),
+      );
+    }
+  };
   const requestStatusLabel = (status: string) => {
-    if (status === "Pending Approval") return "Pending Procurement";
     if (status === "Converted to RFQ") return "RFQ Created";
     return status;
   };
@@ -153,24 +235,7 @@ function MaterialRequests() {
     setSelectedRequest(req);
     setIsModalOpen(true);
   };
-  const changeStatus = async (nextStatus: string, comments?: string) => {
-    if (!selectedRequest) return;
-    try {
-      const updated = await api.updateMaterialRequestStatus(
-        selectedRequest.id,
-        nextStatus,
-        comments,
-        "Procurement",
-      );
-      setSelectedRequest(updated);
-      setRequests((current) =>
-        current.map((req) => (req.id === selectedRequest.id ? updated : req)),
-      );
-      toast.success(`Material request moved to ${nextStatus}`);
-    } catch (error: any) {
-      toast.error(error.message || "Unable to update material request status");
-    }
-  };
+
   return (
     <AppShell
       title={
@@ -195,8 +260,8 @@ function MaterialRequests() {
         </div>
       }
       subtitle={
-        statusFilter === "pending-procurement"
-          ? "Pending Procurement requests from warehouses"
+        statusFilter === "manager-approval"
+          ? "Material requests waiting for manager approval"
           : "View and process material requirements from the warehouse"
       }
     >
@@ -238,13 +303,13 @@ function MaterialRequests() {
         <Card className="flex h-64 flex-col items-center justify-center p-6 text-center border-dashed border-border/50 bg-muted/20">
           <ClipboardList className="size-12 text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-semibold text-muted-foreground">
-            {statusFilter === "pending-procurement"
-              ? `No ${activeTab.label.toLowerCase()} requests`
+            {statusFilter === "manager-approval"
+              ? "No manager approval requests"
               : "No pending requests"}
           </h3>
           <p className="text-sm text-muted-foreground/70">
-            {statusFilter === "pending-procurement"
-              ? "No warehouse requests are waiting for procurement review."
+            {statusFilter === "manager-approval"
+              ? "No warehouse requests are waiting for manager approval."
               : "No material requests match this workflow status."}
           </p>
         </Card>
@@ -254,8 +319,8 @@ function MaterialRequests() {
             <div>
               <h2 className="text-sm font-bold tracking-tight">{activeTab.label}</h2>
               <p className="text-xs text-muted-foreground">
-                {statusFilter === "pending-procurement"
-                  ? "Warehouse requests ready for sourcing"
+                {statusFilter === "manager-approval"
+                  ? "Warehouse requests ready for manager review"
                   : "Material requests grouped by procurement workflow status"}
               </p>
             </div>
@@ -274,6 +339,11 @@ function MaterialRequests() {
                       <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
                         Priority: {req.priority || "MEDIUM"}
                       </span>
+                      {req.remarks?.includes("[Note to Procurement:") && (
+                        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                          <AlertCircle className="size-3" /> Sourcing Required
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
@@ -332,11 +402,18 @@ function MaterialRequests() {
                     >
                       <Eye className="size-4" /> View
                     </Button>
-                    <Button className="rounded-xl shadow-glow" asChild>
-                      <Link to="/procurement/new-rfq" search={{ fromRequestId: req.id }}>
-                        <ArrowRight className="size-4" /> Create RFQ
-                      </Link>
-                    </Button>
+                    {req.status === "Approved" && hasMatchingSuppliers(req) && (
+                      <Button className="rounded-xl shadow-glow" asChild>
+                        <Link to="/procurement/new-rfq" search={{ fromRequestId: req.id }}>
+                          <ArrowRight className="size-4" /> Create RFQ
+                        </Link>
+                      </Button>
+                    )}
+                    {req.status === "Approved" && supplierAvailability[req.id] === false && (
+                      <span className="flex h-10 items-center rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-300">
+                        <AlertCircle className="mr-2 size-4" /> No active supplier
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -478,9 +555,30 @@ function MaterialRequests() {
                   <Label className="text-[10px] uppercase font-black text-muted-foreground">
                     Remarks / Justification
                   </Label>
-                  <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
-                    {selectedRequest.remarks || "No remarks provided."}
-                  </p>
+                  {selectedRequest.remarks?.includes("[Note to Procurement:") ? (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+                        <AlertCircle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Vendor Sourcing Action Required
+                          </p>
+                          <p className="text-xs font-bold mt-1 leading-relaxed">
+                            {selectedRequest.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0] || selectedRequest.remarks}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim() && (
+                        <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                          {selectedRequest.remarks.replace(/\[Note to Procurement:[^\]]+\]/, "").trim()}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm bg-muted/30 p-4 rounded-2xl italic text-muted-foreground border border-border/40 leading-relaxed">
+                      {selectedRequest.remarks || "No remarks provided."}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-3">
                   <Label className="text-[10px] uppercase font-black text-muted-foreground">
@@ -519,41 +617,8 @@ function MaterialRequests() {
                   Close
                 </Button>
                 <div className="flex items-center gap-3">
-                  {selectedRequest.status === "Submitted" && (
-                    <>
-                      <Button
-                        variant="outline"
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => changeStatus("Rejected", "Rejected during manager approval")}
-                      >
-                        <X className="mr-2 size-4" /> Reject
-                      </Button>
-                      <Button
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => changeStatus("Pending Approval", "Manager approved")}
-                      >
-                        <Check className="mr-2 size-4" /> Manager Approve
-                      </Button>
-                    </>
-                  )}
-                  {selectedRequest.status === "Pending Approval" && (
-                    <>
-                      <Button
-                        variant="outline"
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => changeStatus("Rejected", "Rejected during procurement review")}
-                      >
-                        <X className="mr-2 size-4" /> Reject
-                      </Button>
-                      <Button
-                        className="rounded-2xl h-11 px-6 font-bold text-xs uppercase"
-                        onClick={() => changeStatus("Approved", "Procurement approved")}
-                      >
-                        <Check className="mr-2 size-4" /> Approve
-                      </Button>
-                    </>
-                  )}
-                  {selectedRequest.status === "Approved" && (
+
+                  {selectedRequest.status === "Approved" && hasMatchingSuppliers(selectedRequest) && (
                     <Button
                       className="rounded-2xl h-11 px-8 shadow-glow font-bold text-xs uppercase"
                       asChild
@@ -562,6 +627,11 @@ function MaterialRequests() {
                         <ArrowRight className="mr-2 size-4" /> Create RFQ from Request
                       </Link>
                     </Button>
+                  )}
+                  {selectedRequest.status === "Approved" && supplierAvailability[selectedRequest.id] === false && (
+                    <span className="flex h-11 items-center rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 text-xs font-bold uppercase text-amber-700 dark:text-amber-300">
+                      <AlertCircle className="mr-2 size-4" /> No active supplier
+                    </span>
                   )}
                 </div>
               </div>
