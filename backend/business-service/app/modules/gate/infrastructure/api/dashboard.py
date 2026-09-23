@@ -126,6 +126,8 @@ async def get_dashboard_stats(
             "material": m.ocr_product_material or "General Materials",
             "quantity": float(m.ocr_quantity) if m.ocr_quantity is not None else 0,
             "truck_photo_base64": base64.b64encode(m.vehicle_photo_data).decode("ascii") if m.vehicle_photo_data else None,
+            "exited_at": m.exited_at.isoformat() if getattr(m, "exited_at", None) else None,
+            "exited_by": getattr(m, "exited_by", None),
             "created_at": m.created_at,
         })
 
@@ -145,7 +147,7 @@ async def get_dashboard_stats(
                         item["dock_number"] = req.assigned_dock.dock_code
                     elif req.assigned_store_code:
                         item["dock_number"] = f"Store {req.assigned_store_code}"
-                    if req.status:
+                    if req.status and (item.get("status") or "").upper() != "VEHICLE_EXITED":
                         item["status"] = req.status
                     break
             continue
@@ -226,6 +228,10 @@ async def get_dashboard_stats(
         e for e in combined_entries
         if "RECEIV" in (e["status"] or "").upper() or (e["status"] or "").upper() in ("OCCUPIED", "IN_PROGRESS")
     ])
+    vehicles_exited = len([
+        e for e in combined_entries
+        if (e["status"] or "").upper() == "VEHICLE_EXITED" or e.get("exited_at")
+    ])
 
     # Build real-time timeline of activity
     activity = []
@@ -237,7 +243,14 @@ async def get_dashboard_stats(
         gp_no = entry["gate_entry_no"]
         vendor = entry["vendor"]
 
-        if status_upper == "AWAITING_DOCK" or status_upper == "PENDING_ALLOCATION":
+        if status_upper == "VEHICLE_EXITED":
+            activity.append({
+                "time": time_str,
+                "title": "Vehicle exited facility",
+                "detail": f"{v_num} · Pass: {gp_no} · Cleared by {entry.get('exited_by') or 'Security'}",
+                "tone": "success"
+            })
+        elif status_upper == "AWAITING_DOCK" or status_upper == "PENDING_ALLOCATION":
             activity.append({
                 "time": time_str,
                 "title": "Awaiting dock allocation",
@@ -304,7 +317,9 @@ async def get_dashboard_stats(
             "awaiting_dock": awaiting_dock_count,
             "occupiedDocks": f"{occupied_count}/{total_docks_count}" if total_docks_count > 0 else "0/0",
             "vehiclesWaiting": vehicles_waiting,
-            "receivingInProgress": receiving_in_progress
+            "receivingInProgress": receiving_in_progress,
+            "vehiclesExited": vehicles_exited,
+            "vehicles_exited": vehicles_exited,
         },
         "docks": docks,
         "arrivalTrend": arrival_trend,
