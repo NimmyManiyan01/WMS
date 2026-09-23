@@ -408,6 +408,12 @@ def _to_gate_entry_response(
         else str(entry.updated_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
     )
 
+    exited_at_val = (
+        entry.exited_at.isoformat()
+        if hasattr(entry, "exited_at") and entry.exited_at and hasattr(entry.exited_at, "isoformat")
+        else None
+    )
+
     return GateEntryResponse(
         id=entry.id,
         gate_entry_number=entry.gate_entry_number or f"GE-{entry.id[:8]}",
@@ -429,6 +435,8 @@ def _to_gate_entry_response(
         ocr_result=ocr_dto,
         mismatched_fields=mismatch_dtos,
         verified_by=entry.verified_by,
+        exited_at=exited_at_val,
+        exited_by=getattr(entry, "exited_by", None),
         created_at=created_at_val,
         updated_at=updated_at_val,
     )
@@ -487,12 +495,16 @@ def _gate_entry_from_model(model: GateEntryModel) -> GateEntry:
         ocr_result=ocr_result,
         mismatched_fields=mismatches,
         verified_by=model.verified_by_user_id,
+        exited_at=model.exited_at,
+        exited_by=model.exited_by,
         created_at=created_at,
         updated_at=updated_at,
     )
 
 
 async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | None = None) -> None:
+    if not entry.gate_entry_number:
+        entry.gate_entry_number = _generate_gate_entry_number()
     result = await session.execute(select(GateEntryModel).where(GateEntryModel.id == uuid.UUID(entry.id)))
     model = result.scalar_one_or_none()
     ocr = entry.ocr_result
@@ -529,6 +541,8 @@ async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | Non
         ocr_line_items=list(ocr.line_items) if ocr else [],
         security_officer_id=entry.created_by,
         verified_by_user_id=entry.verified_by,
+        exited_at=getattr(entry, "exited_at", None),
+        exited_by=getattr(entry, "exited_by", None),
         created_at=entry.created_at,
         updated_at=entry.updated_at,
     )
@@ -772,18 +786,10 @@ async def create_gate_entry(
 
     # 2. Dynamic OCR processing or extraction
     ocr_res: Optional[OcrResult] = None
-    if request.document_image_base64:
-        try:
-            doc_bytes = base64.b64decode(request.document_image_base64, validate=True)
-            ocr_res = _po_ocr_engine.process_po_document(doc_bytes)
-        except Exception:
-            pass
-
     po_record = await _lookup_database_po(uow.session, po_num)
 
-    # The scan preview has already populated the submitted form. Do not run a
-    # second OCR pass and overwrite those verified values with logo/header
-    # text. Master PO data is authoritative whenever it is available.
+    # The scan preview or form input has already populated the submitted fields.
+    # Master PO data is authoritative whenever it is available.
     if asn:
         ocr_res = OcrResult(
             po_number=po_num,
@@ -808,12 +814,12 @@ async def create_gate_entry(
     else:
         ocr_res = OcrResult(
             po_number=po_num,
-            supplier_name=request.supplier_name or (ocr_res.supplier_name if ocr_res else ""),
-            material_description=request.material_description or (ocr_res.material_description if ocr_res else ""),
-            total_quantity=request.total_quantity if request.total_quantity is not None else (ocr_res.total_quantity if ocr_res else 0.0),
-            po_date=request.po_date or (ocr_res.po_date if ocr_res else ""),
-            delivery_date=request.delivery_date or (ocr_res.delivery_date if ocr_res else ""),
-            confidence=ocr_res.confidence if ocr_res else 0.0,
+            supplier_name=request.supplier_name or "",
+            material_description=request.material_description or "",
+            total_quantity=request.total_quantity if request.total_quantity is not None else 0.0,
+            po_date=request.po_date or "",
+            delivery_date=request.delivery_date or "",
+            confidence=1.0,
         )
 
     # 3. Cross-verify 6 fields
@@ -2978,6 +2984,75 @@ async def approve_gate_entry_by_qr(
 
 
 
+@router.post("/{entry_id}/vehicle-exited", response_model=GateEntryResponse)
+async def mark_inbound_vehicle_exited(
+    entry_id: str,
+    user: CurrentUser = Depends(require_permission("gate:write")),
+    uow: UnitOfWork = Depends(get_uow),
+) -> GateEntryResponse:
+    """
+    Record that an inbound raw-material vehicle has exited the facility after unloading/receiving.
+    """
+    try:
+        model = await uow.session.get(GateEntryModel, uuid.UUID(entry_id))
+    except ValueError:
+        model = None
+
+    if model is None:
+        raise NotFoundException(f"Gate entry with ID '{entry_id}' not found")
+
+    current_status = (model.status or "").upper().strip()
+    if current_status == "VEHICLE_EXITED" or model.exited_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle has already exited.",
+        )
+
+    eligible_statuses = {
+        "RECEIVING_COMPLETED",
+        "COMPLETED",
+        "RELEASED",
+        "DOCK_RELEASED",
+        "GRN_POSTED",
+        "QUALITY_PASSED",
+        "UNLOADED",
+    }
+
+    if current_status not in eligible_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Gate entry status '{current_status}' is not eligible for vehicle exit. Eligible statuses: {', '.join(sorted(eligible_statuses))}.",
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    model.status = "VEHICLE_EXITED"
+    model.exited_at = now
+    model.exited_by = user.username
+    model.updated_at = now
+
+    audit_entry = GateEntryAuditLogModel(
+        gate_entry_id=model.id,
+        action="VEHICLE_EXITED",
+        performed_by=user.username,
+        timestamp=now,
+        details={
+            "previous_status": current_status,
+            "new_status": "VEHICLE_EXITED",
+            "exited_at": now.isoformat(),
+            "exited_by": user.username,
+        },
+    )
+    uow.session.add(audit_entry)
+    await uow.session.flush()
+
+    entry = _gate_entry_from_model(model)
+    response = _to_gate_entry_response(entry)
+    return response.model_copy(update={
+        "exited_at": now.isoformat(),
+        "exited_by": user.username,
+    })
+
+
 @router.get("/{entry_id}", response_model=GateEntryResponse)
 async def get_gate_entry(
     entry_id: str,
@@ -3002,7 +3077,11 @@ async def list_gate_entries(
     uow: UnitOfWork = Depends(get_uow),
 ) -> list[GateEntryResponse]:
     try:
-        query = select(GateEntryModel).order_by(GateEntryModel.created_at.desc())
+        query = select(GateEntryModel).where(
+            GateEntryModel.gate_entry_number.isnot(None),
+            GateEntryModel.gate_entry_number != "",
+            GateEntryModel.status.notin_(["REJECTED", "CANCELLED", "DRAFT"])
+        ).order_by(GateEntryModel.created_at.desc())
         if status:
             query = query.where(GateEntryModel.status == status.strip().upper())
         result = await uow.session.execute(query)
@@ -3012,7 +3091,9 @@ async def list_gate_entries(
             response = _to_gate_entry_response(_gate_entry_from_model(model))
             responses.append(response.model_copy(update={
                 "driver_phone": model.driver_phone,
-                "document_image_base64": base64.b64encode(model.po_document_data).decode("ascii") if model.po_document_data else None,
+                "document_image_base64": None,
+                "exited_at": model.exited_at.isoformat() if model.exited_at else None,
+                "exited_by": model.exited_by,
             }))
         return responses
     except Exception as e:

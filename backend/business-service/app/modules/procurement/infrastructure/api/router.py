@@ -3561,6 +3561,7 @@ async def reject_quotation(
 
 def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
     lines = []
+    from sqlalchemy import inspect
     for l in q.lines:
         mat_name = getattr(l, "material_name", None)
         uom_val = getattr(l, "uom", None)
@@ -3570,6 +3571,13 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
                 if mat_inst:
                     mat_name = getattr(mat_inst, "material_name", None)
                     uom_val = getattr(mat_inst, "uom", None)
+                else:
+                    state = inspect(l)
+                    if state and "material" not in state.unloaded:
+                        mat_obj = getattr(l, "material", None)
+                        if mat_obj:
+                            mat_name = getattr(mat_obj, "material_name", None)
+                            uom_val = getattr(mat_obj, "uom", None)
             except Exception:
                 pass
 

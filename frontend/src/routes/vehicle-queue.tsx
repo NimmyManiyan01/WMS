@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, Boxes, Eye, Loader2, RefreshCw, Truck, Warehouse } from "lucide-react";
+import { ArrowRight, Boxes, Eye, Loader2, LogOut, RefreshCw, ShieldCheck, Truck, Warehouse } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -22,7 +22,9 @@ type Arrival = {
   driver_contact?: string | null;
   arrival_time: string;
   expected_arrival_at?: string | null;
-  status: "AWAITING_DOCK" | "DOCK_ASSIGNED" | "MOVING_TO_DOCK" | "AT_DOCK";
+  status: string;
+  exited_at?: string | null;
+  exited_by?: string | null;
   assigned_dock_id?: string | null;
   po_id?: string | null;
   assigned_by?: string | null;
@@ -132,6 +134,41 @@ function InboundArrivals() {
       setAssigning(null);
     }
   }
+
+  const isEligibleForInboundExit = (statusStr: string) => {
+    const upper = (statusStr || "").toUpperCase().trim();
+    return [
+      "RECEIVING_COMPLETED",
+      "COMPLETED",
+      "RELEASED",
+      "DOCK_RELEASED",
+      "GRN_POSTED",
+      "QUALITY_PASSED",
+      "UNLOADED",
+    ].includes(upper);
+  };
+
+  async function approveGateExit(arrival: Arrival) {
+    const vehName = arrival.vehicle_number || "this vehicle";
+    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave.`)) return;
+    setAssigning(arrival.id);
+    try {
+      const updated = await api.markInboundVehicleExited(arrival.id);
+      toast.success(`Gate exit approved for ${vehName}`, {
+        description: `Status updated to VEHICLE_EXITED by ${updated.exited_by || "Security"}.`,
+      });
+      await load(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
+      }
+    } catch (error: any) {
+      toast.error("Gate exit approval failed", {
+        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
+      });
+    } finally {
+      setAssigning(null);
+    }
+  }
   return (
     <AppShell
       title="Inbound arrivals"
@@ -201,6 +238,8 @@ function InboundArrivals() {
                     onAssign={() => void assignDock(arrival)}
                     onMove={() => void startMovement(arrival)}
                     onCheckIn={() => void confirmDockArrival(arrival)}
+                    onApproveExit={() => void approveGateExit(arrival)}
+                    isEligibleForInboundExit={isEligibleForInboundExit}
                     busy={assigning === arrival.id}
                   />
                 ))}
@@ -222,6 +261,8 @@ function ArrivalRows({
   onAssign,
   onMove,
   onCheckIn,
+  onApproveExit,
+  isEligibleForInboundExit,
   busy,
 }: {
   arrival: Arrival;
@@ -233,8 +274,12 @@ function ArrivalRows({
   onAssign: () => void;
   onMove: () => void;
   onCheckIn: () => void;
+  onApproveExit: (arrival: Arrival) => void;
+  isEligibleForInboundExit: (status: string) => boolean;
   busy: boolean;
 }) {
+  const isExited = arrival.status === "VEHICLE_EXITED" || !!arrival.exited_at;
+
   return (
     <>
       <tr className="hover:bg-muted/20">
@@ -271,11 +316,28 @@ function ArrivalRows({
           {arrival.assigned_dock_id && (
             <p className="mt-1 text-xs font-semibold">{arrival.assigned_dock_id}</p>
           )}
+          {isExited && (
+            <p className="mt-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              Approved exit
+            </p>
+          )}
         </td>
         <td className="px-4 py-4">
-          <Button size="sm" variant="outline" className="rounded-lg" onClick={onToggle}>
-            <Eye className="size-3.5" /> Details
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isExited && isEligibleForInboundExit(arrival.status) && (
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm gap-1.5 text-xs px-3"
+                disabled={busy}
+                onClick={() => onApproveExit(arrival)}
+              >
+                <ShieldCheck className="size-3.5" /> Approve Gate Exit
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="rounded-lg" onClick={onToggle}>
+              <Eye className="size-3.5" /> Details
+            </Button>
+          </div>
         </td>
       </tr>
       {expanded && (

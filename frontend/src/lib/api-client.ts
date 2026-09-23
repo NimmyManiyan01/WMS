@@ -713,6 +713,12 @@ export const api = {
       method: "POST",
     });
   },
+
+  async markInboundVehicleExited(gateEntryId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/vehicle-exited`, {
+      method: "POST",
+    });
+  },
   async getVehicleExitQueue(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/gate-entries/exit-queue`);
   },
@@ -741,6 +747,69 @@ export const api = {
 
   async completeGateExit(gateEntryId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/complete-gate-exit`, {
+      method: "POST",
+    });
+  },
+
+  async getOutboundDispatchQueue(status?: string, search?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (search) params.set("search", search);
+    const queryStr = params.toString() ? `?${params.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/dispatch/queue${queryStr}`);
+  },
+
+  async getOutboundDispatch(dispatchId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}`);
+  },
+
+  async confirmOutboundGateExit(
+    dispatchId: string,
+    payload: { vehicle_verified: boolean; driver_verified: boolean; remarks?: string; vehicle_photo_base64?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/gate-exit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async reportOutboundGateExitMismatch(
+    dispatchId: string,
+    payload: {
+      verification_result: string;
+      mismatch_reason: string;
+      actual_vehicle?: string;
+      actual_driver?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/report-mismatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async resolveOutboundGateExitMismatch(
+    dispatchId: string,
+    payload: {
+      resolution_action: string;
+      resolution_notes: string;
+      new_vehicle_number?: string;
+      new_driver_name?: string;
+      new_driver_phone?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/resolve-mismatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async seedSampleDispatches(force = false): Promise<any> {
+    const url = `${BUSINESS_API_URL}/api/v1/dispatch/seed-sample${force ? "?force=true" : ""}`;
+    return request<any>(url, {
       method: "POST",
     });
   },

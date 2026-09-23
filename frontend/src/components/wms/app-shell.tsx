@@ -124,8 +124,8 @@ const managerNav = [
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
-  { label: "Inbound Arrivals", to: "/vehicle-queue?module=warehouse", icon: ListOrdered },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
+  { label: "Inbound Arrivals", to: "/vehicle-queue?module=gate", icon: ListOrdered },
+  { label: "Vehicle Exit", to: "/vehicle-exit?module=gate", icon: LogOut },
 ];
 
 const assemblyNav = [
@@ -291,7 +291,6 @@ export function AppShell({
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
-
   useEffect(() => {
     const activeUser = getUserInfo();
     setUser(activeUser);
@@ -721,6 +720,8 @@ export function StatusBadge({ status }: { status: string }) {
     SENT: "bg-primary-soft text-primary border-primary/25",
     SHIPPED: "bg-teal-soft text-teal border-teal/30",
     DISPATCHED: "bg-teal-soft text-teal border-teal/30",
+    VEHICLE_EXITED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    "Vehicle Exited": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
   };
   const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active"].includes(status);
   let displayLabel = status.replace(/_/g, " ");

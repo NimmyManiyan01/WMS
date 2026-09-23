@@ -19,6 +19,7 @@ from app.middleware.request_context import RequestContextMiddleware
 from app.modules.dock.infrastructure.api.router import router as dock_router
 from app.modules.gate.infrastructure.api.router import (
     preview_router as gate_preview_router,
+    
     router as gate_router,
 )
 from app.modules.gate.infrastructure.api.dashboard import router as dashboard_router
@@ -31,6 +32,7 @@ from app.modules.receiving.infrastructure.api.router import router as receiving_
 from app.modules.returns.infrastructure.api.router import router as returns_router
 from app.modules.storage.infrastructure.api.router import router as storage_router
 from app.modules.assembly.infrastructure.api.router import router as assembly_router
+from app.modules.dispatch.infrastructure.api.router import router as dispatch_router
 from app.modules.storage.infrastructure.api.pickup_router import pickup_router
 from app.modules.storage.infrastructure.api.assembly_requisition_router import router as assembly_requisition_router
 from app.modules.storage.infrastructure.api.inventory_router import inventory_router
@@ -69,6 +71,7 @@ async def lifespan(app: FastAPI):
         from app.modules.returns.infrastructure.persistence import models as returns_models  # noqa: F401
         from app.modules.storage.infrastructure.persistence import models as storage_models  # noqa: F401
         from app.modules.assembly.infrastructure.persistence import models as assembly_models  # noqa: F401
+        from app.modules.dispatch.infrastructure.persistence import models as dispatch_models  # noqa: F401
 
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -688,7 +691,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to create outbound workflow tables: {e}")
 
         try:
-            for tbl in ["material_request_item", "purchase_order_item", "material_stock"]:
+            for tbl in ["material_request_item", "purchase_order_item", "material_stock", "asn_line"]:
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_id UUID REFERENCES material(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_variant_id UUID REFERENCES material_variant(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS variant_code VARCHAR(128)")
@@ -1410,6 +1413,7 @@ def create_app() -> FastAPI:
     app.include_router(damage_claims_router)
     app.include_router(procurement_router)
     app.include_router(assembly_router)
+    app.include_router(dispatch_router)
 
     @app.get("/api/debug-assembly")
     async def debug_assembly():
