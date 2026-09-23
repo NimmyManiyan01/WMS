@@ -1,9 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   ArrowRight,
   Boxes,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Factory,
   FileCheck2,
   PackageCheck,
@@ -20,109 +24,260 @@ import truckGateUrl from "@/assets/truck-gate.jpg";
 import truckRearUrl from "@/assets/truck-rear.jpg";
 import driverUrl from "@/assets/driver.jpg";
 
+gsap.registerPlugin(ScrollTrigger);
+
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-type StoryStep = {
-  id: string;
+type WmsModule = {
   number: string;
   title: string;
   subtitle: string;
-  route: string;
   description: string;
-  icon: typeof Truck;
+  route: string;
   image: string;
   badge: string;
-  metric: string;
-  align: "image-left" | "image-right";
+  align: "left" | "right";
 };
 
-const storySteps: StoryStep[] = [
+const wmsModules: WmsModule[] = [
   {
-    id: "gate-entry",
     number: "01",
     title: "Gate Entry",
-    subtitle: "Inbound Security & Vehicle Logging",
+    subtitle: "Perimeter Security & Inbound Logging",
+    description: "Inbound delivery trucks arrive at perimeter security. Operators capture driver credentials, vehicle registration, ASN, and PO documents, logging every arrival into the secure gate queue.",
     route: "/gate-entry",
-    description: "Inbound delivery trucks arrive at perimeter security. Operators capture driver details, vehicle registration, ASN, and PO documents, logging every arrival into the secure gate queue.",
-    icon: ShieldCheck,
     image: truckGateUrl,
     badge: "Security Checkpoint",
-    metric: "18 Vehicles in Active Queue",
-    align: "image-left",
+    align: "right",
   },
   {
-    id: "grn",
     number: "02",
-    title: "GRN & Receiving",
-    subtitle: "Goods Receipt & Quality Inspection",
-    route: "/grn",
-    description: "Cargo is unloaded at designated dock bays. Items undergo rigorous quality inspection and verification against purchase orders before Goods Receipt Notes (GRNs) are posted.",
-    icon: FileCheck2,
+    title: "Vehicle / ASN Verification",
+    subtitle: "Inbound Queue & ASN Validation",
+    description: "Transport documents are cross-referenced against advance shipping notices (ASNs) and purchase orders to verify inbound shipment authenticity before staging.",
+    route: "/vehicle-queue",
     image: driverUrl,
-    badge: "Receiving Dock",
-    metric: "126 GRNs Posted Today",
-    align: "image-right",
+    badge: "Inbound Validation",
+    align: "left",
   },
   {
-    id: "putaway",
     number: "03",
-    title: "Store / Putaway",
-    subtitle: "Algorithmic Bin Placement & Zoning",
-    route: "/putaway-tasks",
-    description: "Accepted inventory is routed via putaway tasks into optimal store zones and storage racks, generating QR location tags for exact traceability.",
-    icon: PackageCheck,
+    title: "Dock Allocation",
+    subtitle: "Bay Scheduling & Yard Management",
+    description: "Warehouse managers assign specific loading bays to incoming trucks based on cargo specifications, vehicle dimensions, and dock availability.",
+    route: "/dock-management",
     image: truckRearUrl,
-    badge: "Storage Engine",
-    metric: "31 Putaway Tasks Active",
-    align: "image-left",
+    badge: "Dock Yard",
+    align: "right",
   },
   {
-    id: "inventory",
     number: "04",
-    title: "Inventory Control",
-    subtitle: "Real-Time Stock Ledgers & Balances",
-    route: "/inventory",
-    description: "Stock levels update instantly across available, allocated, and quarantined bins, providing complete multi-warehouse visibility and live ledger tracking.",
-    icon: Boxes,
+    title: "Receiving",
+    subtitle: "Cargo Unloading & Manifest Check",
+    description: "Freight is systematically unloaded at assigned bays. Operators reconcile physical piece counts against delivery notes and supplier manifests.",
+    route: "/grn",
     image: truckGateUrl,
-    badge: "Stock Ledger",
-    metric: "99.8% Accuracy Rate",
-    align: "image-right",
+    badge: "Receiving Bay",
+    align: "left",
   },
   {
-    id: "assembly",
     number: "05",
-    title: "Assembly & Production",
-    subtitle: "Material Requisitions & Work Orders",
-    route: "/assembly-work-orders",
-    description: "Raw materials are issued to assembly work orders. Production lines consume components and track finished goods output seamlessly.",
-    icon: Factory,
+    title: "GRN",
+    subtitle: "Goods Receipt Note Generation",
+    description: "Accepted inbound quantities are officially posted into Goods Receipt Notes (GRNs), updating inventory ledgers and printing QR bin labels.",
+    route: "/grn",
     image: driverUrl,
-    badge: "Manufacturing Line",
-    metric: "14 Active Work Orders",
-    align: "image-left",
+    badge: "GRN Posting",
+    align: "right",
   },
   {
-    id: "dispatch",
     number: "06",
-    title: "Dispatch & Gate Exit",
-    subtitle: "Outbound Logistics & Final Clearance",
-    route: "/vehicle-exit",
-    description: "Finished products are loaded onto outbound trucks. Security reviews dispatch documentation, approves outbound movement, and grants final gate exit.",
-    icon: Truck,
+    title: "Quality Inspection / Quarantine",
+    subtitle: "Defect Assessment & Hold Areas",
+    description: "Damaged or non-conforming items are isolated in quarantine zones. Inspection reports are logged and suppliers are notified with photographic evidence.",
+    route: "/procurement/quality-issues",
     image: truckRearUrl,
-    badge: "Outbound Gate",
-    metric: "07 Trucks Cleared Today",
-    align: "image-right",
+    badge: "Quality Control",
+    align: "left",
+  },
+  {
+    number: "07",
+    title: "Putaway",
+    subtitle: "Algorithmic Task Assignment",
+    description: "Putaway tasks are dynamically generated to direct warehouse operators on optimal transport routes and bin placements for accepted items.",
+    route: "/putaway-tasks",
+    image: truckGateUrl,
+    badge: "Putaway Engine",
+    align: "right",
+  },
+  {
+    number: "08",
+    title: "Store / Storage Location",
+    subtitle: "Multi-Zone Store Hierarchy",
+    description: "Materials are placed into structured warehouse zones, aisles, racks, and bins optimized by item category and inventory turnover rate.",
+    route: "/warehouse/stores",
+    image: driverUrl,
+    badge: "Store Management",
+    align: "left",
+  },
+  {
+    number: "09",
+    title: "Inventory",
+    subtitle: "Real-Time Stock Ledgers & Balances",
+    description: "Complete visibility into available, allocated, quarantined, and reserved stock balances across all warehouse locations and materials.",
+    route: "/inventory",
+    image: truckRearUrl,
+    badge: "Stock Ledger",
+    align: "right",
+  },
+  {
+    number: "10",
+    title: "Material Request",
+    subtitle: "Internal Requisitions & Approval Flow",
+    description: "Production and warehouse teams raise material requests for procurement sourcing, complete with priority levels and department justification.",
+    route: "/warehouse/material-requests",
+    image: truckGateUrl,
+    badge: "Demand Planning",
+    align: "left",
+  },
+  {
+    number: "11",
+    title: "Pick",
+    subtitle: "Picking Tasks & Order Fulfillment",
+    description: "Store keepers receive optimized pick lists to retrieve exact quantities of raw materials and components from designated storage bins.",
+    route: "/warehouse/material-requests",
+    image: driverUrl,
+    badge: "Order Picking",
+    align: "right",
+  },
+  {
+    number: "12",
+    title: "Material Issue",
+    subtitle: "Store Issuance & Handover",
+    description: "Picked stock is formally issued and transferred to assembly floors, recording electronic sign-offs and updating inventory deductions.",
+    route: "/warehouse/material-requests",
+    image: truckRearUrl,
+    badge: "Store Issuance",
+    align: "left",
+  },
+  {
+    number: "13",
+    title: "Assembly / Work Order",
+    subtitle: "Production Execution & Bill of Materials",
+    description: "Manufacturing work orders are initiated. Operators track production steps, labor allocation, and component bills of materials.",
+    route: "/assembly-work-orders",
+    image: truckGateUrl,
+    badge: "Assembly Floor",
+    align: "right",
+  },
+  {
+    number: "14",
+    title: "Material Consumption",
+    subtitle: "WIP Tracking & Stock Deductions",
+    description: "Components consumed during assembly are debited from work-in-progress (WIP) stock ledgers with real-time audit trails.",
+    route: "/assembly-work-orders",
+    image: driverUrl,
+    badge: "WIP Consumption",
+    align: "left",
+  },
+  {
+    number: "15",
+    title: "Quality Inspection",
+    subtitle: "In-Process & Finished Quality Checks",
+    description: "Intermediate assemblies and final products undergo strict quality checks to verify adherence to engineering specifications.",
+    route: "/assembly-work-orders",
+    image: truckRearUrl,
+    badge: "Assembly QC",
+    align: "right",
+  },
+  {
+    number: "16",
+    title: "Rework / Scrap",
+    subtitle: "Defect Correction & Scrap Accounting",
+    description: "Failed production units are routed to rework stations or written off as scrap with mandatory supervisory approval and variance logging.",
+    route: "/assembly-work-orders",
+    image: truckGateUrl,
+    badge: "Rework & Scrap",
+    align: "left",
+  },
+  {
+    number: "17",
+    title: "Finished Goods",
+    subtitle: "Production Output & Transfer to Stock",
+    description: "Completed and tested finished goods are tagged, recorded as production output, and transferred into finished goods inventory zones.",
+    route: "/assembly-finished-goods",
+    image: driverUrl,
+    badge: "Finished Goods",
+    align: "right",
+  },
+  {
+    number: "18",
+    title: "Dispatch",
+    subtitle: "Outbound Staging & Order Consolidation",
+    description: "Finished goods are consolidated, packed, and staged at outbound loading bays in preparation for customer delivery transport.",
+    route: "/vehicle-exit",
+    image: truckRearUrl,
+    badge: "Outbound Staging",
+    align: "left",
+  },
+  {
+    number: "19",
+    title: "Vehicle Exit",
+    subtitle: "Final Gate Clearance & Trip Closure",
+    description: "Outbound transport undergoes final security clearance and weight verification before gate exit passes are closed and trips are completed.",
+    route: "/vehicle-exit",
+    image: truckGateUrl,
+    badge: "Gate Exit",
+    align: "right",
   },
 ];
 
 function HomePage() {
   const navigate = useNavigate();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const loggedIn = isAuthenticated();
   const userInfo = getUserInfo();
+
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return;
+
+    const ctx = gsap.context(() => {
+      sectionRefs.current.forEach((section, idx) => {
+        if (!section) return;
+        ScrollTrigger.create({
+          trigger: section,
+          start: "top center",
+          end: "bottom center",
+          onEnter: () => {
+            setCurrentIndex(idx);
+            setIsComplete(false);
+          },
+          onEnterBack: () => {
+            setCurrentIndex(idx);
+            setIsComplete(false);
+          },
+        });
+      });
+
+      // Final completion screen trigger
+      const completionEl = document.getElementById("journey-complete-screen");
+      if (completionEl) {
+        ScrollTrigger.create({
+          trigger: completionEl,
+          start: "top center",
+          onEnter: () => setIsComplete(true),
+          onEnterBack: () => setIsComplete(true),
+        });
+      }
+    });
+
+    return () => ctx.revert();
+  }, []);
 
   const goToDashboard = () => {
     if (loggedIn) {
@@ -131,6 +286,16 @@ function HomePage() {
       navigate({ to: "/login" });
     }
   };
+
+  const scrollToModule = (index: number) => {
+    if (index === wmsModules.length) {
+      document.getElementById("journey-complete-screen")?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      sectionRefs.current[index]?.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  const activeModule = wmsModules[currentIndex] || wmsModules[0];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white overflow-x-hidden selection:bg-blue-600 selection:text-white font-sans">
@@ -147,7 +312,7 @@ function HomePage() {
             </span>
             <div>
               <span className="block text-xs font-bold tracking-tight text-white">NexusWMS</span>
-              <span className="block text-[10px] text-blue-400 font-mono">Snake Roadmap Story</span>
+              <span className="block text-[10px] text-blue-400 font-mono">Immersive Journey OS</span>
             </div>
           </button>
 
@@ -162,136 +327,180 @@ function HomePage() {
         </div>
       </header>
 
-      {/* Hero Intro */}
-      <section className="relative pt-32 pb-20 text-center px-6 border-b border-white/10 bg-gradient-to-b from-slate-900 to-slate-950">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.25),transparent_60%)]" />
-        <div className="relative z-10 max-w-4xl mx-auto">
-          <Badge className="mb-4 border-blue-500/30 bg-blue-500/10 text-blue-400 px-4 py-1 text-xs font-bold uppercase tracking-widest">
-            <Sparkles className="size-3.5 inline mr-1.5" />
-            Snake Pipeline Storyline Roadmap
-          </Badge>
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl leading-tight">
-            The Supply Chain <br />
-            <span className="bg-gradient-to-r from-blue-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-              Snake Pipeline Story
-            </span>
-          </h1>
-          <p className="mt-4 text-base text-slate-400 sm:text-lg max-w-2xl mx-auto">
-            Scroll down to journey through the end-to-end logistics lifecycle. Immersive photography is attached directly as ambient page backgrounds, alternating left and right with clean detail panels.
-          </p>
+      {/* Fixed Side Journey Tracker / Progress Bar */}
+      <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 hidden xl:flex flex-col items-center gap-3">
+        <div className="h-96 w-1 bg-white/10 rounded-full relative overflow-hidden">
+          <div
+            className="absolute top-0 left-0 w-full bg-gradient-to-b from-blue-500 via-teal-400 to-emerald-400 transition-all duration-300"
+            style={{ height: `${((currentIndex + (isComplete ? 1 : 0)) / wmsModules.length) * 100}%` }}
+          />
         </div>
-      </section>
+        <span className="text-[10px] font-mono font-bold text-slate-400">
+          {isComplete ? "19/19" : `${currentIndex + 1}/19`}
+        </span>
+      </div>
 
-      {/* Vertical Snake Roadmap Container with Full-Bleed Background Images */}
-      <main className="relative max-w-7xl mx-auto px-6 py-28 space-y-36 lg:space-y-48">
-
-        {/* Background Wavy Snake SVG Connector Pipeline */}
-        <div className="absolute left-1/2 top-32 bottom-32 w-1 -translate-x-1/2 hidden lg:block pointer-events-none z-0">
-          <svg className="absolute -left-[300px] top-0 h-full w-[600px] overflow-visible" viewBox="0 0 600 2400" fill="none">
-            <path
-              d="M 300 0 C 100 300, 500 600, 300 900 C 100 1200, 500 1500, 300 1800 C 100 2100, 500 2400, 300 2700"
-              stroke="url(#snakeGradient)"
-              strokeWidth="6"
-              strokeLinecap="round"
-              className="opacity-60 shadow-glow"
-              strokeDasharray="16 12"
-            />
-            <defs>
-              <linearGradient id="snakeGradient" x1="300" y1="0" x2="300" y2="2700" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#3b82f6" />
-                <stop offset="0.33" stopColor="#06b6d4" />
-                <stop offset="0.66" stopColor="#10b981" />
-                <stop offset="1" stopColor="#8b5cf6" />
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-
-        {storySteps.map((step) => {
-          const Icon = step.icon;
-          const isImageLeft = step.align === "image-left";
+      {/* Main Immersive Story Sections */}
+      <main className="relative">
+        {wmsModules.map((mod, idx) => {
+          const isRight = mod.align === "right";
           return (
-            <div
-              key={step.id}
-              className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center py-12"
+            <section
+              key={mod.number}
+              ref={(el) => (sectionRefs.current[idx] = el)}
+              className="relative min-h-screen w-full flex items-center justify-center px-6 lg:px-20 py-32 overflow-hidden border-b border-white/10"
             >
-              {/* Immersive Background Image attached to page (No Card) */}
-              <div className={`w-full absolute inset-0 -z-10 overflow-hidden opacity-30 blur-[2px] pointer-events-none lg:relative lg:inset-auto lg:opacity-100 lg:blur-none lg:w-full ${isImageLeft ? "lg:order-1" : "lg:order-2"}`}>
-                <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-transparent">
-                  <div className="relative h-80 sm:h-[420px] w-full">
-                    <img
-                      src={step.image}
-                      alt={step.title}
-                      className="h-full w-full object-cover brightness-95"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
-                    <div className="absolute top-6 left-6">
-                      <span className="text-5xl font-black font-mono text-blue-400/90 tracking-wider">
-                        {step.number}
+              {/* Full-Screen Background Scene with Cinematic Gradient Overlay */}
+              <div className="absolute inset-0 -z-10 overflow-hidden">
+                <img
+                  src={mod.image}
+                  alt={mod.title}
+                  className="h-full w-full object-cover brightness-90 scale-105 transition-transform duration-1000"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-slate-950/50" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(37,99,235,0.15),transparent_70%)]" />
+              </div>
+
+              {/* Floating Editorial Reader (No Cards) */}
+              <div className={`w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10 ${
+                isRight ? "lg:grid-flow-dense" : ""
+              }`}>
+
+                {/* Spacer or Visual Anchor on the opposite side */}
+                <div className={`hidden lg:block lg:col-span-6 ${isRight ? "lg:col-start-7" : ""}`}>
+                  <div className="text-right font-mono">
+                    <span className="text-8xl font-black text-white/10 tracking-tighter block">
+                      {mod.number}
+                    </span>
+                    <Badge className="bg-blue-600/90 text-white border-blue-400/30 text-xs font-bold px-4 py-1.5 mt-2">
+                      {mod.badge}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Editorial Content Reader */}
+                <div className={`lg:col-span-6 ${isRight ? "lg:col-start-1" : ""}`}>
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl font-black font-mono text-blue-400">{mod.number}</span>
+                      <span className="h-px w-12 bg-blue-500/50" />
+                      <span className="text-xs font-mono uppercase tracking-widest text-slate-400">
+                        {mod.route}
                       </span>
                     </div>
-                    <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
-                      <Badge className="bg-blue-600/90 text-white border-blue-400/30 text-xs font-bold font-mono px-3.5 py-1">
-                        {step.badge}
-                      </Badge>
-                      <span className="text-xs font-mono font-semibold text-emerald-400 bg-slate-950/95 px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
-                        {step.metric}
+
+                    <h2 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-tight">
+                      {mod.title}
+                    </h2>
+
+                    <p className="text-base sm:text-lg font-bold text-teal-400 font-mono">
+                      {mod.subtitle}
+                    </p>
+
+                    <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-xl">
+                      {mod.description}
+                    </p>
+
+                    <div className="pt-6 flex flex-wrap items-center gap-4">
+                      <Button
+                        onClick={() => navigate({ to: mod.route as any })}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl px-8 h-14 shadow-glow text-sm"
+                      >
+                        Open {mod.title} <ArrowRight className="size-4 ml-2" />
+                      </Button>
+                      <span className="text-xs font-mono text-slate-400">
+                        Module {idx + 1} of 19
                       </span>
                     </div>
                   </div>
                 </div>
+
               </div>
-
-              {/* Details & Explanation Panel on Opposite Side */}
-              <div className={`w-full ${isImageLeft ? "lg:order-2" : "lg:order-1"}`}>
-                <div className="rounded-3xl border border-white/15 bg-slate-900/90 p-8 sm:p-10 shadow-2xl backdrop-blur-2xl transition-all duration-500 hover:border-blue-500/50">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="size-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-glow">
-                      <Icon className="size-6" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
-                        Milestone {step.number}
-                      </p>
-                      <p className="text-xs text-slate-400 font-mono">{step.route}</p>
-                    </div>
-                  </div>
-
-                  <h2 className="text-3xl font-extrabold text-white tracking-tight mb-2">
-                    {step.title}
-                  </h2>
-                  <p className="text-sm font-bold text-teal-400 font-mono mb-4">
-                    {step.subtitle}
-                  </p>
-                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed mb-8">
-                    {step.description}
-                  </p>
-
-                  <div className="pt-6 border-t border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 font-mono">
-                      <CheckCircle2 className="size-4" /> Live Execution Active
-                    </div>
-                    <Button
-                      onClick={() => navigate({ to: step.route as any })}
-                      className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl px-6 h-11 shadow-glow"
-                    >
-                      Launch {step.title} <ArrowRight className="size-3.5 ml-1.5" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-            </div>
+            </section>
           );
         })}
 
+        {/* Final Completion Screen */}
+        <section
+          id="journey-complete-screen"
+          className="relative min-h-screen w-full flex flex-col items-center justify-center px-6 py-32 text-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 border-t border-white/10"
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(16,185,129,0.2),transparent_70%)]" />
+          <div className="relative z-10 max-w-4xl mx-auto space-y-8">
+            <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 px-5 py-2 text-sm font-bold uppercase tracking-widest">
+              <CheckCircle2 className="size-4 inline mr-2 text-emerald-400" />
+              End of Lifecycle Story
+            </Badge>
+
+            <h2 className="text-4xl sm:text-7xl font-black tracking-tight text-white">
+              THE JOURNEY IS COMPLETE
+            </h2>
+
+            <p className="text-xl sm:text-2xl font-bold text-teal-400 font-mono">
+              Every movement tracked. Every material accounted for. Every operation connected.
+            </p>
+
+            <p className="text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
+              You have navigated the complete 19-module enterprise supply chain workflow from initial gate entry to final vehicle exit.
+            </p>
+
+            <div className="pt-8 flex flex-wrap justify-center gap-4">
+              <Button
+                size="lg"
+                onClick={goToDashboard}
+                className="bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl px-8 h-14 shadow-glow text-base"
+              >
+                Enter WMS Dashboard <ArrowRight className="size-5 ml-2" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => scrollToModule(0)}
+                className="border-white/20 bg-white/5 text-white hover:bg-white/10 font-bold rounded-2xl px-8 h-14 text-base"
+              >
+                Explore Modules Again
+              </Button>
+            </div>
+          </div>
+        </section>
+
       </main>
+
+      {/* Floating Bottom Quick Navigator */}
+      <nav aria-label="Journey Navigation" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 border border-white/15 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-2xl flex items-center gap-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => scrollToModule(Math.max(0, currentIndex - 1))}
+          className="text-white hover:bg-white/10 rounded-xl size-9"
+          disabled={currentIndex === 0 && !isComplete}
+        >
+          <ChevronLeft className="size-5" />
+        </Button>
+        <div className="text-center font-mono">
+          <p className="text-xs font-bold text-white">
+            {isComplete ? "Journey Complete" : `${activeModule.number} — ${activeModule.title}`}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            {isComplete ? "19 of 19" : `${currentIndex + 1} of 19`}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+      size="icon"
+          onClick={() => scrollToModule(Math.min(wmsModules.length, currentIndex + 1))}
+          className="text-white hover:bg-white/10 rounded-xl size-9"
+          disabled={isComplete}
+        >
+          <ChevronRight className="size-5" />
+        </Button>
+      </nav>
 
       {/* Footer */}
       <footer className="border-t border-white/10 bg-slate-950 py-10 text-center text-xs text-slate-500 relative z-10">
         <div className="mx-auto max-w-7xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Kaizentrix Global Solutions. NexusWMS Enterprise Logistics OS.</p>
-          <p className="font-mono">Snake Roadmap • Gate • GRN • Putaway • Inventory • Assembly • Dispatch</p>
+          <p className="font-mono">19-Module Immersive Storyline • Gate to Exit</p>
         </div>
       </footer>
     </div>
