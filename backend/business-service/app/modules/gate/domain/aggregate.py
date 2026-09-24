@@ -48,6 +48,8 @@ class GateEntry(AggregateRoot):
         ocr_result: Optional[OcrResult] = None,
         mismatched_fields: Optional[List[FieldMismatch]] = None,
         verified_by: Optional[str] = None,
+        exited_at: Optional[datetime] = None,
+        exited_by: Optional[str] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
     ) -> None:
@@ -69,6 +71,8 @@ class GateEntry(AggregateRoot):
         self.mismatched_fields = mismatched_fields or []
         self.created_by = created_by
         self.verified_by = verified_by
+        self.exited_at = exited_at
+        self.exited_by = exited_by
 
     @classmethod
     def create(
@@ -254,6 +258,8 @@ class GateEntry(AggregateRoot):
         ocr_result: Optional[OcrResult] = None,
         mismatched_fields: Optional[List[FieldMismatch]] = None,
         verified_by: Optional[str] = None,
+        exited_at: Optional[datetime] = None,
+        exited_by: Optional[str] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
     ) -> GateEntry:
@@ -274,6 +280,8 @@ class GateEntry(AggregateRoot):
             ocr_result=ocr_result,
             mismatched_fields=mismatched_fields,
             verified_by=verified_by,
+            exited_at=exited_at,
+            exited_by=exited_by,
             created_at=created_at,
             updated_at=updated_at,
         )

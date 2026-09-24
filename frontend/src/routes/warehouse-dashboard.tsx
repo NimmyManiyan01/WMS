@@ -164,14 +164,6 @@ function WarehouseDashboard() {
       tone: "primary",
     },
     {
-      label: "Store Management",
-      to: "/my-store",
-      icon: Store,
-      value: loading ? "..." : actionReq.pending_pickup_count,
-      detail: `${storage.total_stores} active stores`,
-      tone: "teal",
-    },
-    {
       label: "Stores Master",
       to: "/warehouse/stores",
       icon: Building2,
@@ -254,11 +246,6 @@ function WarehouseDashboard() {
           >
             <RefreshCw className={cn("size-3.5 mr-1.5", loading && "animate-spin")} />
             Refresh
-          </Button>
-          <Button variant="outline" size="sm" className="rounded-xl text-xs" asChild>
-            <Link to="/my-store">
-              <PackageCheck className="size-3.5 mr-1.5 text-primary" /> Store Putaways
-            </Link>
           </Button>
           <Button variant="outline" size="sm" className="rounded-xl text-xs" asChild>
             <Link to="/inventory">

@@ -113,6 +113,8 @@ from app.modules.procurement.infrastructure.api.schemas import (
     ChangePasswordRequest,
     DevLoginRequest,
     GlobalSearchResponse,
+    CreateFinishedGoodsRequestSchema,
+    FinishedGoodsRequestResponse,
 )
 from app.modules.procurement.infrastructure.persistence.models import (
     SupplierModel,
@@ -136,6 +138,7 @@ from app.modules.procurement.infrastructure.persistence.models import (
     MaterialVariantModel,
     MaterialRequestModel,
     MaterialRequestItemModel,
+    FinishedGoodsRequestModel,
     MaterialStockModel,
     POApprovalHistoryModel,
     NotificationModel,
@@ -489,6 +492,7 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
         approval_history=getattr(m, "approval_history", None) or [],
         items=[
             MaterialRequestItemSchema(
+                id=str(it.id),
                 material_id=str(it.material_id) if it.material_id else None,
                 material_variant_id=str(it.material_variant_id) if it.material_variant_id else None,
                 material_code=it.material_code,
@@ -496,6 +500,8 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
                 material_name=it.material_name,
                 quantity=it.quantity,
                 uom=it.uom,
+                is_custom=bool(getattr(it, "is_custom", False)),
+                custom_material_name=getattr(it, "custom_material_name", None),
             )
             for it in (m.items or [])
         ],
@@ -572,6 +578,32 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
     )
 
     for it in request.items:
+        is_custom = bool(
+            it.is_custom
+            or it.material_id == "CUSTOM"
+            or (not it.material_id and (it.custom_material_name or it.material_name))
+        )
+        if is_custom:
+            custom_name = (it.custom_material_name or it.material_name or "").strip()
+            if not custom_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Custom material name is required for custom/new items.",
+                )
+            new_mr.items.append(MaterialRequestItemModel(
+                id=uuid.uuid4(),
+                material_id=None,
+                material_variant_id=None,
+                material_code="CUSTOM",
+                variant_code=None,
+                material_name=custom_name,
+                custom_material_name=custom_name,
+                quantity=it.quantity,
+                uom=it.uom or "PCS",
+                is_custom=True,
+            ))
+            continue
+
         mat_uuid = uuid.UUID(it.material_id) if it.material_id and it.material_id != "CUSTOM" else None
         var_uuid = uuid.UUID(it.material_variant_id) if it.material_variant_id else None
 
@@ -650,7 +682,8 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
             variant_code=variant_code,
             material_name=material_name,
             quantity=it.quantity,
-            uom=uom
+            uom=uom,
+            is_custom=False,
         ))
 
     uow.session.add(new_mr)
@@ -844,6 +877,147 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
             detail="Database integrity conflict occurred while updating Material Request."
         )
     return {"status": "success"}
+
+
+@router.post("/material-requests/{id}/items/{item_id}/create-material", response_model=MaterialRequestResponse)
+async def create_material_for_material_request_item(
+    id: str,
+    item_id: str,
+    payload: dict = {},
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Warehouse action to create a Material Master record for a custom/new material request line
+    and link it to this material request line.
+    """
+    roles = [r.upper() for r in (user.roles or [])]
+    if not any(r in ["WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"] for r in roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Warehouse personnel or Admins can create and register new materials.",
+        )
+
+    try:
+        req_uuid = uuid.UUID(id)
+        item_uuid = uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid UUID format")
+
+    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(
+        MaterialRequestModel.id == req_uuid
+    )
+    res = await uow.session.execute(stmt)
+    req = res.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material Request not found")
+
+    target_item = next((it for it in req.items if it.id == item_uuid), None)
+    if not target_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material Request item not found")
+
+    if not target_item.is_custom and target_item.material_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Item is already associated with Material '{target_item.material_code}'.",
+        )
+
+    material_name = (
+        payload.get("material_name") or target_item.custom_material_name or target_item.material_name or ""
+    ).strip()
+    if not material_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Material name is required")
+
+    base_uom = (payload.get("base_uom") or target_item.uom or "PCS").strip().upper()
+    category = (payload.get("category") or "Raw Materials").strip()
+
+    # Generate sequential material code using canonical logic
+    codes_stmt = select(MaterialModel.material_code)
+    codes_res = await uow.session.execute(codes_stmt)
+    codes = codes_res.scalars().all()
+    max_seq = 0
+    import re
+    for code in codes:
+        if not code:
+            continue
+        match = re.match(r"^MAT-(\d+)$", code.strip(), re.IGNORECASE)
+        if match:
+            try:
+                seq = int(match.group(1))
+                if seq > max_seq:
+                    max_seq = seq
+            except (ValueError, TypeError):
+                pass
+
+    next_mat_code = f"MAT-{(max_seq + 1):03d}"
+    next_var_code = f"{next_mat_code}-V001"
+
+    now_time = datetime.now()
+    existing_name_stmt = select(MaterialModel).where(func.lower(MaterialModel.material_name) == material_name.lower())
+    existing_name_res = await uow.session.execute(existing_name_stmt)
+    existing_mat = existing_name_res.scalar_one_or_none()
+
+    if existing_mat:
+        new_material = existing_mat
+        var_stmt = select(MaterialVariantModel).where(MaterialVariantModel.material_id == new_material.id)
+        var_res = await uow.session.execute(var_stmt)
+        variants = var_res.scalars().all()
+        new_variant = variants[0] if variants else None
+        if not new_variant:
+            new_variant = MaterialVariantModel(
+                id=uuid.uuid4(),
+                material_id=new_material.id,
+                variant_code=f"{new_material.material_code}-V001",
+                uom=new_material.base_uom,
+                status="Active",
+                created_at=now_time,
+                updated_at=now_time,
+            )
+            uow.session.add(new_variant)
+    else:
+        new_material = MaterialModel(
+            id=uuid.uuid4(),
+            material_code=next_mat_code,
+            material_name=material_name,
+            category=category,
+            description=payload.get("description") or f"Created from Material Request {req.request_number}",
+            base_uom=base_uom,
+            status="Active",
+            created_by=user.username or "warehouse",
+            updated_by=user.username or "warehouse",
+            created_at=now_time,
+            updated_at=now_time,
+        )
+        uow.session.add(new_material)
+
+        new_variant = MaterialVariantModel(
+            id=uuid.uuid4(),
+            material_id=new_material.id,
+            variant_code=next_var_code,
+            uom=base_uom,
+            status="Active",
+            created_at=now_time,
+            updated_at=now_time,
+        )
+        uow.session.add(new_variant)
+
+    target_item.material_id = new_material.id
+    target_item.material_variant_id = new_variant.id
+    target_item.material_code = new_material.material_code
+    target_item.variant_code = new_variant.variant_code
+    target_item.material_name = new_material.material_name
+    target_item.uom = base_uom
+    target_item.is_custom = False
+
+    await uow.commit()
+
+    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(
+        MaterialRequestModel.id == req.id
+    )
+    res = await uow.session.execute(stmt)
+    updated_req = res.scalar_one()
+
+    return _material_request_response(updated_req)
 
 
 @router.post("/material-requests/{id}/status", response_model=MaterialRequestResponse)
@@ -4573,6 +4747,7 @@ async def get_user_navigation(
                 {"label": "Putaway Tasks", "to": "/putaway-tasks", "icon": "PackageCheck"},
                 {"label": "Material Requests", "to": "/warehouse/material-requests", "icon": "ClipboardList"},
                 {"label": "Assembly Requisitions", "to": "/warehouse/assembly-requisitions", "icon": "ClipboardList"},
+                {"label": "Finished Goods Requests", "to": "/warehouse/finished-goods-requests", "icon": "Boxes"},
                 {"label": "Vehicle Exit", "to": "/vehicle-exit", "icon": "LogOut"},
                 {"label": "Dock Management", "to": "/dock-management", "icon": "Warehouse"},
                 {"label": "Dock / Receiving", "to": "/receiving", "icon": "PackageCheck"},
@@ -4585,6 +4760,7 @@ async def get_user_navigation(
             "items": [
                 {"label": "Dashboard", "to": "/procurement-dashboard", "icon": "LayoutDashboard"},
                 {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
+                {"label": "Finished Goods Requests", "to": "/procurement/finished-goods", "icon": "Boxes"},
                 {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
                 {"label": "RFQs", "to": "/procurement/rfqs", "icon": "FileQuestion"},
                 {"label": "Quotations", "to": "/procurement/quotations", "icon": "FileBadge"},
@@ -4625,6 +4801,7 @@ async def get_user_navigation(
             "items": [
                 {"label": "Dashboard", "to": "/assembly-dashboard", "icon": "LayoutDashboard"},
                 {"label": "Assembly Orders", "to": "/assembly-orders", "icon": "Factory"},
+                {"label": "Finished Goods Requests", "to": "/assembly/finished-goods-requests", "icon": "ClipboardList"},
                 {"label": "Material Requests", "to": "/assembly/requests", "icon": "ClipboardList"},
                 {"label": "Material/Pickup Status", "to": "/assembly-material-issues", "icon": "PackageCheck"},
                 {"label": "Production", "to": "/assembly-progress", "icon": "ListOrdered"},
@@ -4664,6 +4841,201 @@ async def get_user_navigation(
         "all_modules": modules,
         "unread_notifications": unread_count,
     }
+
+
+async def _serialize_finished_goods_request(req: FinishedGoodsRequestModel, uow: UnitOfWork) -> dict:
+    from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
+
+    fg_available = Decimal("0")
+    try:
+        fg_conditions = []
+        if req.finished_goods_code:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_code) == req.finished_goods_code.strip().upper())
+        if req.finished_goods_name:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_name) == req.finished_goods_name.strip().upper())
+
+        if fg_conditions:
+            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).where(
+                or_(*fg_conditions),
+                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"])
+            )
+            fg_res = await uow.session.execute(fg_query)
+            fg_available = Decimal(str(fg_res.scalar() or 0))
+    except Exception as e:
+        logger.warning(f"Error calculating FG store availability: {e}")
+
+    req_qty = Decimal(str(req.quantity or 0))
+    shortage = max(Decimal("0"), req_qty - fg_available)
+
+    return {
+        "id": str(req.id),
+        "request_number": req.request_number,
+        "warehouse_id": req.warehouse_id,
+        "finished_goods_code": req.finished_goods_code,
+        "product_code": req.finished_goods_code,
+        "finished_goods_name": req.finished_goods_name,
+        "product_name": req.finished_goods_name,
+        "quantity": float(req_qty),
+        "requested_quantity": float(req_qty),
+        "uom": req.uom or "PCS",
+        "required_date": req.required_date.isoformat() if req.required_date else None,
+        "requested_by": req.requested_by,
+        "created_by": req.requested_by,
+        "status": req.status,
+        "bom_attachment_url": req.bom_attachment_url,
+        "bom_attachment_name": req.bom_attachment_name,
+        "remarks": req.remarks,
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+        "updated_at": req.updated_at.isoformat() if req.updated_at else None,
+        "fg_store_available": float(fg_available),
+        "available_quantity": float(fg_available),
+        "shortage": float(shortage),
+        "shortage_quantity": float(shortage),
+    }
+
+
+@router.post("/finished-goods-requests/upload-bom")
+async def upload_fg_bom_attachment(
+    file: UploadFile = File(...),
+):
+    """
+    Upload optional BOM document attachment for Finished Goods Request.
+    """
+    import shutil
+    from pathlib import Path
+
+    upload_dir = Path("media_uploads/bom_attachments")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    file_ext = Path(file.filename).suffix
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    dest_path = upload_dir / unique_filename
+
+    try:
+        with dest_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error(f"Failed to save BOM attachment: {e}")
+        raise HTTPException(status_code=500, detail="Could not save file")
+
+    return {
+        "file_name": file.filename,
+        "file_url": f"/media/bom_attachments/{unique_filename}"
+    }
+
+
+@router.post("/finished-goods-requests", status_code=status.HTTP_201_CREATED)
+async def create_finished_goods_request(
+    payload: CreateFinishedGoodsRequestSchema,
+    user: CurrentUser = Depends(get_current_user),
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Procurement creates a Finished Goods Request and sends it to Assembly.
+    Status is initialized to SENT_TO_ASSEMBLY.
+    In-app notifications sent to Assembly and Warehouse.
+    """
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
+    if not payload.finished_goods_name or not payload.finished_goods_name.strip():
+        raise HTTPException(status_code=400, detail="Product/Finished Goods Name is required")
+
+    date_str = datetime.now().strftime("%Y%m%d")
+    prefix = f"FGR-{date_str}-"
+    count_res = await uow.session.execute(
+        select(func.count(FinishedGoodsRequestModel.id)).where(
+            FinishedGoodsRequestModel.request_number.like(f"{prefix}%")
+        )
+    )
+    seq = (count_res.scalar() or 0) + 1
+    req_number = f"{prefix}{seq:04d}"
+
+    req_date = payload.required_date or datetime.now().date()
+    requester = payload.requested_by or user.username or "Procurement"
+
+    new_request = FinishedGoodsRequestModel(
+        id=uuid.uuid4(),
+        request_number=req_number,
+        warehouse_id=payload.warehouse_id or "MAIN",
+        finished_goods_code=payload.finished_goods_code.strip() if payload.finished_goods_code else payload.finished_goods_name.strip(),
+        finished_goods_name=payload.finished_goods_name.strip(),
+        quantity=payload.quantity,
+        uom=payload.uom or "PCS",
+        required_date=req_date,
+        requested_by=requester,
+        status="SENT_TO_ASSEMBLY",
+        bom_attachment_url=payload.bom_attachment_url,
+        bom_attachment_name=payload.bom_attachment_name,
+        remarks=payload.remarks,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    uow.session.add(new_request)
+
+    # Notifications to Assembly and Warehouse
+    notif_assembly = NotificationModel(
+        id=uuid.uuid4(),
+        user_role="ASSEMBLY",
+        title="New Finished Goods Request",
+        message=f"Procurement created Finished Goods Request {req_number} for {payload.quantity} {payload.uom or 'PCS'} of {payload.finished_goods_name}.",
+        link=f"/assembly/finished-goods-requests?id={new_request.id}",
+        is_read=False,
+        created_at=datetime.now(),
+    )
+    notif_warehouse = NotificationModel(
+        id=uuid.uuid4(),
+        user_role="WAREHOUSE",
+        title="Finished Goods Request Tracking",
+        message=f"Procurement sent Finished Goods Request {req_number} for {payload.quantity} {payload.uom or 'PCS'} of {payload.finished_goods_name} to Assembly.",
+        link=f"/warehouse/finished-goods-requests?id={new_request.id}",
+        is_read=False,
+        created_at=datetime.now(),
+    )
+    uow.session.add(notif_assembly)
+    uow.session.add(notif_warehouse)
+
+    await uow.commit()
+
+    return await _serialize_finished_goods_request(new_request, uow)
+
+
+@router.get("/finished-goods-requests")
+async def list_finished_goods_requests(
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    List all Finished Goods Requests with FG Store availability check data.
+    """
+    res = await uow.session.execute(
+        select(FinishedGoodsRequestModel).order_by(FinishedGoodsRequestModel.created_at.desc())
+    )
+    records = res.scalars().all()
+    output = []
+    for r in records:
+        output.append(await _serialize_finished_goods_request(r, uow))
+    return output
+
+
+@router.get("/finished-goods-requests/{request_id}")
+async def get_finished_goods_request(
+    request_id: str,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Get single Finished Goods Request with FG Store availability check data.
+    """
+    try:
+        req_uuid = uuid.UUID(request_id)
+        req = await uow.session.get(FinishedGoodsRequestModel, req_uuid)
+    except ValueError:
+        req = await uow.session.scalar(
+            select(FinishedGoodsRequestModel).where(FinishedGoodsRequestModel.request_number == request_id)
+        )
+
+    if not req:
+        raise HTTPException(status_code=404, detail="Finished Goods Request not found")
+
+    return await _serialize_finished_goods_request(req, uow)
 
 
 async def check_upcoming_arrivals():

@@ -472,6 +472,7 @@ class FinanceApprovalResponse(ApiModel):
 
 
 class MaterialRequestItemSchema(ApiModel):
+    id: Optional[str] = None
     material_id: Optional[str] = None
     material_variant_id: Optional[str] = None
     material_code: Optional[str] = None
@@ -479,6 +480,8 @@ class MaterialRequestItemSchema(ApiModel):
     material_name: Optional[str] = None
     quantity: Decimal = Field(..., gt=0, description="Quantity must be strictly greater than zero")
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
+    is_custom: Optional[bool] = False
+    custom_material_name: Optional[str] = None
 
     @field_validator("quantity")
     @classmethod
@@ -730,5 +733,44 @@ class PoDamagedGoodsResponse(ApiModel):
     procurement_notification_status: str = "Sent"
     materials: List[DamagedMaterialItemSchema] = []
     notification_history: List[NotificationHistoryItemSchema] = []
+
+
+class CreateFinishedGoodsRequestSchema(ApiModel):
+    warehouse_id: Optional[str] = "MAIN"
+    finished_goods_code: Optional[str] = None
+    finished_goods_name: str
+    quantity: Decimal = Field(..., gt=0, description="Quantity must be greater than 0")
+    uom: Optional[str] = "PCS"
+    required_date: Optional[date] = None
+    requested_by: Optional[str] = None
+    bom_attachment_url: Optional[str] = None
+    bom_attachment_name: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class FinishedGoodsRequestResponse(ApiModel):
+    id: str
+    request_number: str
+    warehouse_id: str
+    finished_goods_code: Optional[str] = None
+    product_code: Optional[str] = None
+    finished_goods_name: str
+    product_name: str
+    quantity: float
+    requested_quantity: float
+    uom: str
+    required_date: Optional[str] = None
+    requested_by: str
+    created_by: str
+    status: str
+    bom_attachment_url: Optional[str] = None
+    bom_attachment_name: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    fg_store_available: float = 0.0
+    available_quantity: float = 0.0
+    shortage: float = 0.0
+    shortage_quantity: float = 0.0
 
 

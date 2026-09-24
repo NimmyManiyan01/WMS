@@ -177,6 +177,8 @@ class AssemblyRequisitionItemModel(Base):
     requested_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     issued_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    custom_material_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     requisition: Mapped[AssemblyRequisitionModel] = relationship("AssemblyRequisitionModel", back_populates="items")
 

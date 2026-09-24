@@ -190,7 +190,49 @@ function GateEntry() {
   const [loadingDocks, setLoadingDocks] = useState(false);
   const [selectedDockId, setSelectedDockId] = useState<string | null>(null);
   const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
+  const [exitingId, setExitingId] = useState<string | null>(null);
   const approvalDialog = useRef<HTMLDialogElement>(null);
+
+  const isEligibleForInboundExit = (statusStr: string) => {
+    const upper = (statusStr || "").toUpperCase().trim();
+    return [
+      "RECEIVING_COMPLETED",
+      "COMPLETED",
+      "RELEASED",
+      "DOCK_RELEASED",
+      "GRN_POSTED",
+      "QUALITY_PASSED",
+      "UNLOADED",
+    ].includes(upper);
+  };
+
+  const handleMarkVehicleExited = async (entry: any) => {
+    const vehName = entry.vehiclePlate || entry.vehicle_number || "this vehicle";
+    if (
+      !confirm(
+        `Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`,
+      )
+    )
+      return;
+    setExitingId(entry.id);
+    try {
+      const updated = await api.markInboundVehicleExited(entry.id);
+      toast.success(`Gate exit approved for ${vehName}`, {
+        description: `Status updated to VEHICLE_EXITED by ${updated.exited_by || "Security"}.`,
+      });
+      await loadEntries(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
+      }
+    } catch (error: any) {
+      toast.error("Gate exit approval failed", {
+        description:
+          error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
+      });
+    } finally {
+      setExitingId(null);
+    }
+  };
 
   const refreshDockAllocationForEntry = useCallback(async (entry: GateEntryRecord) => {
     const passNumber = entry.gate_entry_number || entry.id;
@@ -1481,6 +1523,46 @@ function GateEntry() {
                           ⚠️ {entry.verificationResult.reasons[0]}
                         </p>
                       )}
+
+                      {(entry.status === "VEHICLE_EXITED" || entry.exited_at || entry.exitedAt) ? (
+                        <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs space-y-0.5">
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <ShieldCheck className="size-3.5" /> Status: Gate Exit Approved
+                          </p>
+                          {(entry.exited_at || entry.exitedAt) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="font-medium text-foreground">Approved Exit Time:</span>{" "}
+                              {new Date(entry.exited_at || entry.exitedAt!).toLocaleString()}
+                            </p>
+                          )}
+                          {(entry.exited_by || entry.exitedBy) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              <span className="font-medium text-foreground">Approved By:</span>{" "}
+                              {entry.exited_by || entry.exitedBy}
+                            </p>
+                          )}
+                        </div>
+                      ) : isEligibleForInboundExit(entry.status) ? (
+                        <div className="mt-2">
+                          <Button
+                            size="sm"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm gap-1.5 text-xs h-8"
+                            disabled={exitingId === entry.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void handleMarkVehicleExited(entry);
+                            }}
+                          >
+                            {exitingId === entry.id ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="size-3.5" />
+                            )}
+                            Approve Gate Exit
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <Button

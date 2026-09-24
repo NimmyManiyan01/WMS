@@ -38,9 +38,13 @@ async def get_dashboard_stats(
     unscheduled_arrivals = 0
     vehicles_waiting = 0
     receiving_in_progress = 0
+    vehicles_exited = 0
 
     for m in models:
         status_upper = (m.status or "").upper()
+
+        if status_upper == "VEHICLE_EXITED" or m.exited_at is not None:
+            vehicles_exited += 1
 
         if "REJECT" in status_upper:
             continue
@@ -53,7 +57,7 @@ async def get_dashboard_stats(
         # Logic for vehicles waiting and receiving
         if "DOCK" in status_upper or "RECEIV" in status_upper:
             receiving_in_progress += 1
-        elif "COMPLET" not in status_upper:
+        elif "COMPLET" not in status_upper and "EXITED" not in status_upper:
             vehicles_waiting += 1
 
     # Fetch real docks and active allocations from PostgreSQL
@@ -121,7 +125,14 @@ async def get_dashboard_stats(
         time_str = m.created_at.strftime("%H:%M")
         status_upper = (m.status or "").upper()
 
-        if status_upper == "PO_VERIFIED":
+        if status_upper == "VEHICLE_EXITED" or m.exited_at is not None:
+            activity.append({
+                "time": time_str,
+                "title": "Vehicle exited facility",
+                "detail": f"{m.vehicle_number} · Pass: {m.gate_entry_number} · Cleared by {m.exited_by or 'Security'}",
+                "tone": "success"
+            })
+        elif status_upper == "PO_VERIFIED":
             activity.append({
                 "time": time_str,
                 "title": "Vehicle verified",
@@ -197,6 +208,8 @@ async def get_dashboard_stats(
             "material": m.ocr_product_material or "—",
             "quantity": float(m.ocr_quantity) if m.ocr_quantity is not None else 0,
             "truck_photo_base64": base64.b64encode(m.vehicle_photo_data).decode("ascii") if m.vehicle_photo_data else None,
+            "exited_at": m.exited_at.isoformat() if m.exited_at else None,
+            "exited_by": m.exited_by,
         })
 
     occupied_count = len([d for d in docks if d["status"] in ("Occupied", "Reserved")])
@@ -209,7 +222,9 @@ async def get_dashboard_stats(
             "unscheduledArrivals": unscheduled_arrivals,
             "occupiedDocks": f"{occupied_count}/{total_docks_count}" if total_docks_count > 0 else "0/0",
             "vehiclesWaiting": vehicles_waiting,
-            "receivingInProgress": receiving_in_progress
+            "receivingInProgress": receiving_in_progress,
+            "vehiclesExited": vehicles_exited,
+            "vehicles_exited": vehicles_exited,
         },
         "docks": docks,
         "arrivalTrend": arrival_trend,

@@ -27,6 +27,7 @@ from app.modules.procurement.infrastructure.persistence.models import (
     MaterialStockModel,
     MaterialRequestModel,
     MaterialRequestItemModel,
+    FinishedGoodsRequestModel,
     NotificationModel,
     PickTaskModel,
 )
@@ -881,6 +882,94 @@ async def list_finished_goods(uow: UnitOfWork = Depends(get_uow)):
             data["order_number"] = orders[r.assembly_order_id].order_number
         output.append(data)
     return output
+
+
+async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: UnitOfWork) -> dict:
+    fg_available = Decimal("0")
+    try:
+        fg_conditions = []
+        if req.finished_goods_code:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_code) == req.finished_goods_code.strip().upper())
+        if req.finished_goods_name:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_name) == req.finished_goods_name.strip().upper())
+
+        if fg_conditions:
+            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).where(
+                or_(*fg_conditions),
+                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"])
+            )
+            fg_res = await uow.session.execute(fg_query)
+            fg_available = Decimal(str(fg_res.scalar() or 0))
+    except Exception as e:
+        logger.warning(f"Error calculating FG store availability: {e}")
+
+    req_qty = Decimal(str(req.quantity or 0))
+    shortage = max(Decimal("0"), req_qty - fg_available)
+
+    return {
+        "id": str(req.id),
+        "request_number": req.request_number,
+        "warehouse_id": req.warehouse_id,
+        "finished_goods_code": req.finished_goods_code,
+        "product_code": req.finished_goods_code,
+        "finished_goods_name": req.finished_goods_name,
+        "product_name": req.finished_goods_name,
+        "quantity": float(req_qty),
+        "requested_quantity": float(req_qty),
+        "uom": req.uom or "PCS",
+        "required_date": req.required_date.isoformat() if req.required_date else None,
+        "requested_by": req.requested_by,
+        "created_by": req.requested_by,
+        "status": req.status,
+        "bom_attachment_url": req.bom_attachment_url,
+        "bom_attachment_name": req.bom_attachment_name,
+        "remarks": req.remarks,
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+        "updated_at": req.updated_at.isoformat() if req.updated_at else None,
+        "fg_store_available": float(fg_available),
+        "available_quantity": float(fg_available),
+        "shortage": float(shortage),
+        "shortage_quantity": float(shortage),
+    }
+
+
+@router.get("/finished-goods-requests")
+async def list_assembly_finished_goods_requests(
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Assembly view of Finished Goods Requests with FG Store availability check data.
+    """
+    res = await uow.session.execute(
+        select(FinishedGoodsRequestModel).order_by(FinishedGoodsRequestModel.created_at.desc())
+    )
+    records = res.scalars().all()
+    output = []
+    for r in records:
+        output.append(await _serialize_assembly_fg_request(r, uow))
+    return output
+
+
+@router.get("/finished-goods-requests/{request_id}")
+async def get_assembly_finished_goods_request(
+    request_id: str,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Assembly view of single Finished Goods Request with FG Store availability check data.
+    """
+    try:
+        req_uuid = uuid.UUID(request_id)
+        req = await uow.session.get(FinishedGoodsRequestModel, req_uuid)
+    except ValueError:
+        req = await uow.session.scalar(
+            select(FinishedGoodsRequestModel).where(FinishedGoodsRequestModel.request_number == request_id)
+        )
+
+    if not req:
+        raise HTTPException(status_code=404, detail="Finished Goods Request not found")
+
+    return await _serialize_assembly_fg_request(req, uow)
 
 
 @router.get("/genealogy/{identifier}")
@@ -1874,6 +1963,22 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
     ).order_by(NotificationModel.created_at.desc()).limit(12))
     notifications = [{"id": str(row.id), "title": row.title, "message": row.message, "link": row.link,
                       "is_read": row.is_read, "created_at": row.created_at.isoformat()} for row in notification_result.scalars().all()]
+    fg_req_result = await uow.session.execute(
+        select(FinishedGoodsRequestModel).where(
+            FinishedGoodsRequestModel.status.in_(["SENT_TO_ASSEMBLY", "PENDING", "SUBMITTED", "READY", "DRAFT"])
+        )
+    )
+    pending_fg_requests = list(fg_req_result.scalars().all())
+    pending_fg_count = len(pending_fg_requests)
+
+    for fg_req in pending_fg_requests:
+        await add_assembly_notification(
+            uow,
+            "Finished goods request received",
+            f"{fg_req.request_number} requested for {fg_req.quantity:g} {fg_req.uom or 'PCS'} of {fg_req.finished_goods_name or fg_req.finished_goods_code or 'Product'}.",
+            None,
+        )
+
     output = []
     for offset in range(6, -1, -1):
         day = today - timedelta(days=offset)
@@ -1884,9 +1989,16 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
     total_rejected = sum(float(o.rejected_quantity) for o in orders)
     status_keys = ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY", "IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED", "ON_HOLD", "MATERIAL_SHORTAGE"]
     return {
-        "stats": {"total": len(orders), "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]), "in_progress": statuses["IN_PROGRESS"],
-                  "completed": sum(statuses[key] for key in ["COMPLETED", "QUALITY_CHECK", "CLOSED"]), "on_hold": statuses["ON_HOLD"], "material_shortage": statuses["MATERIAL_SHORTAGE"],
-                  "quality_pending": statuses["QUALITY_CHECK"], "today_output": sum(float(o.completed_quantity) for o in orders if o.completed_at and o.completed_at.date() == today)},
+        "stats": {
+            "total": len(orders) + pending_fg_count,
+            "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]) + pending_fg_count,
+            "in_progress": statuses["IN_PROGRESS"],
+            "completed": sum(statuses[key] for key in ["COMPLETED", "QUALITY_CHECK", "CLOSED"]),
+            "on_hold": statuses["ON_HOLD"],
+            "material_shortage": statuses["MATERIAL_SHORTAGE"],
+            "quality_pending": statuses["QUALITY_CHECK"],
+            "today_output": sum(float(o.completed_quantity) for o in orders if o.completed_at and o.completed_at.date() == today),
+        },
         "status_chart": [{"status": key.replace("_", " ").title(), "count": statuses[key]} for key in status_keys],
         "output_chart": output,
         "consumption_chart": [{"material": key, "quantity": value} for key, value in sorted(consumption.items(), key=lambda x: -x[1])[:6]],

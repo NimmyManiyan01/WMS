@@ -35,6 +35,9 @@ import {
   Users,
   Inbox,
   GitFork,
+  Navigation,
+  MapPin,
+  CheckCircle2,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -101,6 +104,9 @@ function getUserRoleLabel(user: UserInfo | null): string {
   if (roles.includes("ASSEMBLY") || roles.includes("ASSEMBLY_MANAGER")) {
     return "Assembly Manager";
   }
+  if (roles.includes("DISPATCH") || roles.includes("DISPATCH_MANAGER")) {
+    return "Dispatch Manager";
+  }
   if (roles.includes("SUPPLIER")) {
     return "Supplier";
   }
@@ -116,6 +122,20 @@ const grnNav = [
   { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
 
+const dispatchNav = [
+  { label: "Dashboard", to: "/dispatch", icon: LayoutDashboard },
+  { label: "Dispatch Orders", to: "/dispatch-orders", icon: ClipboardList },
+  { label: "Picking & Packing", to: "/dispatch-picking-packing", icon: PackageCheck },
+  { label: "Transport Allocation", to: "/dispatch-transport-allocation", icon: Truck },
+  { label: "Driver Master", to: "/dispatch-drivers", icon: Users },
+  { label: "Vehicle Master", to: "/dispatch-vehicles", icon: Warehouse },
+  { label: "Loading", to: "/dispatch-loading", icon: Navigation },
+  { label: "In Transit", to: "/dispatch-transit", icon: MapPin },
+  { label: "Delivery / POD", to: "/dispatch-pod", icon: CheckCircle2 },
+  { label: "Exceptions", to: "/dispatch-exceptions", icon: AlertTriangle },
+  { label: "Reports", to: "/dispatch-reports", icon: BarChart3 },
+];
+
 const storeManagerNav = [
   { label: "My Store", to: "/my-store", icon: Store },
   { label: "Inventory", to: "/inventory", icon: Boxes },
@@ -127,6 +147,7 @@ const storeManagerNav = [
 const assemblyNav = [
   { label: "Dashboard", to: "/assembly-dashboard", icon: LayoutDashboard },
   { label: "Assembly Orders", to: "/assembly-orders", icon: Factory },
+  { label: "Finished Goods Requests", to: "/assembly/finished-goods-requests", icon: PackageCheck },
   { label: "Material Requests", to: "/assembly/requests", icon: ClipboardList },
   { label: "Material/Pickup Status", to: "/assembly-material-issues", icon: PackageCheck },
   { label: "Production", to: "/assembly-progress", icon: ListOrdered },
@@ -138,18 +159,21 @@ const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
   { label: "Store Master", to: "/warehouse/stores", icon: Building2 },
   { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Finished Goods Requests", to: "/warehouse/finished-goods-requests", icon: Boxes },
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
+  { label: "Finished Goods Dispatch", to: "/dispatch", icon: Truck },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
 const procurementNav = [
   { label: "Dashboard", to: "/procurement-dashboard", icon: LayoutDashboard },
   { label: "Suppliers", to: "/master-data", icon: Building2 },
+  { label: "Finished Goods Requests", to: "/procurement/finished-goods", icon: Boxes },
   { label: "Material Requests", to: "/procurement/material-requests", icon: ClipboardList },
   { label: "RFQs", to: "/procurement/rfqs", icon: FileQuestion },
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
@@ -372,6 +396,15 @@ export function AppShell({
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
   const isGateSecurityUser = mounted && user?.roles?.includes("GATE_SECURITY");
+  const isDispatchUser =
+    mounted &&
+    (user?.roles?.includes("DISPATCH") ||
+      user?.roles?.includes("DISPATCH_MANAGER") ||
+      user?.username?.toLowerCase() === "dispatch");
+  const isDispatchRoute =
+    path === "/dispatch" ||
+    path.startsWith("/dispatch-") ||
+    path.startsWith("/dispatch/");
   const isAdminUser =
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
   const isNotificationsRoute = path.startsWith("/notifications");
@@ -405,33 +438,37 @@ export function AppShell({
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
-      : isAssemblyUser || isAssemblyRoute
-        ? assemblyNav
-        : isStoreUser || isStoreRoute
-          ? storeManagerNav
-          : isGrnUser || isGrnRoute
-            ? grnNav
-            : isSupplierRoute
-              ? supplierNav
-              : isFinanceRoute
-                ? financeNav
-                : isProcurementRoute
-                  ? procurementNav
-                  : isGateSecurityRoute
-                    ? gateSecurityNav
-                    : isWarehouseRoute
-                      ? warehouseNav
-                      : mounted && user?.roles?.includes("ASSEMBLY")
-                        ? assemblyNav
-                        : mounted && user?.roles?.includes("SUPPLIER")
-                          ? supplierNav
-                          : mounted && user?.roles?.includes("FINANCE")
-                            ? financeNav
-                            : mounted && user?.roles?.includes("PROCUREMENT")
-                              ? procurementNav
-                              : isGateSecurityUser
-                                ? gateSecurityNav
-                                : warehouseNav;
+      : isDispatchUser || isDispatchRoute
+        ? dispatchNav
+        : isAssemblyUser || isAssemblyRoute
+          ? assemblyNav
+          : isStoreUser || isStoreRoute
+            ? storeManagerNav
+            : isGrnUser || isGrnRoute
+              ? grnNav
+              : isSupplierRoute
+                ? supplierNav
+                : isFinanceRoute
+                  ? financeNav
+                  : isProcurementRoute
+                    ? procurementNav
+                    : isGateSecurityRoute
+                      ? gateSecurityNav
+                      : isWarehouseRoute
+                        ? warehouseNav
+                        : mounted && user?.roles?.includes("DISPATCH")
+                          ? dispatchNav
+                          : mounted && user?.roles?.includes("ASSEMBLY")
+                            ? assemblyNav
+                            : mounted && user?.roles?.includes("SUPPLIER")
+                              ? supplierNav
+                              : mounted && user?.roles?.includes("FINANCE")
+                                ? financeNav
+                                : mounted && user?.roles?.includes("PROCUREMENT")
+                                  ? procurementNav
+                                  : isGateSecurityUser
+                                    ? gateSecurityNav
+                                    : warehouseNav;
   const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
   const nav = navigationPending ? [] : resolvedNav;
   useEffect(() => {
@@ -820,6 +857,23 @@ export function StatusBadge({ status }: { status: string }) {
     SENT: "bg-primary-soft text-primary border-primary/25",
     SHIPPED: "bg-teal-soft text-teal border-teal/30",
     DISPATCHED: "bg-teal-soft text-teal border-teal/30",
+    STOCK_RESERVED: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30",
+    PICKING_IN_PROGRESS: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
+    PICKED: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
+    PACKING_IN_PROGRESS: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
+    PACKED: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
+    DRIVER_ALLOCATED: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    VEHICLE_ALLOCATED: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    ROUTE_ASSIGNED: "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30",
+    LOADING_STARTED: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+    LOADING_VERIFIED: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+    READY_FOR_GATE_EXIT: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    GATE_OUT: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    DELIVERED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    CLOSED: "bg-muted text-muted-foreground border-border",
+    CANCELLED: "bg-destructive/15 text-destructive border-destructive/30",
+    RETURNED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
+    DELAYED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
   };
   const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active"].includes(status);
   let displayLabel = status.replace(/_/g, " ");

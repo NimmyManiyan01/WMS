@@ -280,6 +280,8 @@ class GateEntryModel(Base):
     security_officer_id: Mapped[str] = mapped_column(String(64), nullable=False)
     verified_by_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     manual_verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exited_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

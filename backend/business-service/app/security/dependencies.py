@@ -31,8 +31,13 @@ async def get_current_user(
 ) -> CurrentUser:
     settings = get_settings()
 
-    # 1. Check custom proxy/test headers (X-User-Roles, X-User-Name, X-User-Id)
-    roles_hdr = request.headers.get("X-User-Roles") or request.headers.get("x-user-roles")
+    # 1. Check custom proxy/test headers (X-User-Roles, X-User-Role, X-User-Name, X-User-Id)
+    roles_hdr = (
+        request.headers.get("X-User-Roles")
+        or request.headers.get("x-user-roles")
+        or request.headers.get("X-User-Role")
+        or request.headers.get("x-user-role")
+    )
     if roles_hdr:
         roles = [r.strip() for r in roles_hdr.split(",") if r.strip()]
         user_name = request.headers.get("X-User-Name") or request.headers.get("x-user-name") or request.headers.get("X-User-Username") or request.headers.get("x-user-username") or "test_user"
@@ -129,13 +134,15 @@ async def get_current_user(
 
                 perms = []
                 if role in ("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE"):
-                    perms = ["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"]
+                    perms = ["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write", "dispatch:read", "dispatch:write", "dispatch:execute"]
                 elif role == "STORE_MANAGER":
                     perms = ["store:read", "store:write", "storage:read", "putaway:execute", "pickup:execute"]
                 elif role == "STORE_KEEPER":
                     perms = ["store:read", "storage:read", "putaway:execute", "pickup:execute"]
                 elif role in ("ASSEMBLY", "ASSEMBLY_MANAGER"):
                     perms = ["material_request:create", "material_request:read", "assembly:read", "assembly:write"]
+                elif role in ("DISPATCH", "DISPATCH_MANAGER"):
+                    perms = ["dispatch:read", "dispatch:write", "dispatch:execute"]
 
                 claims = {
                     "employee_id": account.employee_id,
@@ -373,6 +380,14 @@ async def get_current_user(
                 permissions=["material_request:create", "material_request:read", "assembly:read", "assembly:write"],
                 raw_claims={"department": "Assembly", "employee_id": "EMP-ASSEMBLY-001"},
             )
+        elif token in ("mock-jwt-dispatch-token", "mock-jwt-dispatch-manager-token"):
+            return CurrentUser(
+                subject="EMP-DISPATCH-001",
+                username="dispatch_manager",
+                roles=["DISPATCH", "DISPATCH_MANAGER", "WAREHOUSE"],
+                permissions=["dispatch:read", "dispatch:write", "dispatch:execute", "gate:read"],
+                raw_claims={"department": "Dispatch", "employee_id": "EMP-DISPATCH-001"},
+            )
 
     try:
         claims = await decode_and_validate(token)
@@ -389,7 +404,7 @@ async def get_current_user(
                 subject="local_security_officer",
                 username="local_security_officer",
                 roles=["ADMIN"],
-                permissions=["gate:entry:create", "gate:entry:read", "gate:entry:verify", "gate:write", "warehouse:write"],
+                permissions=["gate:entry:create", "gate:entry:read", "gate:entry:verify", "gate:write", "warehouse:write", "dispatch:read", "dispatch:write", "dispatch:execute"],
                 raw_claims={},
             )
         if isinstance(exc, TokenValidationError):
@@ -400,7 +415,7 @@ async def get_current_user(
 def require_permission(*permissions: str):
     async def _checker(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         user_roles = set(user.roles)
-        if "ADMIN" in user_roles or "WAREHOUSE" in user_roles or "PROCUREMENT" in user_roles or "GRN" in user_roles:
+        if "ADMIN" in user_roles or "WAREHOUSE" in user_roles or "PROCUREMENT" in user_roles or "GRN" in user_roles or "DISPATCH" in user_roles or "DISPATCH_MANAGER" in user_roles:
             return user
         if "GATE_SECURITY" in user_roles and any(
             permission in {"gate:read", "gate:write", "gate:verify", "gate:entry:read", "gate:entry:create", "gate:entry:verify"}

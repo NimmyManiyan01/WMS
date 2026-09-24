@@ -407,6 +407,11 @@ def _to_gate_entry_response(
         if hasattr(entry.updated_at, "isoformat")
         else str(entry.updated_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
     )
+    exited_at_val = (
+        entry.exited_at.isoformat()
+        if hasattr(entry.exited_at, "isoformat")
+        else str(entry.exited_at) if entry.exited_at else None
+    )
 
     return GateEntryResponse(
         id=entry.id,
@@ -429,6 +434,8 @@ def _to_gate_entry_response(
         ocr_result=ocr_dto,
         mismatched_fields=mismatch_dtos,
         verified_by=entry.verified_by,
+        exited_at=exited_at_val,
+        exited_by=entry.exited_by,
         created_at=created_at_val,
         updated_at=updated_at_val,
     )
@@ -487,6 +494,8 @@ def _gate_entry_from_model(model: GateEntryModel) -> GateEntry:
         ocr_result=ocr_result,
         mismatched_fields=mismatches,
         verified_by=model.verified_by_user_id,
+        exited_at=model.exited_at,
+        exited_by=model.exited_by,
         created_at=created_at,
         updated_at=updated_at,
     )
@@ -529,6 +538,8 @@ async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | Non
         ocr_line_items=list(ocr.line_items) if ocr else [],
         security_officer_id=entry.created_by,
         verified_by_user_id=entry.verified_by,
+        exited_at=entry.exited_at,
+        exited_by=entry.exited_by,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
     )
@@ -2978,6 +2989,75 @@ async def approve_gate_entry_by_qr(
 
 
 
+@router.post("/{entry_id}/vehicle-exited", response_model=GateEntryResponse)
+async def mark_inbound_vehicle_exited(
+    entry_id: str,
+    user: CurrentUser = Depends(require_permission("gate:write")),
+    uow: UnitOfWork = Depends(get_uow),
+) -> GateEntryResponse:
+    """
+    Record that an inbound raw-material vehicle has exited the facility after unloading/receiving.
+    """
+    try:
+        model = await uow.session.get(GateEntryModel, uuid.UUID(entry_id))
+    except ValueError:
+        model = None
+
+    if model is None:
+        raise NotFoundException(f"Gate entry with ID '{entry_id}' not found")
+
+    current_status = (model.status or "").upper().strip()
+    if current_status == "VEHICLE_EXITED" or model.exited_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle has already exited.",
+        )
+
+    eligible_statuses = {
+        "RECEIVING_COMPLETED",
+        "COMPLETED",
+        "RELEASED",
+        "DOCK_RELEASED",
+        "GRN_POSTED",
+        "QUALITY_PASSED",
+        "UNLOADED",
+    }
+
+    if current_status not in eligible_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Gate entry status '{current_status}' is not eligible for vehicle exit. Eligible statuses: {', '.join(sorted(eligible_statuses))}.",
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    model.status = "VEHICLE_EXITED"
+    model.exited_at = now
+    model.exited_by = user.username
+    model.updated_at = now
+
+    audit_entry = GateEntryAuditLogModel(
+        gate_entry_id=model.id,
+        action="VEHICLE_EXITED",
+        performed_by=user.username,
+        timestamp=now,
+        details={
+            "previous_status": current_status,
+            "new_status": "VEHICLE_EXITED",
+            "exited_at": now.isoformat(),
+            "exited_by": user.username,
+        },
+    )
+    uow.session.add(audit_entry)
+    await uow.session.flush()
+
+    entry = _gate_entry_from_model(model)
+    response = _to_gate_entry_response(entry)
+    return response.model_copy(update={
+        "exited_at": now.isoformat(),
+        "exited_by": user.username,
+    })
+
+
 @router.get("/{entry_id}", response_model=GateEntryResponse)
 async def get_gate_entry(
     entry_id: str,
@@ -3013,6 +3093,8 @@ async def list_gate_entries(
             responses.append(response.model_copy(update={
                 "driver_phone": model.driver_phone,
                 "document_image_base64": base64.b64encode(model.po_document_data).decode("ascii") if model.po_document_data else None,
+                "exited_at": model.exited_at.isoformat() if model.exited_at else None,
+                "exited_by": model.exited_by,
             }))
         return responses
     except Exception as e:

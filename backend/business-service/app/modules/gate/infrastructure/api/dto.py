@@ -124,6 +124,8 @@ class GateEntryResponse(ApiModel):
     ocr_result: Optional[OcrResultDto] = None
     mismatched_fields: List[FieldMismatchDto] = Field(default_factory=list)
     verified_by: Optional[str] = None
+    exited_at: Optional[str] = None
+    exited_by: Optional[str] = None
     created_at: str
     updated_at: str
 
