@@ -1,54 +1,24 @@
-import { useRef } from "react";
-import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
+import { SecurityRoom } from "./SecurityRoom";
 
 interface GateBarrierProps {
   position?: [number, number, number];
   rotation?: [number, number, number];
   barrierOpenProgress?: number; // 0 (closed) to 1 (fully open)
+  securitySide?: "left" | "right";
 }
 
 export function GateBarrier({
   position = [0, 0, 0],
   rotation = [0, 0, 0],
   barrierOpenProgress = 0,
+  securitySide = "right",
 }: GateBarrierProps) {
-  const armRef = useRef<THREE.Group>(null);
-
-  useFrame(() => {
-    if (armRef.current) {
-      // 0 = horizontal (0 rad), 1 = vertical (approx 1.5 rad / 86 deg)
-      armRef.current.rotation.z = barrierOpenProgress * 1.5;
-    }
-  });
+  const opening = Math.max(0, Math.min(1, barrierOpenProgress));
 
   return (
     <group position={position} rotation={rotation}>
-      {/* Security Guard Booth */}
-      <group position={[4.2, 1.5, 0]}>
-        {/* Booth Base & Body */}
-        <mesh position={[0, 0, 0]} castShadow receiveShadow>
-          <boxGeometry args={[2.0, 3.0, 2.4]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.4} roughness={0.4} />
-        </mesh>
-        {/* Glass Windows */}
-        <mesh position={[0, 0.4, 0]}>
-          <boxGeometry args={[2.05, 1.2, 2.45]} />
-          <meshStandardMaterial
-            color="#38bdf8"
-            metalness={0.8}
-            roughness={0.1}
-            transparent
-            opacity={0.5}
-          />
-        </mesh>
-        {/* Flat Roof Overhang */}
-        <mesh position={[0, 1.6, 0]} castShadow>
-          <boxGeometry args={[2.4, 0.2, 2.8]} />
-          <meshStandardMaterial color="#0f172a" metalness={0.6} roughness={0.3} />
-        </mesh>
-        {/* Interior Control Desk Glow */}
-        <pointLight position={[0, 0.2, 0]} color="#38bdf8" intensity={1.5} distance={4} />
+      <group>
+        <SecurityRoom clearance={opening} side={securitySide} />
       </group>
 
       {/* Barrier Stanchion Post */}
@@ -62,14 +32,14 @@ export function GateBarrier({
         <mesh position={[0, 0.82, 0]}>
           <cylinderGeometry args={[0.12, 0.12, 0.15, 12]} />
           <meshStandardMaterial
-            color={barrierOpenProgress > 0.5 ? "#22c35e" : "#ef4444"}
-            emissive={barrierOpenProgress > 0.5 ? "#22c55e" : "#ef4444"}
+            color={opening > 0.95 ? "#22c35e" : "#ef4444"}
+            emissive={opening > 0.95 ? "#22c55e" : "#ef4444"}
             emissiveIntensity={2}
           />
         </mesh>
 
         {/* ─── ROTATING BOOM BARRIER ARM ─── */}
-        <group position={[-0.26, 0.5, 0]} ref={armRef}>
+        <group position={[-0.26, 0.5, 0]} rotation={[0, 0, -opening * 1.5]}>
           {/* Main Arm (Red/White Safety Striped) */}
           <mesh position={[-2.4, 0, 0]} castShadow>
             <boxGeometry args={[4.8, 0.12, 0.08]} />

@@ -45,7 +45,7 @@ export function JourneyCanvas({
 }: JourneyCanvasProps) {
   // ─── STAGE PROGRESS CALCULATIONS ───
 
-  // 1. INBOUND LOGISTICS TRUCK (FL-8820): Real alley-dock maneuver (Drive forward -> Angle setup -> Reverse park into Dock 02)
+  // Inbound truck: forward approach, apron turn, rear docking, then receiving.
   let truck1Pos: [number, number, number] = [0.8, 0, 20.5];
   let truck1Rot: [number, number, number] = [0, Math.PI, 0];
   let barrier1Open = 0;
@@ -55,51 +55,50 @@ export function JourneyCanvas({
   let isReversing = false;
 
   if (scrollProgress < 0.09) {
-    // Stage 1 (Gate Entry): Gate barrier opens UP immediately, and truck FL-8820 moves forward along the road
-    const t = smoothstep(0.00, 0.09, scrollProgress);
-    // Gate arm swings smoothly upwards into the air (0 to 1) right at the beginning
-    barrier1Open = smoothstep(0.00, 0.035, scrollProgress);
+    // Approach the stop line, wait for security clearance, then pass the raised boom.
+    const approach = smoothstep(0, 0.012, scrollProgress);
+    const departure = smoothstep(0.034, 0.09, scrollProgress);
+    barrier1Open = smoothstep(0.014, 0.032, scrollProgress);
     truck1Pos = [
-      lerp(0.8, 0.0, t),
+      lerp(0.8, 0, departure),
       0,
-      lerp(20.5, -4.0, t),
+      scrollProgress < 0.034
+        ? lerp(23, 21.5, approach)
+        : lerp(21.5, -4, departure),
     ];
     truck1Rot = [0, Math.PI, 0];
-    wheelRot = (20.5 - truck1Pos[2]) * 2.5;
-  } else if (scrollProgress < 0.125) {
-    // Phase 2: Pull forward and angle into yard apron (setup position for dock backing)
-    const t = smoothstep(0.09, 0.125, scrollProgress);
+    wheelRot = (23 - truck1Pos[2]) / 0.49;
+  } else if (scrollProgress < 0.11) {
+    // Continue forward through the warehouse entrance into the turning apron.
+    const t = smoothstep(0.09, 0.11, scrollProgress);
     barrier1Open = 1;
-    truck1Pos = [
-      lerp(0.0, 1.2, t),
-      0,
-      lerp(-4.0, -9.5, t),
-    ];
-    truck1Rot = [0, lerp(Math.PI, Math.PI - 0.35, t), 0];
-    wheelRot = (20.5 - truck1Pos[2]) * 2.5;
+    truck1Pos = [0, 0, lerp(-4, -10, t)];
+    truck1Rot = [0, Math.PI, 0];
+    wheelRot = (23 - truck1Pos[2]) / 0.49;
+  } else if (scrollProgress < 0.145) {
+    // Follow a forward semicircle; the cab always points along the path tangent.
+    const angle = smoothstep(0.11, 0.145, scrollProgress) * Math.PI;
+    barrier1Open = 1;
+    truck1Pos = [-4.25 + 4.25 * Math.cos(angle), 0, -10 - 4.25 * Math.sin(angle)];
+    truck1Rot = [0, Math.PI + angle, 0];
+    wheelRot = (33 + 4.25 * angle) / 0.49;
+    dockDoorOpen = smoothstep(0.12, 0.145, scrollProgress);
   } else if (scrollProgress < 0.1667) {
-    // Phase 3: Shift into REVERSE, backup lights illuminate, arc backward into Dock 02
-    const t = smoothstep(0.125, 0.1667, scrollProgress);
+    // Once aligned, reverse straight back to the dock bumpers.
+    const t = smoothstep(0.145, 0.1667, scrollProgress);
     isReversing = true;
     barrier1Open = 1;
-    truck1Pos = [
-      lerp(1.2, -8.5, t),
-      0,
-      lerp(-9.5, -17.5, t),
-    ];
-    // Smoothly rotates backward into alignment with dock slip (160 deg -> 0 deg)
-    truck1Rot = [0, lerp(Math.PI - 0.35, 0, t), 0];
-    // Reverse wheel rotation
-    wheelRot = -t * 14.0;
-    dockDoorOpen = Math.max(0, (t - 0.4) * 1.66);
+    truck1Pos = [-8.5, 0, lerp(-10, -17.5, t)];
+    truck1Rot = [0, Math.PI * 2, 0];
+    wheelRot = (33 + 4.25 * Math.PI - 7.5 * t) / 0.49;
+    dockDoorOpen = 1;
   } else {
-    // Stage 2: Parked squarely against Dock 02 bumpers, rear doors open, receiving cargo
     barrier1Open = 1;
     truck1Pos = [-8.5, 0, -17.5];
-    truck1Rot = [0, 0, 0];
-    wheelRot = 0;
+    truck1Rot = [0, Math.PI * 2, 0];
+    wheelRot = (33 + 4.25 * Math.PI - 7.5) / 0.49;
     dockDoorOpen = 1;
-    truck1Doors = clamp((scrollProgress - 0.1667) / 0.04, 0, 1);
+    truck1Doors = smoothstep(0.1667, 0.185, scrollProgress);
   }
 
   // ─── SCENE 2: DOCK INSPECTOR (THE MAN CHECKING GOODS LIST BEFORE FORKLIFT PICK) ───
@@ -116,7 +115,7 @@ export function JourneyCanvas({
     // Man actively checking goods list manifest, scanning cartons with handheld laser terminal
     inspectorPos = [-6.6, 1.25, -23.8];
     inspectorRot = [0, -Math.PI / 2, 0];
-    inspectProgress = clamp((scrollProgress - 0.1667) / 0.045, 0, 1);
+    inspectProgress = smoothstep(0.203, 0.220, scrollProgress);
   } else {
     // GRN verified! Man steps to platform safety buffer and watches forklift pickup
     const stepT = clamp((scrollProgress - 0.220) / 0.025, 0, 1);
@@ -132,6 +131,10 @@ export function JourneyCanvas({
   // ─── SCENE 2 & 3: FORKLIFT & PALLET KINEMATICS (STARTS ONLY AFTER GOODS LIST IS CHECKED!) ───
   let forkliftPos: [number, number, number] = [-4.5, 0, -28.0];
   let forkliftRot: [number, number, number] = [0, 0, 0];
+  const pickupLift = (1.25 - 0.15) / 2.65;
+  const shelfPalletY = 1.65; // shelf deck top 1.67, pallet feet start at local Y 0.02
+  const placementLift = (shelfPalletY - 0.15) / 2.65;
+  const raisedLift = (shelfPalletY + 0.15 - 0.15) / 2.65;
   let forkLiftProgress = 0;
   let palletPos: [number, number, number] = [-8.5, 1.25, -23.8];
   let palletRot: [number, number, number] = [0, 0, 0];
@@ -141,8 +144,13 @@ export function JourneyCanvas({
     forkliftPos = [-4.5, 0, -28.0];
     forkliftRot = [0, 0, 0];
     forkLiftProgress = 0;
-    palletPos = [-8.5, 1.25, -23.8];
-    palletRot = [0, 0, 0];
+    // Unload only after parking and opening the truck doors.
+    const unload = smoothstep(0.187, 0.203, scrollProgress);
+    const heading = truck1Rot[1];
+    palletPos = scrollProgress < 0.1667
+      ? [truck1Pos[0] - Math.sin(heading) * 3.3, 0.98, truck1Pos[2] - Math.cos(heading) * 3.3]
+      : [-8.5, lerp(0.98, 1.25, unload), lerp(-20.8, -23.8, unload)];
+    palletRot = scrollProgress < 0.1667 ? truck1Rot : [0, 0, 0];
   } else if (scrollProgress < 0.255) {
     // AFTER goods list checked: Forklift approaches Dock 02 and slides forks under pallet
     const t = smoothstep(0.225, 0.255, scrollProgress);
@@ -152,7 +160,7 @@ export function JourneyCanvas({
       lerp(-28.0, -25.3, t),
     ];
     forkliftRot = [0, 0, 0];
-    forkLiftProgress = lerp(0.0, 0.415, t); // carriage elevates to match dock height (Y: 1.25)
+    forkLiftProgress = lerp(0, pickupLift, t); // carriage elevates to match dock height (Y: 1.25)
     palletPos = [-8.5, 1.25, -23.8];
     palletRot = [0, 0, 0];
   } else if (scrollProgress < 0.275) {
@@ -160,7 +168,7 @@ export function JourneyCanvas({
     const t = smoothstep(0.255, 0.275, scrollProgress);
     forkliftPos = [-8.5, 0, -25.3];
     forkliftRot = [0, 0, 0];
-    forkLiftProgress = lerp(0.415, 0.520, t);
+    forkLiftProgress = lerp(pickupLift, 0.520, t);
     palletPos = [-8.5, 0.15 + forkLiftProgress * 2.65, -23.8];
     palletRot = [0, 0, 0];
   } else if (scrollProgress < 0.305) {
@@ -184,12 +192,11 @@ export function JourneyCanvas({
   } else if (scrollProgress < 0.345) {
     // Forklift transports pallet down the high-bay storage aisle toward Stage 03
     const t = smoothstep(0.305, 0.345, scrollProgress);
-    forkliftPos = [
-      lerp(-3.5, 3.8, t),
-      0,
-      lerp(-33.0, -68.0, t),
-    ];
-    forkliftRot = [0, Math.PI, 0];
+    // Smooth aisle lane change with the forklift facing its direction of travel.
+    const lateral = t * t * (3 - 2 * t);
+    forkliftPos = [lerp(-3.5, 3.8, lateral), 0, lerp(-33, -68, t)];
+    const heading = Math.atan2(7.3 * 6 * t * (1 - t), -35);
+    forkliftRot = [0, heading, 0];
     forkLiftProgress = 0.120;
     palletPos = [
       forkliftPos[0],
@@ -214,51 +221,41 @@ export function JourneyCanvas({
       forkliftPos[2] + Math.cos(rotY) * 1.5,
     ];
     palletRot = [0, rotY, 0];
+  } else if (scrollProgress < 0.375) {
+    // Stop outside the rack and raise the load above the destination shelf.
+    forkliftPos = [4.2, 0, -68];
+    forkliftRot = [0, Math.PI / 2, 0];
+    forkLiftProgress = lerp(0.120, raisedLift, smoothstep(0.365, 0.375, scrollProgress));
+  } else if (scrollProgress < 0.385) {
+    // Insert the pallet into the middle bay while keeping the mast level.
+    forkliftPos = [lerp(4.2, 6.5, smoothstep(0.375, 0.385, scrollProgress)), 0, -68];
+    forkliftRot = [0, Math.PI / 2, 0];
+    forkLiftProgress = raisedLift;
   } else if (scrollProgress < 0.390) {
-    // Forklift raises mast, drives into Bay 1, and slots pallet onto shelf
-    const t = smoothstep(0.365, 0.390, scrollProgress);
+    // Lower onto the shelf before releasing the load.
+    forkliftPos = [6.5, 0, -68];
     forkliftRot = [0, Math.PI / 2, 0];
-    if (t < 0.5) {
-      const subT = t * 2;
-      forkLiftProgress = lerp(0.120, 0.620, subT);
-      forkliftPos = [
-        lerp(4.2, 5.8, subT),
-        0,
-        -68.0,
-      ];
-      palletPos = [
-        forkliftPos[0] + 1.5,
-        0.15 + forkLiftProgress * 2.65,
-        -68.0,
-      ];
-    } else {
-      const subT = (t - 0.5) * 2;
-      forkliftPos = [
-        lerp(5.8, 6.5, subT),
-        0,
-        -68.0,
-      ];
-      forkLiftProgress = lerp(0.620, 0.580, subT);
-      palletPos = [
-        lerp(7.3, 8.0, subT),
-        lerp(1.79, 1.68, subT),
-        -68.0,
-      ];
-    }
-    palletRot = [0, Math.PI / 2, 0];
+    forkLiftProgress = lerp(raisedLift, placementLift, smoothstep(0.385, 0.390, scrollProgress));
   } else {
-    // Stage 03+: Putaway completed. Pallet stays permanently stored in Bay 1.
-    // Forklift pulls forks back out to aisle clearance.
-    const t = clamp((scrollProgress - 0.390) / 0.035, 0, 1);
-    forkliftPos = [
-      lerp(6.5, 4.5, t),
-      0,
-      -68.0,
-    ];
+    // Leave this same pallet in its bin. Withdraw fully before lowering the forks.
+    forkliftPos = [lerp(6.5, 4.2, smoothstep(0.390, 0.410, scrollProgress)), 0, -68];
     forkliftRot = [0, Math.PI / 2, 0];
-    forkLiftProgress = lerp(0.580, 0.120, t);
-    palletPos = [8.0, 1.68, -68.0];
+    forkLiftProgress = lerp(placementLift, 0.120, smoothstep(0.410, 0.425, scrollProgress));
+    palletPos = [8, shelfPalletY, -68];
     palletRot = [0, Math.PI / 2, 0];
+  }
+
+  // A single attachment transform keeps the received pallet locked to the forks
+  // through lifting, turns, warehouse transit and rack insertion.
+  const palletOnForks = scrollProgress >= 0.255 && scrollProgress < 0.390;
+  if (palletOnForks) {
+    const heading = forkliftRot[1];
+    palletPos = [
+      forkliftPos[0] + Math.sin(heading) * 1.5,
+      0.15 + forkLiftProgress * 2.65,
+      forkliftPos[2] + Math.cos(heading) * 1.5,
+    ];
+    palletRot = [...forkliftRot];
   }
 
   // 3. Scene 5: Robotic assembly kinematics (progress 0.64 to 0.76)
@@ -346,10 +343,11 @@ export function JourneyCanvas({
           <GateBarrier
             position={[0, 0, 15]}
             barrierOpenProgress={barrier1Open}
+            securitySide="left"
           />
 
           {/* ─── SCENE 1 & 2: INBOUND LOGISTICS TRUCK (FL-8820) ─── */}
-          {/* Alley-dock maneuver: Drives forward, sets up in apron, reverses & parks into Dock 02 */}
+          {/* Drives from the gate to the apron, turns, and backs into the receiving dock. */}
           <LogisticsTruck
             position={truck1Pos}
             rotation={truck1Rot}
@@ -373,7 +371,7 @@ export function JourneyCanvas({
           />
 
           {/* ─── SCENE 2 & 3: DYNAMIC RECEIVED GOODS PALLET ─── */}
-          {/* Starts on Dock 02 Leveler Platform -> Forklift Picks & Transports -> Slots into Rack Bin 01 */}
+          {/* Truck cargo unloads onto the dock, is received by the worker, then collected by forklift. */}
           <PalletAndCargo
             position={palletPos}
             rotation={palletRot}
@@ -408,6 +406,15 @@ export function JourneyCanvas({
             forkLiftProgress={forkLiftProgress}
           />
 
+          {scrollProgress >= 0.225 && scrollProgress < 0.365 && (
+            <Html position={[palletPos[0], palletPos[1] + 1.8, palletPos[2]]} center distanceFactor={12} zIndexRange={[40, 0]}>
+              <div className="pointer-events-none whitespace-nowrap rounded border border-cyan-400/60 bg-slate-950/90 px-3 py-2 text-center font-mono text-[10px] text-cyan-300">
+                <div>{palletOnForks ? "TRANSPORTING TO INVENTORY" : "PICKING UP RECEIVED GOODS"}</div>
+                <div className="mt-1 text-slate-300">PLT-77291 / AISLE-04 / RACK-B-08 / BIN B1</div>
+              </div>
+            </Html>
+          )}
+
           {/* Holographic Laser Scanner & Putaway Verification HUD at Rack Bay 1 */}
           {scrollProgress >= 0.365 && (
             <group position={[7.4, 2.5, -68.0]}>
@@ -440,6 +447,7 @@ export function JourneyCanvas({
                   </div>
                   <div className="text-[9px] font-mono text-slate-400 mt-0.5">
                     PLT-77291 • RACK-B-08 • TIER 01
+                    {scrollProgress >= 0.390 && <div className="mt-1 text-emerald-300">INVENTORY UPDATED / AVAILABLE</div>}
                   </div>
                 </div>
               </Html>

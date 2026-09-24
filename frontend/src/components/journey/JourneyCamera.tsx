@@ -35,11 +35,11 @@ const CAMERA_KEYFRAMES: {
     // 3. Tracking truck through portal into warehouse (p = 0.070)
     { p: 0.0700, pos: [-4.8, 4.2, 16.5], target: [0.0, 1.8, 6.0] },
     // 4. Following truck into warehouse apron setup (p = 0.105)
-    { p: 0.1050, pos: [-3.0, 4.2, 4.0], target: [0.5, 1.8, -5.0] },
+    { p: 0.1050, pos: [7.0, 6.5, 2.0], target: [-1.0, 1.8, -9.0] },
     // 5. Viewing truck shift into reverse & back into dock (p = 0.135)
-    { p: 0.1350, pos: [5.0, 4.5, -3.0], target: [-4.0, 1.8, -13.0] },
+    { p: 0.1350, pos: [5.0, 6.5, -2.0], target: [-5.5, 1.8, -13.0] },
     // 6. Stage 2: GRN Dock 02 - Truck parked, doors open (p = 0.1667)
-    { p: 0.1667, pos: [7.5, 3.8, -13.0], target: [-7.5, 1.8, -19.5] },
+    { p: 0.1667, pos: [1.0, 5.5, -17.0], target: [-8.0, 1.8, -21.5] },
     // 6a. Dock Inspector checking goods list manifest & scanning cartons (p = 0.200)
     { p: 0.2000, pos: [-3.5, 3.2, -20.5], target: [-7.2, 1.8, -23.8] },
     // 6b. Goods list verified & released - Forklift approaches dock and slides forks under pallet (p = 0.240)
@@ -53,11 +53,11 @@ const CAMERA_KEYFRAMES: {
     // 7. Stage 3: Store / Putaway - Forklift turning to face Right Storage Rack (p = 0.365)
     { p: 0.3650, pos: [-4.5, 3.4, -63.0], target: [5.5, 2.0, -68.0] },
     // 7a. Forklift elevates mast and slots pallet squarely into Bin 01 (p = 0.390)
-    { p: 0.3900, pos: [-1.5, 3.2, -64.0], target: [7.8, 1.9, -68.0] },
+    { p: 0.3900, pos: [2.0, 4.2, -62.0], target: [8.0, 2.0, -68.0] },
     // 7b. Putaway complete, barcode verified, overview of stocked rack (p = 0.420)
-    { p: 0.4200, pos: [-3.5, 3.8, -66.0], target: [4.0, 2.2, -74.0] },
+    { p: 0.4200, pos: [0.0, 5.0, -60.0], target: [8.0, 2.0, -68.0] },
     // 8. Stage 4: High Inventory Matrix Overview (p = 0.5000)
-    { p: 0.5000, pos: [11.0, 8.5, -112.0], target: [0.0, 3.0, -118.0] },
+    { p: 0.5000, pos: [-1.0, 7.0, -57.0], target: [8.0, 2.0, -68.0] },
     // 9. Stage 5: Robotic Assembly Station (p = 0.6667)
     { p: 0.6667, pos: [-6.8, 3.6, -157.0], target: [0.1, 1.6, -165.0] },
     // 10. Stage 6: Outbound Dispatch Loading Bay (p = 0.8333)

@@ -162,6 +162,16 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        # Ensure gate_entry has exited_at and exited_by
+        for col in [
+            ("exited_at", "TIMESTAMP WITH TIME ZONE"),
+            ("exited_by", "VARCHAR(64)"),
+        ]:
+            try:
+                await run_ddl(f"ALTER TABLE gate_entry ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+            except Exception:
+                pass
+
         # Add columns to asn
         for col in [
             ("shipment_date", "DATE DEFAULT CURRENT_DATE"),
