@@ -38,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
 import { requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
+import { getUserInfo } from "@/lib/auth-utils";
 export const Route = createFileRoute("/procurement/new-rfq")({
   beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
   component: NewRfq,
@@ -264,10 +265,9 @@ function NewRfq() {
       }
     };
     fetchCategories();
-    const userInfo = localStorage.getItem("user_info");
-    if (userInfo) {
-      const user = JSON.parse(userInfo);
-      setFormData((prev) => ({ ...prev, procurement_officer: user.username || "" }));
+    const user = getUserInfo();
+    if (user) {
+      setFormData((prev) => ({ ...prev, procurement_officer: user.full_name || user.username || "" }));
     }
     const loadMaterialRequests = async () => {
       try {

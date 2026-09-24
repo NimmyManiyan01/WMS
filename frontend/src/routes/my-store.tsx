@@ -83,7 +83,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api-client";
-import { getUserInfo } from "@/lib/auth-utils";
+import { getUserInfo, requireRole } from "@/lib/auth-utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +101,7 @@ type MyStoreSearch = {
 };
 
 export const Route = createFileRoute("/my-store")({
+  beforeLoad: () => requireRole(["STORE_MANAGER", "STORE_KEEPER", "ADMIN", "SUPERUSER"]),
   validateSearch: (search: Record<string, unknown>): MyStoreSearch => {
     const tab = search.tab;
     if (
@@ -127,7 +128,7 @@ export const Route = createFileRoute("/my-store")({
       {
         name: "description",
         content:
-          "Dedicated Store Keeper & Manager portal for store administration, zone and bin layout, putaway execution, and operational inventory.",
+          "Dedicated Store Keeper & Manager portal for store operations, putaway execution, material pickup, and inventory movements.",
       },
     ],
   }),
@@ -423,37 +424,12 @@ function MyStorePage() {
     }
   };
 
-  // Create Zone Modal
-  const [createZoneOpen, setCreateZoneOpen] = useState(false);
-  const [creatingZone, setCreatingZone] = useState(false);
-  const [previewZoneCode, setPreviewZoneCode] = useState("");
-  const [customZoneCode, setCustomZoneCode] = useState("");
-  const [newZoneName, setNewZoneName] = useState("");
-  const [newZoneDesc, setNewZoneDesc] = useState("");
-
-  // Edit Zone Modal
-  const [editZoneOpen, setEditZoneOpen] = useState(false);
-  const [editingZone, setEditingZone] = useState<Zone | null>(null);
-  const [editZoneName, setEditZoneName] = useState("");
-  const [editZoneDesc, setEditZoneDesc] = useState("");
-  const [savingZone, setSavingZone] = useState(false);
-
   // Zone QR Modal
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [selectedZoneForQr, setSelectedZoneForQr] = useState<Zone | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrPayloadData, setQrPayloadData] = useState<any>(null);
   const [loadingQr, setLoadingQr] = useState(false);
-
-  // Create Bin Modal
-  const [createBinOpen, setCreateBinOpen] = useState(false);
-  const [targetZoneForBin, setTargetZoneForBin] = useState<Zone | null>(null);
-  const [creatingBin, setCreatingBin] = useState(false);
-  const [newBinName, setNewBinName] = useState("");
-  const [newBinRack, setNewBinRack] = useState("R01");
-  const [newBinShelf, setNewBinShelf] = useState("S01");
-  const [newBinCapacity, setNewBinCapacity] = useState("1000");
-  const [previewBinCode, setPreviewBinCode] = useState("");
 
   // Bin QR Modal
   const [binQrModalOpen, setBinQrModalOpen] = useState(false);
@@ -774,108 +750,6 @@ function MyStorePage() {
     return (z?.bins || []).filter((b) => b.status?.toUpperCase() === "ACTIVE");
   }, [zones, zoneScanInput]);
 
-  const handleOpenCreateZone = async () => {
-    if (!store) return;
-    setNewZoneName("");
-    setNewZoneDesc("");
-    setCustomZoneCode("");
-    try {
-      const nextCode = await api.getNextZoneCode(store.id);
-      setPreviewZoneCode(nextCode.suggested_zone_code);
-      setCustomZoneCode(nextCode.suggested_zone_code);
-    } catch {
-      setPreviewZoneCode(`${store.store_code}-Z01`);
-      setCustomZoneCode(`${store.store_code}-Z01`);
-    }
-    setCreateZoneOpen(true);
-  };
-
-  const handleCreateZoneSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!store?.id) return;
-    if (!newZoneName.trim()) {
-      toast.error("Please enter a Zone Name");
-      return;
-    }
-
-    setCreatingZone(true);
-    try {
-      const created = await api.createZone(store.id, {
-        zone_name: newZoneName.trim(),
-        zone_code: customZoneCode.trim() ? customZoneCode.trim().toUpperCase() : undefined,
-        description: newZoneDesc.trim() || undefined,
-        status: "ACTIVE",
-      });
-      toast.success(`Zone ${created.zone_code} (${created.zone_name}) created successfully`);
-      setCreateZoneOpen(false);
-      refreshZones();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create zone");
-    } finally {
-      setCreatingZone(false);
-    }
-  };
-
-  const handleOpenCreateBin = async (zone: Zone) => {
-    setTargetZoneForBin(zone);
-    setNewBinName(`${zone.zone_name} Bin`);
-    setNewBinRack("R01");
-    setNewBinShelf("S01");
-    setNewBinCapacity("1000");
-    try {
-      const res = await api.getNextBinCode(zone.id);
-      if (res?.suggested_bin_code) {
-        setPreviewBinCode(res.suggested_bin_code);
-      }
-    } catch {
-      setPreviewBinCode(`BIN-${zone.zone_code}-001`);
-    }
-    setCreateBinOpen(true);
-  };
-
-  const handleCreateBinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetZoneForBin) return;
-    if (!newBinName.trim()) {
-      toast.error("Please enter a Bin Name");
-      return;
-    }
-
-    setCreatingBin(true);
-    try {
-      const created = await api.createBin(targetZoneForBin.id, {
-        bin_name: newBinName.trim(),
-        rack: newBinRack.trim() || "R01",
-        shelf: newBinShelf.trim() || "S01",
-        capacity: parseFloat(newBinCapacity) || 1000,
-        status: "ACTIVE",
-      });
-      toast.success(`Bin ${created.bin_code} created under ${targetZoneForBin.zone_code}`);
-      setCreateBinOpen(false);
-      // Auto-expand zone accordion so the new bin is immediately visible
-      setExpandedZoneIds((prev) => new Set(prev).add(targetZoneForBin.id));
-      await refreshZones();
-      await refreshTasksAndBalances();
-      // Immediately open Bin QR modal for instant viewing, printing, and downloading!
-      void handleViewBinQR(created, targetZoneForBin);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create bin");
-    } finally {
-      setCreatingBin(false);
-    }
-  };
-
-  const handleToggleBinStatus = async (b: Bin) => {
-    const nextStatus = b.status?.toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    try {
-      await api.updateBinStatus(b.id, nextStatus);
-      toast.success(`Bin ${b.bin_code} marked as ${nextStatus}`);
-      refreshZones();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to toggle bin status");
-    }
-  };
-
   const handleViewZoneQR = async (z: Zone) => {
     setSelectedZoneForQr(z);
     setQrDataUrl(null);
@@ -1013,48 +887,6 @@ function MyStorePage() {
       </html>
     `);
     printWindow.document.close();
-  };
-
-  const handleOpenEditZone = (z: Zone) => {
-    setEditingZone(z);
-    setEditZoneName(z.zone_name || "");
-    setEditZoneDesc(z.description || "");
-    setEditZoneOpen(true);
-  };
-
-  const handleEditZoneSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingZone) return;
-    if (!editZoneName.trim()) {
-      toast.error("Zone Name cannot be empty");
-      return;
-    }
-
-    setSavingZone(true);
-    try {
-      await api.updateZone(editingZone.id, {
-        zone_name: editZoneName.trim(),
-        description: editZoneDesc.trim() || undefined,
-      });
-      toast.success(`Zone ${editingZone.zone_code} updated successfully`);
-      setEditZoneOpen(false);
-      refreshZones();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update zone");
-    } finally {
-      setSavingZone(false);
-    }
-  };
-
-  const handleToggleZoneStatus = async (z: Zone) => {
-    const nextStatus = z.status?.toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    try {
-      await api.updateZoneStatus(z.id, nextStatus);
-      toast.success(`Zone ${z.zone_code} marked as ${nextStatus}`);
-      refreshZones();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to toggle zone status");
-    }
   };
 
   // Putaway Execution Handlers
@@ -2350,14 +2182,6 @@ function MyStorePage() {
                       <SelectItem value="INACTIVE">Inactive</SelectItem>
                     </SelectContent>
                   </Select>
-
-                  <Button
-                    onClick={handleOpenCreateZone}
-                    size="sm"
-                    className="h-8 rounded-xl shadow-glow text-xs font-semibold"
-                  >
-                    <Plus className="size-3.5 mr-1" /> New Zone
-                  </Button>
                 </div>
               </CardHeader>
 
@@ -2374,7 +2198,7 @@ function MyStorePage() {
                     <p className="text-xs text-muted-foreground">
                       {search || statusFilter !== "ALL"
                         ? "No zones match your search filter"
-                        : "Create your first store zone using the 'New Zone' button above"}
+                        : "No storage zones assigned to this store"}
                     </p>
                   </div>
                 ) : (
@@ -2428,41 +2252,10 @@ function MyStorePage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleOpenCreateBin(z)}
-                                className="h-7 px-2 rounded-lg text-xs text-emerald-500 hover:bg-emerald-500/10"
-                                title="Add Bin to Zone"
-                              >
-                                <Plus className="size-3 mr-1" /> Add Bin
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
                                 onClick={() => handleViewZoneQR(z)}
                                 className="h-7 px-2 rounded-lg text-xs bg-primary/5 text-primary hover:bg-primary/15"
                               >
                                 <QrCode className="size-3 mr-1" /> Zone QR
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleOpenEditZone(z)}
-                                className="h-7 px-2 rounded-lg text-xs hover:bg-primary/10 hover:text-primary"
-                              >
-                                <Edit className="size-3 mr-1" /> Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleZoneStatus(z)}
-                                className={cn(
-                                  "h-7 px-2 rounded-lg text-xs",
-                                  z.status?.toUpperCase() === "ACTIVE"
-                                    ? "text-amber-500 hover:bg-amber-500/10"
-                                    : "text-emerald-500 hover:bg-emerald-500/10",
-                                )}
-                              >
-                                <Power className="size-3 mr-1" />
-                                {z.status?.toUpperCase() === "ACTIVE" ? "Deactivate" : "Activate"}
                               </Button>
                             </div>
                           </div>
@@ -2475,14 +2268,6 @@ function MyStorePage() {
                                   <Grid className="size-3.5 text-emerald-400" />
                                   <span>Physical Bins in {z.zone_code}</span>
                                 </div>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleOpenCreateBin(z)}
-                                  className="h-6 px-2 text-[10px] text-emerald-500 hover:bg-emerald-500/10"
-                                >
-                                  <Plus className="size-3 mr-1" /> Add Bin
-                                </Button>
                               </div>
 
                               {binsInZone.length > 0 ? (
@@ -2519,34 +2304,15 @@ function MyStorePage() {
                                           >
                                             <QrCode className="size-3 mr-0.5" /> Bin QR
                                           </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => handleToggleBinStatus(b)}
-                                            className={cn(
-                                              "size-6 rounded",
-                                              b.status === "ACTIVE"
-                                                ? "text-muted-foreground hover:text-rose-400"
-                                                : "text-muted-foreground hover:text-emerald-400",
-                                            )}
-                                            title={
-                                              b.status === "ACTIVE"
-                                                ? "Deactivate Bin"
-                                                : "Activate Bin"
-                                            }
-                                          >
-                                            <Power className="size-3" />
-                                          </Button>
                                         </div>
                                       </div>
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <div className="py-3 text-center text-muted-foreground text-xs italic">
-                                  No physical bins in this zone yet. Click "+ Add Bin" to create
-                                  one.
-                                </div>
+                                <p className="text-xs text-muted-foreground italic py-2">
+                                  No bins configured in this zone.
+                                </p>
                               )}
                             </div>
                           )}
@@ -3321,231 +3087,6 @@ function MyStorePage() {
               </Card>
             </div>
           )}
-
-          {/* CREATE ZONE MODAL */}
-          <Dialog open={createZoneOpen} onOpenChange={setCreateZoneOpen}>
-            <DialogContent className="sm:max-w-md rounded-2xl">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Layers className="size-5 text-primary" /> Create Store Zone
-                </DialogTitle>
-                <DialogDescription className="text-xs">
-                  Create a physical storage zone within {store?.store_name} ({store?.store_code}).
-                </DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleCreateZoneSubmit} className="space-y-3.5 pt-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Zone Code (Auto-Generated)</Label>
-                  <Input
-                    value={customZoneCode || previewZoneCode}
-                    onChange={(e) => setCustomZoneCode(e.target.value)}
-                    className="text-xs font-mono font-bold text-primary rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">
-                    Zone Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    placeholder="e.g. Electrical Panels Bay 01"
-                    value={newZoneName}
-                    onChange={(e) => setNewZoneName(e.target.value)}
-                    required
-                    className="text-xs rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Description / Rack Purpose</Label>
-                  <Textarea
-                    placeholder="Specific materials stored, temperature or security considerations..."
-                    value={newZoneDesc}
-                    onChange={(e) => setNewZoneDesc(e.target.value)}
-                    className="text-xs rounded-xl min-h-16"
-                  />
-                </div>
-
-                <DialogFooter className="pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCreateZoneOpen(false)}
-                    className="rounded-xl text-xs"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={creatingZone}
-                    className="rounded-xl text-xs font-semibold shadow-glow"
-                  >
-                    {creatingZone && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-                    Create Zone
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-
-          {/* CREATE BIN MODAL */}
-          <Dialog open={createBinOpen} onOpenChange={setCreateBinOpen}>
-            <DialogContent className="sm:max-w-md rounded-2xl">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Grid className="size-5 text-emerald-500" /> Create Physical Storage Bin
-                </DialogTitle>
-                <DialogDescription className="text-xs">
-                  Create a physical storage bin in Zone {targetZoneForBin?.zone_code}.
-                </DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleCreateBinSubmit} className="space-y-3.5 pt-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Bin Code (Auto-Generated)</Label>
-                  <Input
-                    value={previewBinCode}
-                    disabled
-                    className="text-xs font-mono font-bold text-emerald-500 rounded-xl bg-muted/40"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">
-                    Bin Name / Label <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    placeholder="e.g. Primary Shelf Bin 01"
-                    value={newBinName}
-                    onChange={(e) => setNewBinName(e.target.value)}
-                    required
-                    className="text-xs rounded-xl"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Rack Code</Label>
-                    <Input
-                      placeholder="R01"
-                      value={newBinRack}
-                      onChange={(e) => setNewBinRack(e.target.value)}
-                      className="text-xs rounded-xl"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Shelf Code</Label>
-                    <Input
-                      placeholder="S01"
-                      value={newBinShelf}
-                      onChange={(e) => setNewBinShelf(e.target.value)}
-                      className="text-xs rounded-xl"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Capacity Quantity</Label>
-                  <Input
-                    type="number"
-                    value={newBinCapacity}
-                    onChange={(e) => setNewBinCapacity(e.target.value)}
-                    required
-                    className="text-xs rounded-xl"
-                  />
-                </div>
-
-                <DialogFooter className="pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCreateBinOpen(false)}
-                    className="rounded-xl text-xs"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={creatingBin}
-                    className="rounded-xl text-xs font-semibold shadow-glow bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    {creatingBin && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-                    Create Bin
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-
-          {/* EDIT ZONE MODAL */}
-          <Dialog open={editZoneOpen} onOpenChange={setEditZoneOpen}>
-            <DialogContent className="sm:max-w-md rounded-2xl">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Edit className="size-5 text-primary" /> Edit Zone {editingZone?.zone_code}
-                </DialogTitle>
-                <DialogDescription className="text-xs">
-                  Update zone name and storage details.
-                </DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleEditZoneSubmit} className="space-y-3.5 pt-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Zone Code</Label>
-                  <Input
-                    value={editingZone?.zone_code || ""}
-                    disabled
-                    className="text-xs font-mono font-bold text-muted-foreground rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">
-                    Zone Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={editZoneName}
-                    onChange={(e) => setEditZoneName(e.target.value)}
-                    required
-                    className="text-xs rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Description</Label>
-                  <Textarea
-                    value={editZoneDesc}
-                    onChange={(e) => setEditZoneDesc(e.target.value)}
-                    className="text-xs rounded-xl min-h-16"
-                  />
-                </div>
-
-                <DialogFooter className="pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setEditZoneOpen(false)}
-                    className="rounded-xl text-xs"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={savingZone}
-                    className="rounded-xl text-xs font-semibold shadow-glow"
-                  >
-                    {savingZone ? (
-                      <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                    ) : (
-                      <Save className="size-3.5 mr-1.5" />
-                    )}
-                    Save Changes
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
 
           {/* ZONE QR MODAL */}
           <Dialog open={qrModalOpen} onOpenChange={setQrModalOpen}>

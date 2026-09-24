@@ -60,10 +60,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api-client";
+import { requireRole } from "@/lib/auth-utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/warehouse/stores")({
+  beforeLoad: () => requireRole(["ADMIN", "WAREHOUSE", "WAREHOUSE_MANAGER", "SUPERUSER"]),
   head: () => ({
     meta: [
       { title: "Store Master, Zones & Bins · NexusWMS" },
@@ -106,6 +108,7 @@ interface Store {
   id: string;
   store_code: string;
   store_name: string;
+  store_type?: string | null;
   description?: string | null;
   warehouse_id: string;
   store_manager_id?: string | null;
@@ -145,6 +148,7 @@ function WarehouseStores() {
   const [creating, setCreating] = useState(false);
   const [previewCode, setPreviewCode] = useState("STR-001");
   const [newStoreName, setNewStoreName] = useState("");
+  const [newStoreType, setNewStoreType] = useState("RAW_MATERIAL");
   const [newDescription, setNewDescription] = useState("");
   const [newWarehouseId, setNewWarehouseId] = useState("Main Warehouse");
   const [newManagerId, setNewManagerId] = useState("NONE");
@@ -155,6 +159,7 @@ function WarehouseStores() {
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [saving, setSaving] = useState(false);
   const [editStoreName, setEditStoreName] = useState("");
+  const [editStoreType, setEditStoreType] = useState("RAW_MATERIAL");
   const [editDescription, setEditDescription] = useState("");
   const [editWarehouseId, setEditWarehouseId] = useState("Main Warehouse");
   const [editManagerId, setEditManagerId] = useState("NONE");
@@ -400,6 +405,7 @@ function WarehouseStores() {
 
   const openCreateStoreDialog = async () => {
     setNewStoreName("");
+    setNewStoreType("RAW_MATERIAL");
     setNewDescription("");
     setNewWarehouseId("Main Warehouse");
     setNewManagerId("NONE");
@@ -427,6 +433,7 @@ function WarehouseStores() {
       const selectedMgr = storeManagers.find((m) => m.employee_id === newManagerId);
       const payload: any = {
         store_name: newStoreName.trim(),
+        store_type: newStoreType,
         description: newDescription.trim() || undefined,
         warehouse_id: newWarehouseId.trim() || "Main Warehouse",
         status: newStatus,
@@ -451,6 +458,7 @@ function WarehouseStores() {
   const openEditStoreDialog = (store: Store) => {
     setEditingStore(store);
     setEditStoreName(store.store_name);
+    setEditStoreType(store.store_type || "RAW_MATERIAL");
     setEditDescription(store.description || "");
     setEditWarehouseId(store.warehouse_id || "Main Warehouse");
     setEditManagerId(store.store_manager_id || "NONE");
@@ -471,6 +479,7 @@ function WarehouseStores() {
       const selectedMgr = storeManagers.find((m) => m.employee_id === editManagerId);
       const payload: any = {
         store_name: editStoreName.trim(),
+        store_type: editStoreType,
         description: editDescription.trim() || undefined,
         warehouse_id: editWarehouseId.trim() || "Main Warehouse",
         status: editStatus,
@@ -979,8 +988,22 @@ function WarehouseStores() {
                               {store.store_code}
                             </td>
                             <td className="py-2.5 px-3">
-                              <div className="font-semibold text-foreground">
-                                {store.store_name}
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-foreground">
+                                  {store.store_name}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase",
+                                    store.store_type === "FINISHED_GOODS"
+                                      ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                                      : store.store_type === "CHEMICAL"
+                                        ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+                                        : "bg-primary/10 text-primary border border-primary/20",
+                                  )}
+                                >
+                                  {store.store_type?.replace(/_/g, " ") || "RAW MATERIAL"}
+                                </span>
                               </div>
                               {store.description && (
                                 <div className="text-[11px] text-muted-foreground truncate max-w-xs">
@@ -1421,6 +1444,22 @@ function WarehouseStores() {
             </div>
 
             <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Store Type</Label>
+              <Select value={newStoreType} onValueChange={setNewStoreType}>
+                <SelectTrigger className="text-xs rounded-xl">
+                  <SelectValue placeholder="Select store type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RAW_MATERIAL">Raw Material Store</SelectItem>
+                  <SelectItem value="FINISHED_GOODS">Finished Goods Store</SelectItem>
+                  <SelectItem value="CHEMICAL">Chemical / Hazardous Store</SelectItem>
+                  <SelectItem value="SPARE_PARTS">Spare Parts Store</SelectItem>
+                  <SelectItem value="GENERAL">General Store</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Warehouse / Location ID</Label>
               <Input
                 value={newWarehouseId}
@@ -1514,6 +1553,22 @@ function WarehouseStores() {
                 required
                 className="text-xs rounded-xl"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Store Type</Label>
+              <Select value={editStoreType} onValueChange={setEditStoreType}>
+                <SelectTrigger className="text-xs rounded-xl">
+                  <SelectValue placeholder="Select store type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RAW_MATERIAL">Raw Material Store</SelectItem>
+                  <SelectItem value="FINISHED_GOODS">Finished Goods Store</SelectItem>
+                  <SelectItem value="CHEMICAL">Chemical / Hazardous Store</SelectItem>
+                  <SelectItem value="SPARE_PARTS">Spare Parts Store</SelectItem>
+                  <SelectItem value="GENERAL">General Store</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">

@@ -38,9 +38,11 @@ class PutawayTaskModel(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     task_number: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    grn_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("grn.id", ondelete="RESTRICT"), nullable=False, index=True)
-    grn_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    grn_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("grn.id", ondelete="RESTRICT"), nullable=True, index=True)
+    grn_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    finished_goods_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("assembly_finished_goods.id", ondelete="SET NULL"), nullable=True, index=True)
     handling_unit_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("handling_unit.id", ondelete="RESTRICT"), nullable=True, unique=True, index=True)
+
     item_code: Mapped[str] = mapped_column(String(64), nullable=False)
     material_name: Mapped[str] = mapped_column(String(256), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
@@ -175,6 +177,8 @@ class AssemblyRequisitionItemModel(Base):
     requested_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     issued_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    custom_material_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     requisition: Mapped[AssemblyRequisitionModel] = relationship("AssemblyRequisitionModel", back_populates="items")
 

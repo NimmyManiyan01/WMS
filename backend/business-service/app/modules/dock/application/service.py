@@ -886,6 +886,29 @@ class DockAllocationService:
                 )
             raise HTTPException(status_code=404, detail="Allocation request or dock not found")
 
+        # Verify receiving/unloading completion if gate pass is attached
+        if req.existing_gate_pass_id and req.existing_gate_pass_id != "N/A":
+            try:
+                from app.modules.gate.infrastructure.persistence.models import GateEntryModel
+                ge_res = await session.execute(
+                    select(GateEntryModel).where(
+                        (GateEntryModel.gate_entry_number == req.existing_gate_pass_id) |
+                        (GateEntryModel.vehicle_number == req.vehicle_number)
+                    )
+                )
+                ge_obj = ge_res.scalars().first()
+                if ge_obj and ge_obj.status not in [
+                    "RECEIVING_COMPLETED", "GRN_COMPLETED", "UNLOADED", "QC_COMPLETED", "RELEASED", "GATE_EXIT_COMPLETED"
+                ]:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Receiving and unloading must be completed before releasing the dock",
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
         dock_code = "N/A"
         if req.assigned_dock_id:
             dock_query = await session.execute(
@@ -898,6 +921,7 @@ class DockAllocationService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Dock can only be released when it is OCCUPIED",
                     )
+
                 old_dock_st = dock.status
                 dock.status = DockStatus.AVAILABLE.value
                 dock_code = dock.dock_code

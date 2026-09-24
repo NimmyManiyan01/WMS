@@ -438,3 +438,145 @@ async def test_assembly_store_pickup_full_lifecycle_and_security():
             )
             ar_final = ar_check.scalar_one()
             assert ar_final.status == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_assembly_requisition_material_availability_and_store_assignment_gating():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer local_dev_mock_token"}
+
+        # 1. Setup Material Master with limited stock (available = 15.0)
+        async with session_scope() as session:
+            mat_res = await session.execute(
+                select(MaterialModel).where(MaterialModel.material_code == "MAT-AVAIL-TEST-01")
+            )
+            mat = mat_res.scalar_one_or_none()
+            if not mat:
+                mat = MaterialModel(
+                    id=uuid.uuid4(),
+                    material_code="MAT-AVAIL-TEST-01",
+                    material_name="Availability Test Component",
+                    category="Raw Materials",
+                    base_uom="PCS",
+                    status="ACTIVE",
+                )
+                session.add(mat)
+                await session.flush()
+
+            stk_res = await session.execute(
+                select(MaterialStockModel).where(MaterialStockModel.material_code == "MAT-AVAIL-TEST-01")
+            )
+            stk = stk_res.scalar_one_or_none()
+            if not stk:
+                stk = MaterialStockModel(
+                    id=uuid.uuid4(),
+                    material_id=mat.id,
+                    material_code="MAT-AVAIL-TEST-01",
+                    material_name="Availability Test Component",
+                    category="Raw Materials",
+                    uom="PCS",
+                    warehouse_id="WH-001",
+                    on_hand=Decimal("15.0"),
+                    available=Decimal("15.0"),
+                    allocated=Decimal("0.0"),
+                )
+                session.add(stk)
+            else:
+                stk.available = Decimal("15.0")
+                stk.on_hand = Decimal("15.0")
+            await session.commit()
+
+        # 2. Create Requisition with quantity = 50.0 (Shortage scenario: required 50 > available 15)
+        res_create = await client.post(
+            "/api/v1/assembly-requisitions",
+            json={
+                "warehouse_id": "WH-001",
+                "department": "Assembly Line B",
+                "requested_by": "Test Shortage Operator",
+                "priority": "HIGH",
+                "required_date": "2026-10-01",
+                "remarks": "Testing shortage availability gating",
+                "items": [
+                    {
+                        "material_id": str(mat.id),
+                        "material_code": "MAT-AVAIL-TEST-01",
+                        "material_name": "Availability Test Component",
+                        "quantity": 50.0,
+                        "uom": "PCS",
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        assert res_create.status_code == 201, res_create.text
+        req_data = res_create.json()
+        req_id = req_data["id"]
+
+        # Verify availability response payload indicates shortage and can_assign_store = False
+        assert req_data["allItemsAvailable"] is False or req_data.get("all_items_available") is False
+        assert req_data["canAssignStore"] is False or req_data.get("can_assign_store") is False
+        assert req_data["availabilityStatus"] == "SHORTAGE" or req_data.get("availability_status") == "SHORTAGE"
+        assert "Material shortage — Store assignment unavailable" in (
+            req_data.get("availabilityMessage") or req_data.get("availability_message")
+        )
+        assert req_data["items"][0]["hasSufficientStock"] is False
+        assert float(req_data["items"][0]["availableQuantity"]) == 15.0
+        assert float(req_data["items"][0]["shortageQuantity"]) == 35.0
+
+        # 3. Attempt to Assign Store during shortage -> Must be rejected with HTTP 400
+        # Get a valid store id
+        stores_res = await client.get("/api/v1/stores", headers=headers)
+        store_id = stores_res.json()[0]["id"]
+
+        res_assign_shortage = await client.post(
+            f"/api/v1/assembly-requisitions/{req_id}/assign-store",
+            json={"store_id": store_id},
+            headers=headers,
+        )
+        assert res_assign_shortage.status_code == 400
+        assert "Material shortage" in res_assign_shortage.text and "Store assignment unavailable" in res_assign_shortage.text
+
+        # 4. Replenish inventory (available = 100.0)
+        async with session_scope() as session:
+            stk_res = await session.execute(
+                select(MaterialStockModel).where(MaterialStockModel.material_code == "MAT-AVAIL-TEST-01")
+            )
+            stk = stk_res.scalar_one()
+            stk.available = Decimal("100.0")
+            stk.on_hand = Decimal("100.0")
+            await session.commit()
+
+        # 5. Fetch Requisition details -> Now allItemsAvailable = True & canAssignStore = True
+        res_get = await client.get(
+            f"/api/v1/assembly-requisitions/{req_id}",
+            headers=headers,
+        )
+        assert res_get.status_code == 200
+        get_data = res_get.json()
+        assert get_data["allItemsAvailable"] is True or get_data.get("all_items_available") is True
+        assert get_data["canAssignStore"] is True or get_data.get("can_assign_store") is True
+        assert get_data["availabilityStatus"] == "AVAILABLE" or get_data.get("availability_status") == "AVAILABLE"
+        assert get_data["items"][0]["hasSufficientStock"] is True
+        assert float(get_data["items"][0]["availableQuantity"]) == 100.0
+        assert float(get_data["items"][0]["shortageQuantity"]) == 0.0
+
+        # 6. Assign Store now succeeds and transitions to ASSIGNED_TO_STORE
+        res_assign_ok = await client.post(
+            f"/api/v1/assembly-requisitions/{req_id}/assign-store",
+            json={"store_id": store_id},
+            headers=headers,
+        )
+        assert res_assign_ok.status_code == 200, res_assign_ok.text
+        assign_data = res_assign_ok.json()
+        assert assign_data["status"] == "success"
+        assert assign_data["assigned_store"]["id"] == store_id
+
+        # Verify Requisition status updated to ASSIGNED_TO_STORE
+        res_get_assigned = await client.get(
+            f"/api/v1/assembly-requisitions/{req_id}",
+            headers=headers,
+        )
+        assert res_get_assigned.status_code == 200
+        assert res_get_assigned.json()["status"] == "ASSIGNED_TO_STORE"
+

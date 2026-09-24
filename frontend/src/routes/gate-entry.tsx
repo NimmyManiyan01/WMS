@@ -198,8 +198,8 @@ function GateEntry() {
   const [exitingId, setExitingId] = useState<string | null>(null);
   const approvalDialog = useRef<HTMLDialogElement>(null);
 
-  const isEligibleForInboundExit = (status: string) => {
-    const upper = (status || "").toUpperCase().trim();
+  const isEligibleForInboundExit = (statusStr: string) => {
+    const upper = (statusStr || "").toUpperCase().trim();
     return [
       "RECEIVING_COMPLETED",
       "COMPLETED",
@@ -211,9 +211,14 @@ function GateEntry() {
     ].includes(upper);
   };
 
-  const handleMarkVehicleExited = async (entry: GateEntryRecord) => {
-    const vehName = entry.vehiclePlate || "this vehicle";
-    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`)) return;
+  const handleMarkVehicleExited = async (entry: any) => {
+    const vehName = entry.vehiclePlate || entry.vehicle_number || "this vehicle";
+    if (
+      !confirm(
+        `Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`,
+      )
+    )
+      return;
     setExitingId(entry.id);
     try {
       const updated = await api.markInboundVehicleExited(entry.id);
@@ -226,7 +231,8 @@ function GateEntry() {
       }
     } catch (error: any) {
       toast.error("Gate exit approval failed", {
-        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
+        description:
+          error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
       });
     } finally {
       setExitingId(null);
@@ -1457,7 +1463,7 @@ function GateEntry() {
               {entries.slice(0, 8).map((entry) => (
                 <div key={entry.id} className="relative group">
                   <div
-                    className="flex items-center gap-3 rounded-xl border border-border/70 p-3 transition-colors hover:border-primary/30 hover:bg-primary-soft/40"
+                    className="flex items-center gap-3 rounded-xl border border-border/70 p-3 transition-colors hover:border-primary/30 hover:bg-primary-soft/50"
                   >
                     {entry.truckPhotoBase64 ? (
                       <div className="size-14 shrink-0 overflow-hidden rounded-lg border border-border/40">

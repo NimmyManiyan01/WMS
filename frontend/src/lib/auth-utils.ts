@@ -97,16 +97,19 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
     return ["SUPPLIER", "PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/assembly"))
     return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
+  if (pathname.startsWith("/dispatch") || pathname.startsWith("/dispatch-"))
+    return ["DISPATCH", "DISPATCH_MANAGER", "WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname === "/gate-dashboard" ||
     pathname === "/gate-entry" ||
-    pathname === "/vehicle-queue" ||
     pathname === "/vehicle-exit" ||
     pathname === "/unscheduled-arrivals"
   )
-    return ["GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"];
+    return ["GATE_SECURITY", "GATE_OPERATOR", "WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname === "/grn" || pathname === "/receiving")
     return ["GRN", "GRN_MANAGER", "RECEIVING", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+  if (pathname === "/warehouse/stores")
+    return ["WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/warehouse") ||
     pathname === "/warehouse-dashboard" ||
@@ -114,7 +117,6 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
     pathname === "/dock-master" ||
     pathname === "/inventory" ||
     pathname === "/putaway-tasks" ||
-    pathname === "/pick-tasks" ||
     pathname === "/reports" ||
     pathname === "/damage-claims"
   )
@@ -127,7 +129,7 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
       "SUPERUSER",
     ];
   if (pathname === "/my-store")
-    return ["STORE_MANAGER", "STORE_KEEPER", "WAREHOUSE", "ADMIN", "SUPERUSER"];
+    return ["STORE_MANAGER", "STORE_KEEPER", "ADMIN", "SUPERUSER"];
   return null;
 }
 
@@ -162,22 +164,15 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 }
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
-  const roles = user?.roles.map(normalizeRole) ?? [];
-  if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) return "/admin/users";
-  if (roles.includes("MANAGER")) return "/manager-dashboard";
-  if (roles.includes("FINANCE")) return "/finance-dashboard";
-  if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
-  if (roles.includes("GATE_SECURITY")) return "/gate-entry";
-  if (roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (roles.includes("STORE_MANAGER") || roles.includes("STORE_KEEPER")) return "/my-store";
-  if (
-    roles.includes("ASSEMBLY_MANAGER") ||
-    roles.includes("ASSEMBLY") ||
-    user?.username?.toLowerCase() === "assembly" ||
-    user?.username?.toLowerCase() === "assembly_manager"
-  ) {
-    return "/assembly-dashboard";
-  }
+  if (user?.roles.includes("ADMIN") || user?.roles.includes("SUPERUSER")) return "/admin/users";
+  if (user?.roles.includes("FINANCE")) return "/finance-dashboard";
+  if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
+  if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
+  if (user?.roles.includes("SUPPLIER")) return "/submit-quotation";
+  if (user?.roles.includes("ASSEMBLY_MANAGER") || user?.roles.includes("ASSEMBLY") || user?.roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
+  if (user?.roles.includes("DISPATCH") || user?.roles.includes("DISPATCH_MANAGER") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
+  if (user?.roles.includes("STORE_MANAGER") || user?.roles.includes("STORE_KEEPER"))
+    return "/my-store";
   if (
     roles.includes("GRN") ||
     roles.includes("GRN_MANAGER") ||

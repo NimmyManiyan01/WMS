@@ -76,7 +76,9 @@ src/
 | `/driver-verification`, `/vehicle-verification`           | verification steps                           |
 | `/accept-arrival`, `/arrival-success`, `/dock-assignment` | arrival workflow steps                       |
 | `/warehouse-dashboard`                                    | warehouse dashboard                          |
-| `/vehicle-queue`, `/dock-management`                      | inbound queue and dock administration        |
+| `/dock-management`                                        | dock allocation and administration          |
+| `/warehouse/stores`                                       | Store Master, zones & bins hierarchy         |
+| `/my-store`                                               | operational store portal                     |
 | `/receiving`, `/grn`                                      | unload/check/complete receiving and post GRN |
 | `/inventory`, `/putaway-tasks`                            | stock/location views and putaway execution   |
 | `/vehicle-exit`                                           | warehouse approval and gate exit             |

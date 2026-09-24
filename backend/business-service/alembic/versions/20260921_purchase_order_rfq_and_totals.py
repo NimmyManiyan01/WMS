@@ -62,13 +62,14 @@ def upgrade() -> None:
             ),
         )
         # Backfill existing rows if any
-        op.execute(
-            """
-            UPDATE purchase_order
-            SET total_amount = COALESCE(subtotal, 0.0) - COALESCE(discount_amount, 0.0) + COALESCE(tax_amount, 0.0) + COALESCE(freight_charges, 0.0) + COALESCE(additional_charges, 0.0)
-            WHERE total_amount = 0.0 AND subtotal IS NOT NULL
-            """
-        )
+        if _column_exists("purchase_order", "subtotal"):
+            op.execute(
+                """
+                UPDATE purchase_order
+                SET total_amount = COALESCE(subtotal, 0.0) - COALESCE(discount_amount, 0.0) + COALESCE(tax_amount, 0.0) + COALESCE(freight_charges, 0.0) + COALESCE(additional_charges, 0.0)
+                WHERE total_amount = 0.0 AND subtotal IS NOT NULL
+                """
+            )
 
     # 3. Add warehouse_id to purchase_order
     if not _column_exists("purchase_order", "warehouse_id"):
@@ -77,13 +78,30 @@ def upgrade() -> None:
             sa.Column("warehouse_id", sa.String(length=64), nullable=True),
         )
         # Backfill warehouse_id from delivery_warehouse_name or delivery_warehouse if available
-        op.execute(
-            """
-            UPDATE purchase_order
-            SET warehouse_id = COALESCE(delivery_warehouse_name, delivery_warehouse)
-            WHERE warehouse_id IS NULL
-            """
-        )
+        if _column_exists("purchase_order", "delivery_warehouse_name") and _column_exists("purchase_order", "delivery_warehouse"):
+            op.execute(
+                """
+                UPDATE purchase_order
+                SET warehouse_id = COALESCE(delivery_warehouse_name, delivery_warehouse)
+                WHERE warehouse_id IS NULL
+                """
+            )
+        elif _column_exists("purchase_order", "delivery_warehouse"):
+            op.execute(
+                """
+                UPDATE purchase_order
+                SET warehouse_id = delivery_warehouse
+                WHERE warehouse_id IS NULL
+                """
+            )
+        elif _column_exists("purchase_order", "delivery_warehouse_name"):
+            op.execute(
+                """
+                UPDATE purchase_order
+                SET warehouse_id = delivery_warehouse_name
+                WHERE warehouse_id IS NULL
+                """
+            )
 
     # 4. Add updated_at to purchase_order
     if not _column_exists("purchase_order", "updated_at"):

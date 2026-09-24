@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import List, Optional
 import uuid
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Table, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, GUID
@@ -526,6 +526,8 @@ class MaterialRequestItemModel(Base):
     material_name: Mapped[str] = mapped_column(String(255), nullable=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    is_custom: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
+    custom_material_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     request: Mapped[MaterialRequestModel] = relationship("MaterialRequestModel", back_populates="items")
     material: Mapped[Optional["MaterialModel"]] = relationship("MaterialModel")
@@ -537,14 +539,16 @@ class FinishedGoodsRequestModel(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     request_number: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-    warehouse_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    warehouse_id: Mapped[str] = mapped_column(String(64), nullable=False, default="MAIN")
     finished_goods_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     finished_goods_name: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
     required_date: Mapped[date] = mapped_column(Date, nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="SENT_TO_ASSEMBLY")
+    bom_attachment_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    bom_attachment_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)

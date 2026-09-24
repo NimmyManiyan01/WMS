@@ -407,6 +407,11 @@ def _to_gate_entry_response(
         if hasattr(entry.updated_at, "isoformat")
         else str(entry.updated_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
     )
+    exited_at_val = (
+        entry.exited_at.isoformat()
+        if hasattr(entry.exited_at, "isoformat")
+        else str(entry.exited_at) if entry.exited_at else None
+    )
 
     exited_at_val = (
         entry.exited_at.isoformat()
@@ -436,7 +441,7 @@ def _to_gate_entry_response(
         mismatched_fields=mismatch_dtos,
         verified_by=entry.verified_by,
         exited_at=exited_at_val,
-        exited_by=getattr(entry, "exited_by", None),
+        exited_by=entry.exited_by,
         created_at=created_at_val,
         updated_at=updated_at_val,
     )
@@ -541,8 +546,8 @@ async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | Non
         ocr_line_items=list(ocr.line_items) if ocr else [],
         security_officer_id=entry.created_by,
         verified_by_user_id=entry.verified_by,
-        exited_at=getattr(entry, "exited_at", None),
-        exited_by=getattr(entry, "exited_by", None),
+        exited_at=entry.exited_at,
+        exited_by=entry.exited_by,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
     )
@@ -857,7 +862,7 @@ async def create_gate_entry(
             user_role="WAREHOUSE",
             title="Direct Gate Entry Approved",
             message=f"Vehicle {plate} for PO {po_num} has been approved at the gate and is ready for warehouse processing.",
-            link="/vehicle-queue",
+            link="/dock-management",
         ))
     entry.move_to_inbound_queue()
 
@@ -1375,13 +1380,13 @@ async def assign_arrival_dock(
         user_role=f"STR:{store.store_code}"[:32],
         title=f"Vehicle Arrival Assigned to {store.store_name}",
         message=notif_msg,
-        link="/vehicle-queue",
+        link="/my-store",
     ))
     uow.session.add(NotificationModel(
         user_role=f"STR:{store.id}"[:32],
         title=f"Vehicle Arrival Assigned to {store.store_name}",
         message=notif_msg,
-        link="/vehicle-queue",
+        link="/my-store",
     ))
 
     return {
@@ -1427,7 +1432,7 @@ async def start_dock_movement(
         user_role="WAREHOUSE",
         title="Vehicle Moving to Dock",
         message=f"{entry.vehicle_plate} is moving to {entry.assigned_dock_id}.",
-        link="/vehicle-queue",
+        link="/dock-management",
     ))
     return {
         "id": entry.id,
@@ -1475,7 +1480,7 @@ async def dock_check_in(
         user_role="WAREHOUSE",
         title="Vehicle Arrived at Dock",
         message=f"{entry.vehicle_plate} checked in at {assignment.dock_number} for ASN-linked receiving.",
-        link="/vehicle-queue",
+        link="/dock-management",
     ))
     return {
         "id": entry.id,
@@ -3091,7 +3096,7 @@ async def list_gate_entries(
             response = _to_gate_entry_response(_gate_entry_from_model(model))
             responses.append(response.model_copy(update={
                 "driver_phone": model.driver_phone,
-                "document_image_base64": None,
+                "document_image_base64": base64.b64encode(model.po_document_data).decode("ascii") if model.po_document_data else None,
                 "exited_at": model.exited_at.isoformat() if model.exited_at else None,
                 "exited_by": model.exited_by,
             }))
