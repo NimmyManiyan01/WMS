@@ -23,6 +23,7 @@ __pycache__/
 *$py.class
 *.so
 .pytest_cache/
+.pytest-tmp/
 .coverage
 htmlcov/
 
