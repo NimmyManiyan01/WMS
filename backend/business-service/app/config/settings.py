@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     supplier_password: str = Field(default="supplier123")
     grn_username: str = Field(default="grn")
     grn_password: str = Field(default="grn123")
+    dispatch_username: str = Field(default="dispatch")
+    dispatch_password: str = Field(default="dispatch123")
 
     # --- Email SMTP Settings ----------------------------------------------------
     email_host: str = Field(default="smtp.gmail.com")

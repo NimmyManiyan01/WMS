@@ -58,6 +58,21 @@ const grnNav = [
   { label: "GRN History", to: "/grn?tab=records", icon: ClipboardList },
 ];
 
+const dispatchNav = [
+  { label: "Overview", to: "/dispatch", icon: LayoutDashboard },
+  { label: "Dispatch Orders", to: "/dispatch-orders", icon: ClipboardList },
+  { label: "Picking & Packing", to: "/dispatch-picking-packing", icon: PackageCheck },
+  { label: "Loading Bay", to: "/dispatch-loading", icon: Boxes },
+  { label: "Transport Allocation", to: "/dispatch-transport-allocation", icon: Truck },
+  { label: "Gate Exit Clearance", to: "/dispatch-gate-exit", icon: LogOut },
+  { label: "Transit Tracking", to: "/dispatch-transit", icon: Truck },
+  { label: "Proof of Delivery", to: "/dispatch-pod", icon: ShieldCheck },
+  { label: "Vehicles", to: "/dispatch-vehicles", icon: Truck },
+  { label: "Drivers", to: "/dispatch-drivers", icon: Users },
+  { label: "Exceptions", to: "/dispatch-exceptions", icon: AlertTriangle },
+  { label: "Reports", to: "/dispatch-reports", icon: BarChart3 },
+];
+
 const storeManagerNav = [
   { label: "My Store Control", to: "/my-store", icon: Store },
   { label: "Stores Master", to: "/warehouse/stores", icon: Building2 },
@@ -202,12 +217,24 @@ function isGrnSession(user: { username?: string; roles?: string[] } | null): boo
   );
 }
 
+function isDispatchSession(user: { username?: string; roles?: string[] } | null): boolean {
+  const username = user?.username?.toLowerCase() ?? "";
+  return Boolean(
+    user?.roles?.some((role) =>
+      ["DISPATCH", "DISPATCH_MANAGER", "DISPATCH_OFFICER", "DISPATCH_OPERATOR"].includes(role),
+    ) ||
+    username === "dispatch" ||
+    username.includes("dispatch"),
+  );
+}
+
 function getNotificationRole(user: { username?: string; roles?: string[] } | null): string {
   if (hasUserRole(user, "SUPPLIER")) return "SUPPLIER";
   if (hasUserRole(user, "FINANCE")) return "FINANCE";
   if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
   if (hasUserRole(user, "MANAGER")) return "MANAGER";
   if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
+  if (isDispatchSession(user)) return "DISPATCH";
   if (isGrnSession(user)) return "GRN";
   return "WAREHOUSE";
 }
@@ -224,6 +251,7 @@ function getStrictRoleNav(user: { username?: string; roles?: string[] } | null):
   if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return assemblyNav;
   if (hasUserRole(user, "STORE_MANAGER") || hasUserRole(user, "STORE_KEEPER"))
     return storeManagerNav;
+  if (isDispatchSession(user)) return dispatchNav;
   if (isGrnSession(user)) return grnNav;
   return warehouseNav;
 }
@@ -236,6 +264,7 @@ function getRoleLabel(user: { username?: string; roles?: string[] } | null): str
   if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
   if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
   if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
+  if (isDispatchSession(user)) return "Dispatch Manager";
   if (isGrnSession(user)) return "GRN / Operations Manager";
   return "Operations Manager";
 }

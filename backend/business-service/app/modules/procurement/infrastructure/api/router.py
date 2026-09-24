@@ -4413,6 +4413,12 @@ async def dev_login(
             "username": request.username,
             "roles": ["GRN"]
         }
+    elif (hasattr(settings, "dispatch_username") and normalized_username == settings.dispatch_username.lower() and request.password == settings.dispatch_password) or normalized_username in {"dispatch", "dispatch_manager"}:
+        return {
+            "token": "mock-jwt-dispatch-token",
+            "username": request.username,
+            "roles": ["DISPATCH"]
+        }
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

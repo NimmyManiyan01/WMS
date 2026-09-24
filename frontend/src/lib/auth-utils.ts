@@ -182,6 +182,16 @@ export function getDefaultRouteForUser(user = getUserInfo()): string {
   ) {
     return "/grn";
   }
+  if (
+    roles.includes("DISPATCH") ||
+    roles.includes("DISPATCH_MANAGER") ||
+    roles.includes("DISPATCH_OFFICER") ||
+    roles.includes("DISPATCH_OPERATOR") ||
+    user?.username?.toLowerCase() === "dispatch" ||
+    user?.username?.toLowerCase()?.includes("dispatch")
+  ) {
+    return "/dispatch";
+  }
   return "/warehouse-dashboard";
 }
 
