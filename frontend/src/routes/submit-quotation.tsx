@@ -35,6 +35,13 @@ import {
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/submit-quotation")({
   beforeLoad: () => requireRole("SUPPLIER"),
@@ -78,6 +85,7 @@ function SubmitQuotation() {
     deliveryTime: "",
     expectedDeliveryDate: "",
     paymentTerms: "Net 30",
+    modeOfPayment: "Bank Transfer",
     remarks: "",
   });
 
@@ -191,7 +199,8 @@ function SubmitQuotation() {
             deliveryTime: existing.deliveryTime || existing.delivery_time || "",
             expectedDeliveryDate:
               existing.expectedDeliveryDate || existing.expected_delivery_date || "",
-            paymentTerms: existing.paymentTerms || existing.payment_terms || "",
+            paymentTerms: existing.paymentTerms || existing.payment_terms || "Net 30",
+            modeOfPayment: existing.modeOfPayment || existing.mode_of_payment || "Bank Transfer",
             remarks: existing.remarks || "",
           });
 
@@ -335,6 +344,7 @@ function SubmitQuotation() {
         delivery_time: metaData.deliveryTime,
         expected_delivery_date: metaData.expectedDeliveryDate || null,
         payment_terms: metaData.paymentTerms,
+        mode_of_payment: metaData.modeOfPayment,
         remarks: metaData.remarks,
         documents: uploadedDocs,
       };
@@ -414,6 +424,7 @@ function SubmitQuotation() {
         delivery_time: metaData.deliveryTime,
         expected_delivery_date: metaData.expectedDeliveryDate || null,
         payment_terms: metaData.paymentTerms,
+        mode_of_payment: metaData.modeOfPayment,
         warranty: (metaData as any).warranty || "12 Months Warranty",
         remarks: metaData.remarks,
         documents: uploadedDocs,
@@ -770,12 +781,32 @@ function SubmitQuotation() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Payment Terms</Label>
-              <Input
-                name="paymentTerms"
-                placeholder="e.g. Net 30"
-                className="rounded-xl h-10"
+              <Select
                 disabled={isLocked}
                 value={metaData.paymentTerms}
+                onValueChange={(val) => setMetaData((prev) => ({ ...prev, paymentTerms: val }))}
+              >
+                <SelectTrigger className="rounded-xl h-10">
+                  <SelectValue placeholder="Select payment terms" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Net 30">Net 30</SelectItem>
+                  <SelectItem value="Net 60">Net 60</SelectItem>
+                  <SelectItem value="Immediate">Immediate</SelectItem>
+                  <SelectItem value="COD">Cash on Delivery (COD)</SelectItem>
+                  <SelectItem value="Advance">Advance Payment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Mode of Payment</Label>
+              <Input
+                name="modeOfPayment"
+                placeholder="e.g. Bank Transfer, Wire, UPI"
+                className="rounded-xl h-10"
+                disabled={isLocked}
+                value={metaData.modeOfPayment}
                 onChange={handleMetaChange}
               />
             </div>
