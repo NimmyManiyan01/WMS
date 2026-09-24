@@ -31,15 +31,39 @@ async def get_dashboard_stats(
     gate_res = await uow.session.execute(
         select(GateEntryModel).order_by(GateEntryModel.created_at.desc())
     )
-    gate_models = gate_res.scalars().all()
+    models = result.scalars().all()
 
-    # 2. Fetch active dock allocation requests from PostgreSQL
-    dock_req_res = await uow.session.execute(
-        select(DockAllocationRequestModel).options(
-            selectinload(DockAllocationRequestModel.assigned_dock)
-        ).order_by(DockAllocationRequestModel.created_at.desc())
-    )
-    dock_requests = dock_req_res.scalars().all()
+    total_arrivals = len(models)
+
+    # Compute status-based counters
+    verified_arrivals = 0
+    unscheduled_arrivals = 0
+    vehicles_waiting = 0
+    receiving_in_progress = 0
+    vehicles_exited = 0
+
+    for m in models:
+        status_upper = (m.status or "").upper()
+
+        if status_upper == "VEHICLE_EXITED" or m.exited_at is not None:
+            vehicles_exited += 1
+
+        if "REJECT" in status_upper:
+            continue
+        
+        if status_upper == "PO_VERIFIED" or status_upper == "APPROVED":
+            verified_arrivals += 1
+        elif status_upper == "UNSCHEDULED_ARRIVAL":
+            unscheduled_arrivals += 1
+
+        # Logic for vehicles waiting and receiving
+        if "DOCK" in status_upper or "RECEIV" in status_upper:
+            receiving_in_progress += 1
+        elif "COMPLET" not in status_upper and "EXITED" not in status_upper:
+            vehicles_waiting += 1
+
+    # Fetch real docks and active allocations from PostgreSQL
+    from app.modules.dock.infrastructure.persistence.models import DockMasterModel, DockAllocationRequestModel
 
     # 3. Fetch real docks from PostgreSQL
     dock_res = await uow.session.execute(
@@ -243,7 +267,14 @@ async def get_dashboard_stats(
         gp_no = entry["gate_entry_no"]
         vendor = entry["vendor"]
 
-        if status_upper == "VEHICLE_EXITED":
+        if status_upper == "VEHICLE_EXITED" or m.exited_at is not None:
+            activity.append({
+                "time": time_str,
+                "title": "Vehicle exited facility",
+                "detail": f"{m.vehicle_number} · Pass: {m.gate_entry_number} · Cleared by {m.exited_by or 'Security'}",
+                "tone": "success"
+            })
+        elif status_upper == "PO_VERIFIED":
             activity.append({
                 "time": time_str,
                 "title": "Vehicle exited facility",
@@ -304,6 +335,33 @@ async def get_dashboard_stats(
         "target": max(total_arrivals + 2, 10),
         "percentage": int(((max(0, total_arrivals - vehicles_waiting)) / max(total_arrivals + 2, 10)) * 100) if total_arrivals > 0 else 0
     }
+
+    # Format gate entries list for dashboard table
+    formatted_entries = []
+    for m in models[:10]:
+        dock_no = "—"
+        for d in docks:
+            if d["vehicle"] == m.vehicle_number:
+                dock_no = d["id"]
+                break
+
+        formatted_entries.append({
+            "id": str(m.id),
+            "vehicle_number": m.vehicle_number,
+            "gate_entry_no": m.gate_entry_number,
+            "driver_name": m.driver_name,
+            "po_number": m.po_number,
+            "arrival_time": m.created_at.strftime("%H:%M"),
+            "dock_number": dock_no,
+            "status": m.status,
+            "vendor": m.ocr_supplier_name or getattr(m, "supplier_name", None) or "Unknown Vendor",
+            "supplier_name": m.ocr_supplier_name or getattr(m, "supplier_name", None) or "Unknown Vendor",
+            "material": m.ocr_product_material or "—",
+            "quantity": float(m.ocr_quantity) if m.ocr_quantity is not None else 0,
+            "truck_photo_base64": base64.b64encode(m.vehicle_photo_data).decode("ascii") if m.vehicle_photo_data else None,
+            "exited_at": m.exited_at.isoformat() if m.exited_at else None,
+            "exited_by": m.exited_by,
+        })
 
     occupied_count = len([d for d in docks if d["status"] in ("Occupied", "Reserved")])
     total_docks_count = len(docks)

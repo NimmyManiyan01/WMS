@@ -32,7 +32,7 @@ function GateDashboard() {
 
   useEffect(() => {
     void loadDashboard();
-    const timer = window.setInterval(loadDashboard, 3_000);
+    const timer = window.setInterval(loadDashboard, 5_000);
     const handleRefresh = () => { void loadDashboard(); };
 
     window.addEventListener("focus", handleRefresh);

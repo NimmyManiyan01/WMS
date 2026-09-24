@@ -206,6 +206,15 @@ async def lifespan(app: FastAPI):
                 await run_ddl(f"ALTER TABLE material_request ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
             except Exception: pass
 
+        for col in [
+            ("is_custom", "BOOLEAN DEFAULT FALSE"),
+            ("custom_material_name", "VARCHAR(256)"),
+        ]:
+            try:
+                await run_ddl(f"ALTER TABLE assembly_requisition_item ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+                await run_ddl(f"ALTER TABLE material_request_item ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+            except Exception: pass
+
         # Ensure supplier_contact has primary_email and secondary_email
         try:
             await run_ddl("ALTER TABLE supplier_contact RENAME COLUMN email TO primary_email")
@@ -762,6 +771,42 @@ async def lifespan(app: FastAPI):
             logger.debug("Ensured grn_damage_lot and grn_damage_qr tables exist")
         except Exception as e:
             logger.warning(f"Failed to create grn_damage_lot/grn_damage_qr tables: {e}")
+
+        # Create finished_goods_request table
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS finished_goods_request (
+                    id UUID PRIMARY KEY,
+                    request_number VARCHAR(64) UNIQUE NOT NULL,
+                    warehouse_id VARCHAR(64) NOT NULL DEFAULT 'MAIN',
+                    finished_goods_code VARCHAR(64),
+                    finished_goods_name VARCHAR(255) NOT NULL,
+                    quantity NUMERIC(18, 4) NOT NULL,
+                    uom VARCHAR(32) NOT NULL DEFAULT 'PCS',
+                    required_date DATE NOT NULL,
+                    requested_by VARCHAR(128) NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'SENT_TO_ASSEMBLY',
+                    bom_attachment_url VARCHAR(512),
+                    bom_attachment_name VARCHAR(256),
+                    remarks TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            for col, col_type in [
+                ("bom_attachment_url", "VARCHAR(512)"),
+                ("bom_attachment_name", "VARCHAR(256)"),
+                ("finished_goods_code", "VARCHAR(64)"),
+                ("warehouse_id", "VARCHAR(64) DEFAULT 'MAIN'"),
+                ("uom", "VARCHAR(32) DEFAULT 'PCS'"),
+                ("remarks", "TEXT"),
+            ]:
+                try:
+                    await run_ddl(f"ALTER TABLE finished_goods_request ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                except Exception: pass
+            logger.debug("Ensured finished_goods_request table and columns exist")
+        except Exception as e:
+            logger.warning(f"Failed to create finished_goods_request table: {e}")
 
         # Create arrival_notification table
         try:

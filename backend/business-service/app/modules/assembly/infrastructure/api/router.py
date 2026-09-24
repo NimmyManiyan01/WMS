@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import logging
 import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.database.session import UnitOfWork, get_uow
 from app.modules.assembly.infrastructure.persistence.models import (
@@ -26,12 +27,24 @@ from app.modules.procurement.infrastructure.persistence.models import (
     MaterialStockModel,
     MaterialRequestModel,
     MaterialRequestItemModel,
+    FinishedGoodsRequestModel,
     NotificationModel,
     PickTaskModel,
 )
-from app.modules.storage.infrastructure.persistence.models import HandlingUnitModel, PutawayMovementModel, StorageLocationModel
+from app.modules.receiving.infrastructure.persistence.models import GrnModel
+from app.modules.storage.infrastructure.persistence.models import (
+    HandlingUnitModel,
+    InventoryMovementHistoryModel,
+    PutawayMovementModel,
+    PutawayTaskModel,
+    StorageLocationModel,
+)
+from app.modules.store.infrastructure.persistence.models import StoreModel, StoreZoneModel, StoreBinModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/assembly", tags=["assembly"])
+
 
 DEFAULT_ASSEMBLY_STEP_NAMES = [
     "Housing preparation", "PCB installation", "Cable connection",
@@ -209,12 +222,22 @@ def serialize_rework(rework: AssemblyReworkOrderModel, order: AssemblyOrderModel
 
 def serialize_finished_goods(record: AssemblyFinishedGoodsModel) -> dict:
     return {
-        "id": str(record.id), "assembly_order_id": str(record.assembly_order_id),
-        "product_code": record.product_code, "product_name": record.product_name,
-        "quantity": float(record.quantity), "uom": record.uom, "status": record.status,
-        "warehouse": record.warehouse_id, "location": record.location_code,
-        "on_hand_before": float(record.on_hand_before), "on_hand_after": float(record.on_hand_after),
-        "posted_at": record.posted_at.isoformat(), "updated_at": record.updated_at.isoformat(),
+        "id": str(record.id),
+        "assembly_order_id": str(record.assembly_order_id),
+        "product_code": record.product_code,
+        "product_name": record.product_name,
+        "quantity": float(record.quantity),
+        "uom": record.uom,
+        "status": record.status,
+        "warehouse": record.warehouse_id,
+        "location": record.location_code,
+        "qr_code": record.qr_code,
+        "serial_number": record.serial_number,
+        "store_id": str(record.store_id) if record.store_id else None,
+        "on_hand_before": float(record.on_hand_before),
+        "on_hand_after": float(record.on_hand_after),
+        "posted_at": record.posted_at.isoformat() if record.posted_at else None,
+        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
     }
 
 
@@ -246,61 +269,119 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
     code = (product_code or finished_good_code(order.product_name)).strip().upper()
     warehouse = warehouse_id.strip().upper()
     location_value = location_code.strip().upper()
+
+    # Generate unique unit serial number & QR code
+    serial_number = f"SN-{order.order_number}-{uuid.uuid4().hex[:6].upper()}"
+    qr_code = f"FG-QR|{code}|{serial_number}|ORD:{order.order_number}|QTY:{passed_quantity}"
+
+    # Resolve Finished Goods Store dynamically
+    fg_store_res = await uow.session.execute(
+        select(StoreModel).where(
+            or_(
+                func.upper(StoreModel.store_type) == "FINISHED_GOODS",
+                StoreModel.store_name.ilike("%Finished Goods%"),
+                StoreModel.store_code.ilike("%FG%"),
+            ),
+            StoreModel.status == "ACTIVE"
+        ).order_by(StoreModel.created_at.asc())
+    )
+    fg_store = fg_store_res.scalars().first()
+    if not fg_store:
+        fallback_res = await uow.session.execute(
+            select(StoreModel).where(StoreModel.status == "ACTIVE").order_by(StoreModel.created_at.asc())
+        )
+        fg_store = fallback_res.scalars().first()
+
     posting = await uow.session.scalar(select(AssemblyFinishedGoodsModel).where(
         AssemblyFinishedGoodsModel.assembly_order_id == order.id
     ).with_for_update())
-    already_posted = posting.quantity if posting else Decimal("0")
-    if passed_quantity < already_posted:
-        raise HTTPException(status_code=409, detail="Passed quantity cannot be lower than finished goods already posted")
-    if posting and (posting.product_code != code or posting.warehouse_id != warehouse or posting.location_code != location_value):
-        raise HTTPException(status_code=409, detail="Finished goods destination cannot change after inventory posting")
-    delta = passed_quantity - already_posted
-    if delta <= 0:
-        return posting
-    stock = await uow.session.scalar(select(MaterialStockModel).where(
-        MaterialStockModel.material_code == code
-    ).with_for_update())
-    if stock and stock.warehouse_id != warehouse:
-        raise HTTPException(status_code=409, detail=f"Finished product {code} belongs to warehouse {stock.warehouse_id}")
-    if not stock:
-        stock = MaterialStockModel(
-            id=uuid.uuid4(), material_code=code, material_name=order.product_name, category="FINISHED_GOODS",
-            on_hand=Decimal("0"), allocated=Decimal("0"), available=Decimal("0"), uom="PCS",
-            warehouse_id=warehouse, reorder_point=Decimal("0"), updated_at=now,
-        )
-        uow.session.add(stock)
-        await uow.session.flush()
-    before = stock.on_hand
-    stock.on_hand += delta
-    stock.available += delta
-    stock.updated_at = now
-    location = await uow.session.scalar(select(StorageLocationModel).where(
-        StorageLocationModel.location_code == location_value,
-        StorageLocationModel.warehouse_id == warehouse,
-        StorageLocationModel.active.is_(True),
-    ).with_for_update())
-    if location:
-        if location.occupied_quantity + delta > location.capacity:
-            raise HTTPException(status_code=409, detail=f"Finished goods location {location_value} has insufficient capacity")
-        location.occupied_quantity += delta
+
     if not posting:
         posting = AssemblyFinishedGoodsModel(
-            id=uuid.uuid4(), assembly_order_id=order.id, product_code=code, product_name=order.product_name,
-            quantity=passed_quantity, uom="PCS", status="AVAILABLE", warehouse_id=warehouse,
-            location_code=location_value, on_hand_before=before, on_hand_after=stock.on_hand,
-            posted_at=now, updated_at=now,
+            id=uuid.uuid4(),
+            assembly_order_id=order.id,
+            product_code=code,
+            product_name=order.product_name,
+            quantity=passed_quantity,
+            uom="PCS",
+            status="PUTAWAY_PENDING",
+            warehouse_id=warehouse,
+            location_code=location_value,
+            qr_code=qr_code,
+            serial_number=serial_number,
+            store_id=fg_store.id if fg_store else None,
+            on_hand_before=Decimal("0"),
+            on_hand_after=Decimal("0"),
+            posted_at=now,
+            updated_at=now,
         )
         uow.session.add(posting)
+        await uow.session.flush()
     else:
         posting.quantity = passed_quantity
-        posting.on_hand_after = stock.on_hand
+        posting.qr_code = posting.qr_code or qr_code
+        posting.serial_number = posting.serial_number or serial_number
+        if fg_store and not posting.store_id:
+            posting.store_id = fg_store.id
         posting.updated_at = now
+
+    # Create PutawayTaskModel for the Finished Goods Store
+    existing_task = await uow.session.scalar(
+        select(PutawayTaskModel).where(
+            PutawayTaskModel.finished_goods_id == posting.id
+        )
+    )
+    if not existing_task:
+        task_number = f"PUT-FG-{now.year}-{uuid.uuid4().hex[:6].upper()}"
+        putaway_task = PutawayTaskModel(
+            id=uuid.uuid4(),
+            task_number=task_number,
+            finished_goods_id=posting.id,
+            item_code=code,
+            material_name=order.product_name,
+            quantity=passed_quantity,
+            uom="PCS",
+            warehouse_id=warehouse,
+            source_location="ASSEMBLY_LINE",
+            destination_store_id=fg_store.id if fg_store else None,
+            status="PUTAWAY_PENDING",
+            created_by=order.assigned_operator or order.created_by or "Assembly",
+            created_at=now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc),
+        )
+        uow.session.add(putaway_task)
+
+        # Notify Finished Goods Store Manager
+        if fg_store:
+            uow.session.add(
+                NotificationModel(
+                    id=uuid.uuid4(),
+                    user_role=f"STR:{fg_store.store_code}"[:32],
+                    title=f"New FG Putaway: {task_number}",
+                    message=f"Assembly completed {passed_quantity:g} PCS of {order.product_name} ({code}). Putaway task {task_number} is ready for store putaway.",
+                    link="/my-store?tab=putaway",
+                    is_read=False,
+                    created_at=now,
+                )
+            )
+        uow.session.add(
+            NotificationModel(
+                id=uuid.uuid4(),
+                user_role="STORE_MANAGER",
+                title=f"New Finished Goods Putaway Task",
+                message=f"Assembly completed {passed_quantity:g} PCS of {order.product_name} ({code}). Putaway task {task_number} is ready for store putaway.",
+                link="/my-store?tab=putaway",
+                is_read=False,
+                created_at=now,
+            )
+        )
+
     await add_assembly_notification(
-        uow, "Finished goods transferred to inventory",
-        f"{delta:g} {posting.uom} of {order.product_name} from {order.order_number} posted to {warehouse} / {location_value}.",
+        uow, "Finished goods sent to FG Store",
+        f"{passed_quantity:g} PCS of {order.product_name} from {order.order_number} generated QR {posting.qr_code} and sent to Finished Goods Store for putaway.",
         order,
     )
     return posting
+
 
 
 def serialize_consumption(record: AssemblyMaterialConsumptionModel, material_name: str) -> dict:
@@ -788,7 +869,319 @@ async def list_finished_goods(uow: UnitOfWork = Depends(get_uow)):
     result = await uow.session.execute(select(AssemblyFinishedGoodsModel).order_by(
         AssemblyFinishedGoodsModel.updated_at.desc()
     ))
-    return [serialize_finished_goods(record) for record in result.scalars().all()]
+    records = result.scalars().all()
+    stores = {s.id: s for s in (await uow.session.execute(select(StoreModel))).scalars().all()}
+    orders = {o.id: o for o in (await uow.session.execute(select(AssemblyOrderModel))).scalars().all()}
+    output = []
+    for r in records:
+        data = serialize_finished_goods(r)
+        if r.store_id and r.store_id in stores:
+            data["store_name"] = stores[r.store_id].store_name
+            data["store_code"] = stores[r.store_id].store_code
+        if r.assembly_order_id and r.assembly_order_id in orders:
+            data["order_number"] = orders[r.assembly_order_id].order_number
+        output.append(data)
+    return output
+
+
+async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: UnitOfWork) -> dict:
+    fg_available = Decimal("0")
+    try:
+        fg_conditions = []
+        if req.finished_goods_code:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_code) == req.finished_goods_code.strip().upper())
+        if req.finished_goods_name:
+            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_name) == req.finished_goods_name.strip().upper())
+
+        if fg_conditions:
+            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).where(
+                or_(*fg_conditions),
+                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"])
+            )
+            fg_res = await uow.session.execute(fg_query)
+            fg_available = Decimal(str(fg_res.scalar() or 0))
+    except Exception as e:
+        logger.warning(f"Error calculating FG store availability: {e}")
+
+    req_qty = Decimal(str(req.quantity or 0))
+    shortage = max(Decimal("0"), req_qty - fg_available)
+
+    return {
+        "id": str(req.id),
+        "request_number": req.request_number,
+        "warehouse_id": req.warehouse_id,
+        "finished_goods_code": req.finished_goods_code,
+        "product_code": req.finished_goods_code,
+        "finished_goods_name": req.finished_goods_name,
+        "product_name": req.finished_goods_name,
+        "quantity": float(req_qty),
+        "requested_quantity": float(req_qty),
+        "uom": req.uom or "PCS",
+        "required_date": req.required_date.isoformat() if req.required_date else None,
+        "requested_by": req.requested_by,
+        "created_by": req.requested_by,
+        "status": req.status,
+        "bom_attachment_url": req.bom_attachment_url,
+        "bom_attachment_name": req.bom_attachment_name,
+        "remarks": req.remarks,
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+        "updated_at": req.updated_at.isoformat() if req.updated_at else None,
+        "fg_store_available": float(fg_available),
+        "available_quantity": float(fg_available),
+        "shortage": float(shortage),
+        "shortage_quantity": float(shortage),
+    }
+
+
+@router.get("/finished-goods-requests")
+async def list_assembly_finished_goods_requests(
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Assembly view of Finished Goods Requests with FG Store availability check data.
+    """
+    res = await uow.session.execute(
+        select(FinishedGoodsRequestModel).order_by(FinishedGoodsRequestModel.created_at.desc())
+    )
+    records = res.scalars().all()
+    output = []
+    for r in records:
+        output.append(await _serialize_assembly_fg_request(r, uow))
+    return output
+
+
+@router.get("/finished-goods-requests/{request_id}")
+async def get_assembly_finished_goods_request(
+    request_id: str,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Assembly view of single Finished Goods Request with FG Store availability check data.
+    """
+    try:
+        req_uuid = uuid.UUID(request_id)
+        req = await uow.session.get(FinishedGoodsRequestModel, req_uuid)
+    except ValueError:
+        req = await uow.session.scalar(
+            select(FinishedGoodsRequestModel).where(FinishedGoodsRequestModel.request_number == request_id)
+        )
+
+    if not req:
+        raise HTTPException(status_code=404, detail="Finished Goods Request not found")
+
+    return await _serialize_assembly_fg_request(req, uow)
+
+
+@router.get("/genealogy/{identifier}")
+@router.get("/finished-goods/{identifier}/genealogy")
+@router.get("/orders/{identifier}/genealogy")
+async def get_genealogy(identifier: str, uow: UnitOfWork = Depends(get_uow)):
+    """
+    Detailed Genealogy view tracing:
+    Finished Good -> QR -> Assembly Order -> Assembly Steps -> Consumed Raw Materials & Batches -> Source Store/Bin -> Inventory movements -> GRN -> QC info.
+    """
+    order = None
+    fg = None
+    try:
+        ident_uuid = uuid.UUID(identifier)
+        order = await uow.session.get(AssemblyOrderModel, ident_uuid)
+        if not order:
+            fg = await uow.session.get(AssemblyFinishedGoodsModel, ident_uuid)
+            if fg:
+                order = await uow.session.get(AssemblyOrderModel, fg.assembly_order_id)
+    except ValueError:
+        pass
+
+    if not order and not fg:
+        order = await uow.session.scalar(
+            select(AssemblyOrderModel).where(
+                func.upper(AssemblyOrderModel.order_number) == identifier.strip().upper()
+            )
+        )
+        if not order:
+            fg = await uow.session.scalar(
+                select(AssemblyFinishedGoodsModel).where(
+                    or_(
+                        func.upper(AssemblyFinishedGoodsModel.qr_code) == identifier.strip().upper(),
+                        func.upper(AssemblyFinishedGoodsModel.serial_number) == identifier.strip().upper(),
+                        func.upper(AssemblyFinishedGoodsModel.product_code) == identifier.strip().upper(),
+                    )
+                )
+            )
+            if fg:
+                order = await uow.session.get(AssemblyOrderModel, fg.assembly_order_id)
+
+    if not order and not fg:
+        raise HTTPException(status_code=404, detail=f"Genealogy record not found for '{identifier}'")
+
+    if order and not fg:
+        fg = await uow.session.scalar(
+            select(AssemblyFinishedGoodsModel).where(
+                AssemblyFinishedGoodsModel.assembly_order_id == order.id
+            )
+        )
+
+    fg_store = None
+    if fg and fg.store_id:
+        fg_store = await uow.session.get(StoreModel, fg.store_id)
+    elif fg:
+        # Resolve any store matching FG
+        fg_store = await uow.session.scalar(
+            select(StoreModel).where(
+                or_(
+                    func.upper(StoreModel.store_type) == "FINISHED_GOODS",
+                    StoreModel.store_name.ilike("%Finished Goods%"),
+                    StoreModel.store_code.ilike("%FG%"),
+                )
+            )
+        )
+
+    consumptions = list((await uow.session.execute(
+        select(AssemblyMaterialConsumptionModel).where(
+            AssemblyMaterialConsumptionModel.assembly_order_id == order.id
+        )
+    )).scalars().all())
+
+    issue = await uow.session.get(MaterialIssueModel, order.material_issue_id) if order.material_issue_id else None
+    task = await uow.session.get(PickTaskModel, order.pick_task_id) if order.pick_task_id else None
+
+    material_codes = [c.material_code for c in consumptions] or [
+        item.get("material_code") for item in (order.items or []) if item.get("material_code")
+    ]
+
+    handling_units = list((await uow.session.execute(
+        select(HandlingUnitModel).where(HandlingUnitModel.item_code.in_(material_codes))
+    )).scalars().all()) if material_codes else []
+
+    movements = list((await uow.session.execute(
+        select(PutawayMovementModel).where(PutawayMovementModel.material_code.in_(material_codes))
+    )).scalars().all()) if material_codes else []
+
+    grn_by_number = {}
+    grn_numbers = {hu.grn_number for hu in handling_units if hu.grn_number}
+    if grn_numbers:
+        grn_records = list((await uow.session.execute(
+            select(GrnModel).where(GrnModel.grn_number.in_(grn_numbers))
+        )).scalars().all())
+        for g in grn_records:
+            grn_by_number[g.grn_number] = g
+
+    quality_insp = await uow.session.scalar(
+        select(AssemblyQualityInspectionModel).where(
+            AssemblyQualityInspectionModel.assembly_order_id == order.id
+        )
+    )
+
+    scrap_records = list((await uow.session.execute(
+        select(AssemblyScrapModel).where(AssemblyScrapModel.assembly_order_id == order.id)
+    )).scalars().all())
+
+    consumed_list = []
+    requirements_map = aggregate_requirements(order.items or [])
+
+    for mat_code in material_codes:
+        c_record = next((c for c in consumptions if c.material_code == mat_code), None)
+        req_item = requirements_map.get(mat_code, {}).get("item", {})
+        mat_hus = [hu for hu in handling_units if hu.item_code == mat_code]
+        mat_movs = [m for m in movements if m.material_code == mat_code]
+
+        batches = list({hu.batch_number for hu in mat_hus if hu.batch_number} | {m.batch_lot for m in mat_movs if m.batch_lot})
+        locations = list({hu.current_location for hu in mat_hus if hu.current_location} | {m.destination_location for m in mat_movs if m.destination_location})
+
+        mat_grn = None
+        for hu in mat_hus:
+            if hu.grn_number and hu.grn_number in grn_by_number:
+                g = grn_by_number[hu.grn_number]
+                mat_grn = {
+                    "grn_number": g.grn_number,
+                    "supplier_name": g.supplier_name or hu.supplier_name,
+                    "po_number": g.po_number or hu.po_number,
+                    "received_date": g.created_at.isoformat() if g.created_at else None,
+                    "qc_status": g.qc_status or "PASSED",
+                }
+                break
+
+        if not mat_grn and mat_hus:
+            mat_grn = {
+                "grn_number": mat_hus[0].grn_number or "—",
+                "supplier_name": mat_hus[0].supplier_name or "—",
+                "po_number": mat_hus[0].po_number or "—",
+                "received_date": mat_hus[0].generated_at.isoformat() if mat_hus[0].generated_at else None,
+                "qc_status": "QC_PASSED",
+            }
+
+        consumed_list.append({
+            "material_code": mat_code,
+            "material_name": req_item.get("material_name") or mat_code,
+            "expected_per_unit": float(c_record.expected_per_unit) if c_record else 1.0,
+            "assembled_quantity": float(c_record.assembled_quantity) if c_record else float(order.completed_quantity),
+            "actual_consumed": float(c_record.actual_consumed) if c_record else float(requirements_map.get(mat_code, {}).get("quantity", 0)),
+            "uom": c_record.uom if c_record else (req_item.get("uom") or "PCS"),
+            "batches": batches or ["LOT-STD-PRIMARY"],
+            "source_locations": locations or ["MAIN STORE / RAW_MATERIAL"],
+            "grn_info": mat_grn,
+        })
+
+    return {
+        "finished_good": {
+            "id": str(fg.id) if fg else None,
+            "product_code": fg.product_code if fg else (order.product_name or "FG-PRODUCT"),
+            "product_name": fg.product_name if fg else order.product_name,
+            "serial_number": fg.serial_number if fg else f"SN-{order.order_number}",
+            "qr_code": fg.qr_code if fg else f"FG-QR|{order.product_name}|ORD:{order.order_number}",
+            "quantity": float(fg.quantity) if fg else float(order.completed_quantity),
+            "uom": fg.uom if fg else "PCS",
+            "status": fg.status if fg else order.status,
+            "store_id": str(fg.store_id) if fg and fg.store_id else (str(fg_store.id) if fg_store else None),
+            "store_name": fg_store.store_name if fg_store else "Finished Goods Store",
+            "store_code": fg_store.store_code if fg_store else "STR-FG",
+            "location_code": fg.location_code if fg else "FG-A-01",
+            "posted_at": fg.posted_at.isoformat() if fg and fg.posted_at else None,
+        },
+        "assembly_order": {
+            "id": str(order.id),
+            "order_number": order.order_number,
+            "product_name": order.product_name,
+            "status": order.status,
+            "planned_quantity": float(order.planned_quantity),
+            "completed_quantity": float(order.completed_quantity),
+            "rejected_quantity": float(order.rejected_quantity),
+            "assigned_team": order.assigned_team or "Assembly Team",
+            "assigned_operator": order.assigned_operator or order.created_by,
+            "started_at": order.started_at.isoformat() if order.started_at else None,
+            "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+            "required_date": order.required_date.isoformat() if order.required_date else None,
+        },
+        "assembly_steps": order.assembly_steps or default_assembly_steps(),
+        "consumed_materials": consumed_list,
+        "material_issue": {
+            "issue_number": issue.issue_number if issue else "—",
+            "issued_by": issue.issued_by if issue else "—",
+            "issued_at": issue.issued_at.isoformat() if issue and issue.issued_at else None,
+            "warehouse": task.warehouse_id if task else "Main Warehouse",
+        } if issue else None,
+        "quality_inspection": {
+            "status": quality_insp.status if quality_insp else "PASSED",
+            "produced_quantity": float(quality_insp.produced_quantity) if quality_insp else float(order.completed_quantity),
+            "passed_quantity": float(quality_insp.passed_quantity) if quality_insp else float(order.completed_quantity),
+            "failed_quantity": float(quality_insp.failed_quantity) if quality_insp else float(order.rejected_quantity),
+            "rework_quantity": float(quality_insp.rework_quantity) if quality_insp else 0.0,
+            "inspected_by": quality_insp.inspected_by if quality_insp else "QC Team",
+            "inspected_at": quality_insp.inspected_at.isoformat() if quality_insp and quality_insp.inspected_at else None,
+            "notes": quality_insp.notes if quality_insp else None,
+        } if quality_insp else None,
+        "scrap_records": [
+            {
+                "material_code": s.material_code,
+                "quantity": float(s.quantity),
+                "uom": s.uom,
+                "reason": s.reason,
+                "status": s.status,
+            }
+            for s in scrap_records
+        ],
+    }
+
 
 
 @router.get("/orders/{order_id}/rework")
@@ -1470,17 +1863,40 @@ async def assembly_module_overview(section: str, uow: UnitOfWork = Depends(get_u
                          "assignment": f"{record.assigned_team} / {record.assigned_worker or 'Team'}",
                          "status": record.status, "result": record.final_result, "order_id": str(record.assembly_order_id)})
     elif section == "finished-goods":
-        columns = [{"key": "product", "label": "Finished product"}, {"key": "code", "label": "Product code"},
-                   {"key": "quantity", "label": "Available quantity"}, {"key": "warehouse", "label": "Warehouse"},
-                   {"key": "location", "label": "Location"}, {"key": "posted", "label": "Posted at"},
-                   {"key": "status", "label": "Status"}]
-        records = (await uow.session.execute(select(AssemblyFinishedGoodsModel).order_by(
-            AssemblyFinishedGoodsModel.updated_at.desc()))).scalars().all()
+        columns = [
+            {"key": "product", "label": "Finished Good"},
+            {"key": "qr_code", "label": "QR Code"},
+            {"key": "quantity", "label": "Quantity"},
+            {"key": "store", "label": "Store"},
+            {"key": "location", "label": "Zone / Bin Location"},
+            {"key": "order_number", "label": "Assembly Order"},
+            {"key": "status", "label": "Status"},
+            {"key": "posted", "label": "Posted At"},
+        ]
+        records = (await uow.session.execute(
+            select(AssemblyFinishedGoodsModel).order_by(AssemblyFinishedGoodsModel.updated_at.desc())
+        )).scalars().all()
+        stores = {s.id: s for s in (await uow.session.execute(select(StoreModel))).scalars().all()}
+        orders = {o.id: o for o in (await uow.session.execute(select(AssemblyOrderModel))).scalars().all()}
         for record in records:
-            rows.append({"product": record.product_name, "code": record.product_code,
-                         "quantity": f"{record.quantity:g} {record.uom}", "warehouse": record.warehouse_id,
-                         "location": record.location_code, "posted": record.posted_at.isoformat(),
-                         "status": record.status, "order_id": str(record.assembly_order_id)})
+            st = stores.get(record.store_id)
+            ord_obj = orders.get(record.assembly_order_id)
+            rows.append({
+                "id": str(record.id),
+                "product": f"{record.product_name} ({record.product_code})",
+                "code": record.product_code,
+                "qr_code": record.qr_code or "—",
+                "quantity": f"{record.quantity:g} {record.uom}",
+                "store": st.store_name if st else "Finished Goods Store",
+                "store_code": st.store_code if st else "STR-FG-01",
+                "location": record.location_code or "FG Pallet Bay",
+                "warehouse": record.warehouse_id or "WH-01",
+                "order_number": ord_obj.order_number if ord_obj else "—",
+                "order": ord_obj.order_number if ord_obj else None,
+                "order_id": str(record.assembly_order_id) if record.assembly_order_id else None,
+                "status": record.status,
+                "posted": record.posted_at.isoformat() if record.posted_at else None,
+            })
 
     status_counts = defaultdict(int)
     for row in rows: status_counts[str(row.get("status") or row.get("result") or "RECORDED")] += 1
@@ -1547,6 +1963,22 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
     ).order_by(NotificationModel.created_at.desc()).limit(12))
     notifications = [{"id": str(row.id), "title": row.title, "message": row.message, "link": row.link,
                       "is_read": row.is_read, "created_at": row.created_at.isoformat()} for row in notification_result.scalars().all()]
+    fg_req_result = await uow.session.execute(
+        select(FinishedGoodsRequestModel).where(
+            FinishedGoodsRequestModel.status.in_(["SENT_TO_ASSEMBLY", "PENDING", "SUBMITTED", "READY", "DRAFT"])
+        )
+    )
+    pending_fg_requests = list(fg_req_result.scalars().all())
+    pending_fg_count = len(pending_fg_requests)
+
+    for fg_req in pending_fg_requests:
+        await add_assembly_notification(
+            uow,
+            "Finished goods request received",
+            f"{fg_req.request_number} requested for {fg_req.quantity:g} {fg_req.uom or 'PCS'} of {fg_req.finished_goods_name or fg_req.finished_goods_code or 'Product'}.",
+            None,
+        )
+
     output = []
     for offset in range(6, -1, -1):
         day = today - timedelta(days=offset)
@@ -1557,9 +1989,16 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
     total_rejected = sum(float(o.rejected_quantity) for o in orders)
     status_keys = ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY", "IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED", "ON_HOLD", "MATERIAL_SHORTAGE"]
     return {
-        "stats": {"total": len(orders), "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]), "in_progress": statuses["IN_PROGRESS"],
-                  "completed": sum(statuses[key] for key in ["COMPLETED", "QUALITY_CHECK", "CLOSED"]), "on_hold": statuses["ON_HOLD"], "material_shortage": statuses["MATERIAL_SHORTAGE"],
-                  "quality_pending": statuses["QUALITY_CHECK"], "today_output": sum(float(o.completed_quantity) for o in orders if o.completed_at and o.completed_at.date() == today)},
+        "stats": {
+            "total": len(orders) + pending_fg_count,
+            "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]) + pending_fg_count,
+            "in_progress": statuses["IN_PROGRESS"],
+            "completed": sum(statuses[key] for key in ["COMPLETED", "QUALITY_CHECK", "CLOSED"]),
+            "on_hold": statuses["ON_HOLD"],
+            "material_shortage": statuses["MATERIAL_SHORTAGE"],
+            "quality_pending": statuses["QUALITY_CHECK"],
+            "today_output": sum(float(o.completed_quantity) for o in orders if o.completed_at and o.completed_at.date() == today),
+        },
         "status_chart": [{"status": key.replace("_", " ").title(), "count": statuses[key]} for key in status_keys],
         "output_chart": output,
         "consumption_chart": [{"material": key, "quantity": value} for key, value in sorted(consumption.items(), key=lambda x: -x[1])[:6]],

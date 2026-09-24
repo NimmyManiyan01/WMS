@@ -1,15 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, Boxes, Eye, Loader2, LogOut, RefreshCw, ShieldCheck, Truck, Warehouse } from "lucide-react";
+import { ArrowRight, Boxes, Eye, Loader2, RefreshCw, ShieldCheck, Truck, Warehouse } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api-client";
+
 export const Route = createFileRoute("/vehicle-queue")({
   head: () => ({ meta: [{ title: "Inbound Arrivals · NexusWMS" }] }),
   component: InboundArrivals,
 });
+
 type Arrival = {
   id: string;
   gate_entry_number: string;
@@ -46,6 +48,7 @@ type Arrival = {
     uom?: string;
   }>;
 };
+
 type Dock = {
   id: string;
   zone: string;
@@ -53,6 +56,7 @@ type Dock = {
   status: "AVAILABLE" | "OCCUPIED";
   vehicle_number?: string;
 };
+
 function InboundArrivals() {
   const [arrivals, setArrivals] = useState<Arrival[]>([]);
   const [docks, setDocks] = useState<Dock[]>([]);
@@ -60,6 +64,7 @@ function InboundArrivals() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [selectedDock, setSelectedDock] = useState<Record<string, string>>({});
   const [assigning, setAssigning] = useState<string | null>(null);
+
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
@@ -75,11 +80,13 @@ function InboundArrivals() {
       if (!quiet) setLoading(false);
     }
   }, []);
+
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => void load(true), 5000);
     return () => window.clearInterval(timer);
   }, [load]);
+
   async function assignDock(arrival: Arrival) {
     const dockId = selectedDock[arrival.id];
     if (!dockId) {
@@ -102,6 +109,7 @@ function InboundArrivals() {
       setAssigning(null);
     }
   }
+
   async function startMovement(arrival: Arrival) {
     setAssigning(arrival.id);
     try {
@@ -118,6 +126,7 @@ function InboundArrivals() {
       setAssigning(null);
     }
   }
+
   async function confirmDockArrival(arrival: Arrival) {
     setAssigning(arrival.id);
     try {
@@ -169,6 +178,7 @@ function InboundArrivals() {
       setAssigning(null);
     }
   }
+
   return (
     <AppShell
       title="Inbound arrivals"
@@ -179,53 +189,47 @@ function InboundArrivals() {
         </Button>
       }
     >
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Summary label="Arrivals in queue" value={arrivals.length} />
         <Summary
           label="Awaiting dock"
           value={arrivals.filter((a) => a.status === "AWAITING_DOCK").length}
         />
         <Summary
-          label="Dock assigned / moving"
-          value={arrivals.filter((a) => a.status !== "AWAITING_DOCK").length}
+          label="Moving to dock"
+          value={arrivals.filter((a) => a.status === "MOVING_TO_DOCK").length}
         />
         <Summary
           label="Available docks"
           value={docks.filter((d) => d.status === "AVAILABLE").length}
         />
       </div>
-      <Card className="overflow-hidden rounded-2xl border-border/70 p-0">
+
+      <Card className="rounded-2xl p-0 shadow-soft overflow-hidden">
         {loading ? (
-          <div className="flex h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-5 animate-spin" /> Loading arrivals…
+          <div className="grid h-64 place-items-center">
+            <Loader2 className="size-6 animate-spin text-primary" />
           </div>
         ) : arrivals.length === 0 ? (
-          <div className="grid h-64 place-items-center text-center text-sm text-muted-foreground">
-            <div>
-              <Truck className="mx-auto mb-3 size-8" />
-              No approved vehicles are awaiting a dock.
-            </div>
+          <div className="grid min-h-64 place-items-center p-8 text-center text-muted-foreground">
+            <Truck className="size-10 stroke-1" />
+            <p className="mt-2 font-medium">No inbound vehicles in queue</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
+              <thead className="border-b bg-muted/40 text-xs uppercase text-muted-foreground">
                 <tr>
-                  {[
-                    "ASN",
-                    "PO",
-                    "Supplier",
-                    "Vehicle / Driver",
-                    "Arrival time",
-                    "Status",
-                    "Actions",
-                  ].map((h) => (
-                    <th key={h} className="px-4 py-3 font-semibold">
-                      {h}
-                    </th>
-                  ))}
+                  <th className="px-4 py-3">ASN Number</th>
+                  <th className="px-4 py-3">PO Number</th>
+                  <th className="px-4 py-3">Supplier</th>
+                  <th className="px-4 py-3">Vehicle / Driver</th>
+                  <th className="px-4 py-3">Arrival Time</th>
+                  <th className="px-4 py-3">Status / Dock</th>
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/60">
+              <tbody className="divide-y">
                 {arrivals.map((arrival) => (
                   <ArrivalRows
                     key={arrival.id}
@@ -251,6 +255,7 @@ function InboundArrivals() {
     </AppShell>
   );
 }
+
 function ArrivalRows({
   arrival,
   expanded,
@@ -359,6 +364,7 @@ function ArrivalRows({
     </>
   );
 }
+
 function Summary({ label, value }: { label: string; value: number }) {
   return (
     <Card className="rounded-2xl p-4">
@@ -367,6 +373,7 @@ function Summary({ label, value }: { label: string; value: number }) {
     </Card>
   );
 }
+
 function ArrivalDetails({
   arrival,
   docks,
@@ -457,6 +464,7 @@ function ArrivalDetails({
     </div>
   );
 }
+
 function Detail({
   label,
   value,

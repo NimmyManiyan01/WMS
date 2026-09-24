@@ -87,11 +87,13 @@ def _to_store_response(store: StoreModel, zones_count: int = 0, bins_count: int 
         store_manager_id=store.store_manager_id,
         store_manager_name=store.store_manager_name,
         status=store.status,
+        store_type=getattr(store, "store_type", "RAW_MATERIAL") or "RAW_MATERIAL",
         created_at=store.created_at,
         updated_at=store.updated_at,
         zones_count=zones_count,
         bins_count=bins_count,
     )
+
 
 
 def _to_zone_response(zone: StoreZoneModel, bins_count: int = 0) -> ZoneResponse:
@@ -1063,11 +1065,13 @@ async def list_stores(
     b_counts_res = await uow.session.execute(b_counts_stmt)
     b_counts_map = {row[0]: row[1] for row in b_counts_res.fetchall()}
 
-    if _is_warehouse_or_admin(user):
-        return [_to_store_response(s, zones_count=z_counts_map.get(s.id, 0), bins_count=b_counts_map.get(s.id, 0)) for s in stores]
+    if not _is_warehouse_or_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Only Warehouse or Admin users can view the global Store Master list.",
+        )
 
-    authorized_stores = [s for s in stores if _store_manager_matches(s, user)]
-    return [_to_store_response(s, zones_count=z_counts_map.get(s.id, 0), bins_count=b_counts_map.get(s.id, 0)) for s in authorized_stores]
+    return [_to_store_response(s, zones_count=z_counts_map.get(s.id, 0), bins_count=b_counts_map.get(s.id, 0)) for s in stores]
 
 
 @router.get("/{id_or_code}", response_model=StoreResponse)
@@ -1124,6 +1128,7 @@ async def create_store(
             store_manager_id=payload.store_manager_id.strip() if payload.store_manager_id else None,
             store_manager_name=payload.store_manager_name.strip() if payload.store_manager_name else None,
             status=payload.status.strip().upper() if payload.status else "ACTIVE",
+            store_type=payload.store_type.strip().upper() if getattr(payload, "store_type", None) else "RAW_MATERIAL",
             created_at=now,
             updated_at=now,
         )
@@ -1181,6 +1186,9 @@ async def update_store(
         store.store_manager_name = payload.store_manager_name.strip() if payload.store_manager_name else None
     if payload.status is not None:
         store.status = payload.status.strip().upper()
+    if getattr(payload, "store_type", None) is not None:
+        store.store_type = payload.store_type.strip().upper()
+
 
     store.updated_at = datetime.now(timezone.utc)
     await uow.session.flush()
@@ -1332,10 +1340,10 @@ async def create_store_zone(
     if not store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Store '{id_or_code}' not found")
 
-    if not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to manage zones in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can create zones.",
         )
 
     store_code = store.store_code
@@ -1408,10 +1416,10 @@ async def create_store_bin(
     if not store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Store '{id_or_code}' not found")
 
-    if not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to manage bins in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can create bins.",
         )
 
     if not payload.zone_id:
@@ -1513,10 +1521,10 @@ async def update_zone(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Zone '{zone_id}' not found")
 
     store = await uow.session.get(StoreModel, zone.store_id)
-    if not store or not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to modify zones in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can modify zones.",
         )
 
     if payload.zone_name is not None:
@@ -1553,10 +1561,10 @@ async def update_zone_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Zone '{zone_id}' not found")
 
     store = await uow.session.get(StoreModel, zone.store_id)
-    if not store or not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to change zone status in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can change zone status.",
         )
 
     zone.status = payload.status.strip().upper()
@@ -1633,10 +1641,10 @@ async def create_zone_bin(
     if not store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent Store not found")
 
-    if not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to manage bins in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can create bins.",
         )
 
     clean_code = payload.bin_code.strip().upper() if payload.bin_code else None
@@ -1710,10 +1718,10 @@ async def update_bin(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Bin '{bin_id}' not found")
 
     store = await uow.session.get(StoreModel, bin_obj.store_id)
-    if not store or not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to modify bins in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can modify bins.",
         )
 
     if payload.bin_name is not None:
@@ -1747,10 +1755,10 @@ async def update_bin_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Bin '{bin_id}' not found")
 
     store = await uow.session.get(StoreModel, bin_obj.store_id)
-    if not store or not await _is_store_authorized(uow.session, store, user):
+    if not _is_warehouse_or_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You are only authorized to change bin status in your assigned store.",
+            detail="Access denied: Only Warehouse or Admin users can change bin status.",
         )
 
     bin_obj.status = payload.status.strip().upper()

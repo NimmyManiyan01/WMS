@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, ChevronRight, ClipboardCheck, ClipboardList, Factory, Gauge, ListChecks, Loader2, PackageCheck, Pencil, Play, RefreshCw, Search, Trash2, Users, Wrench } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronRight, ClipboardCheck, ClipboardList, Factory, Gauge, GitFork, ListChecks, Loader2, PackageCheck, Pencil, Play, RefreshCw, Search, Trash2, Users, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/wms/app-shell";
@@ -12,9 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { GenealogyModal } from "@/components/assembly/genealogy-modal";
 import { api } from "@/lib/api-client";
-import { requireRole } from "@/lib/auth-utils";
+import { getUserInfo, requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
+
 
 export const Route = createFileRoute("/assembly-orders")({
   beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ADMIN"]),
@@ -66,6 +68,7 @@ function AssemblyOrders() {
   const [qualityForm, setQualityForm] = useState<any>({ produced_quantity: 0, passed_quantity: 0, failed_quantity: 0, rework_quantity: 0, status: "PASSED", inspected_by: "", notes: "", product_code: "", warehouse_id: "WH-01", location_code: "FG-A-03" });
   const [rework, setRework] = useState<any>();
   const [reworkForm, setReworkForm] = useState<any>({ assigned_team: "", assigned_worker: "", reason_for_failure: "", notes: "" });
+  const [genealogyTarget, setGenealogyTarget] = useState<string | null>(null);
   const [loadingReqs, setLoadingReqs] = useState(false);
 
   const refreshTeams = useCallback(async (showError = false) => {
@@ -235,8 +238,8 @@ function AssemblyOrders() {
   }
 
   async function approveScrap(record: any) {
-    let approvedBy = "Assembly Manager";
-    try { approvedBy = JSON.parse(localStorage.getItem("user_info") || "{}").username || approvedBy; } catch { /* use role label */ }
+    const user = getUserInfo();
+    const approvedBy = user?.full_name || user?.username || "Assembly Manager";
     setBusy(`scrap:${record.id}`);
     try { await api.approveAssemblyScrap(scrap.order_id, record.id, approvedBy); toast.success("Scrap approved"); const order = orders.find((row) => row.id === scrap.order_id); await openScrap(order); }
     catch (error) { toast.error("Unable to approve scrap", { description: error instanceof Error ? error.message : undefined }); }
@@ -247,8 +250,8 @@ function AssemblyOrders() {
     setLoadingReqs(true);
     try {
       const data = await api.getAssemblyQualityInspection(order.id);
-      let username = "Quality Inspector";
-      try { username = JSON.parse(localStorage.getItem("user_info") || "{}").username || username; } catch { /* use role label */ }
+      const user = getUserInfo();
+      const username = user?.full_name || user?.username || "Quality Inspector";
       setQuality(data);
       setQualityForm({ produced_quantity: data.produced_quantity, passed_quantity: data.status === "PENDING_INSPECTION" ? data.produced_quantity : data.passed_quantity,
         failed_quantity: data.failed_quantity, rework_quantity: data.rework_quantity, status: data.status === "PENDING_INSPECTION" ? "PASSED" : data.status,
@@ -386,6 +389,7 @@ function AssemblyOrders() {
           <Button size="sm" variant="outline" onClick={() => openScrap(order)} disabled={loadingReqs}><Trash2 className="size-3.5" /> Scrap</Button>
           {['COMPLETED', 'QUALITY_CHECK', 'CLOSED'].includes(order.status) && <Button size="sm" variant="outline" onClick={() => openQuality(order)} disabled={loadingReqs}><ClipboardCheck className="size-3.5" /> Quality</Button>}
           {['COMPLETED', 'QUALITY_CHECK', 'IN_PROGRESS', 'CLOSED'].includes(order.status) && <Button size="sm" variant="outline" onClick={() => openRework(order)} disabled={loadingReqs}><Wrench className="size-3.5" /> Rework</Button>}
+          <Button size="sm" variant="outline" onClick={() => setGenealogyTarget(order.order_number)}><GitFork className="size-3.5" /> Genealogy</Button>
           <Button size="sm" variant="outline" onClick={() => openWorkOrder(order)}><ListChecks className="size-3.5" /> Work order</Button>
           {!["IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED", "ON_HOLD"].includes(order.status) && <Button size="sm" variant="outline" onClick={() => openEdit(order)}><Pencil className="size-3.5" /> Edit details</Button>}
           {order.status === "QUALITY_CHECK" && order.quality_status === "PENDING_INSPECTION" && (
@@ -658,6 +662,11 @@ function AssemblyOrders() {
         <tbody className="divide-y">{rework?.records?.length ? rework.records.map((record: any) => <tr key={record.id}><td className="px-3 py-3 font-mono font-bold text-primary">{record.rework_number}</td><td className="max-w-64 px-3 py-3"><p>{record.reason_for_failure}</p>{record.notes && <p className="mt-1 text-xs text-muted-foreground">{record.notes}</p>}</td><td className="px-3 py-3 text-right font-bold text-red-600">{record.failed_quantity}</td><td className="px-3 py-3"><b>{record.assigned_team}</b><div className="text-xs text-muted-foreground">{record.assigned_worker || 'Team assignment'}</div></td><td className="px-3 py-3"><Badge className={record.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : record.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>{record.status.replaceAll('_', ' ')}</Badge></td><td className="px-3 py-3"><Badge className={record.final_result === 'PASSED' ? 'bg-emerald-100 text-emerald-700' : record.final_result === 'FAILED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}>{record.final_result.replaceAll('_', ' ')}</Badge></td><td className="px-3 py-3">{record.status !== 'COMPLETED' && <Button size="sm" disabled={busy === `rework:${record.id}`} onClick={() => void advanceRework(record)}>{record.status === 'PENDING' ? 'Start rework' : 'Complete rework'}</Button>}</td></tr>) : <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No rework orders recorded.</td></tr>}</tbody>
       </table></div>
     </DialogContent></Dialog>
+    <GenealogyModal
+      identifier={genealogyTarget}
+      open={Boolean(genealogyTarget)}
+      onOpenChange={(open) => !open && setGenealogyTarget(null)}
+    />
   </AppShell>;
 }
 

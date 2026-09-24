@@ -719,6 +719,7 @@ export const api = {
       method: "POST",
     });
   },
+
   async getVehicleExitQueue(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/gate-entries/exit-queue`);
   },
@@ -1108,6 +1109,48 @@ export const api = {
       },
     );
   },
+  async createMaterialForAssemblyRequisitionItem(
+    requisitionId: string,
+    itemId: string,
+    data: any = {},
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(requisitionId)}/items/${encodeURIComponent(itemId)}/create-material`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+  async linkMaterialForAssemblyRequisitionItem(
+    requisitionId: string,
+    itemId: string,
+    data: { material_id: string; material_variant_id?: string },
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(requisitionId)}/items/${encodeURIComponent(itemId)}/link-material`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
+  async createMaterialForMaterialRequestItem(
+    requestId: string,
+    itemId: string,
+    data: any = {},
+  ): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/material-requests/${encodeURIComponent(requestId)}/items/${encodeURIComponent(itemId)}/create-material`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+  },
   async updateMaterialRequest(id: string, data: any): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/material-requests/${id}`, {
       method: "PUT",
@@ -1152,36 +1195,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data || {}),
       },
-    );
-  },
-
-  async getPickTasks(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/pick-tasks`);
-  },
-
-  async assignPickTask(taskId: string, operator: string): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/procurement/pick-tasks/${taskId}/assign?operator=${encodeURIComponent(operator)}`,
-      { method: "POST" },
-    );
-  },
-
-  async startPickTask(taskId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/pick-tasks/${taskId}/start`, {
-      method: "POST",
-    });
-  },
-
-  async completePickTask(taskId: string): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/pick-tasks/${taskId}/complete`, {
-      method: "POST",
-    });
-  },
-
-  async issuePickedMaterial(taskId: string, receivedBy: string): Promise<any> {
-    return request<any>(
-      `${BUSINESS_API_URL}/api/v1/procurement/pick-tasks/${taskId}/issue?received_by=${encodeURIComponent(receivedBy)}`,
-      { method: "POST" },
     );
   },
 
@@ -1691,6 +1704,17 @@ export const api = {
     );
   },
 
+  async getFinishedGoods(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/finished-goods`);
+  },
+
+  async getGenealogy(identifier: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly/genealogy/${encodeURIComponent(identifier)}`,
+    );
+  },
+
+
   // ============================
   // WAREHOUSE MATERIAL MASTER
   // ============================
@@ -1775,6 +1799,47 @@ export const api = {
 
   async getAssemblyFinishedGoods(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/finished-goods`);
+  },
+
+  async getFinishedGoodsRequests(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests`);
+  },
+
+  async getFinishedGoodsRequest(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests/${encodeURIComponent(id)}`);
+  },
+
+  async createFinishedGoodsRequest(data: {
+    warehouse_id?: string;
+    finished_goods_code?: string | null;
+    finished_goods_name: string;
+    quantity: number;
+    uom?: string;
+    required_date?: string;
+    requested_by?: string;
+    bom_attachment_url?: string | null;
+    bom_attachment_name?: string | null;
+    remarks?: string | null;
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadBomAttachment(file: File): Promise<{ file_name: string; file_url: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<{ file_name: string; file_url: string }>(
+      `${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests/upload-bom`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
   },
 
   async getAssemblyRework(orderId: string): Promise<any> {
@@ -2597,4 +2662,132 @@ export const api = {
   resolveMediaUrl(path?: string | null): string {
     return resolveMediaUrl(path);
   },
+  async getDispatches(status?: string): Promise<{ items: any[]; total: number }> {
+    const url = status ? `${BUSINESS_API_URL}/api/dispatches?status=${encodeURIComponent(status)}` : `${BUSINESS_API_URL}/api/dispatches`;
+    return request<{ items: any[]; total: number }>(url, { cache: "no-store" });
+  },
+  async getDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}`, { cache: "no-store" });
+  },
+  async createDispatch(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async reserveDispatchStock(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/reserve-stock`, { method: "POST" });
+  },
+  async startDispatchPicking(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/picking`, { method: "POST" });
+  },
+  async pickDispatchItems(id: string, items: any[]): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pick-items`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    });
+  },
+  async startDispatchPacking(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pack`, { method: "POST" });
+  },
+  async packDispatchItems(id: string, items: any[]): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/pack-items`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    });
+  },
+  async allocateDispatchDriver(id: string, driverId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/driver`, {
+      method: "POST",
+      body: JSON.stringify({ driver_id: driverId }),
+    });
+  },
+  async allocateDispatchVehicle(id: string, vehicleId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/vehicle`, {
+      method: "POST",
+      body: JSON.stringify({ vehicle_id: vehicleId }),
+    });
+  },
+  async assignDispatchRoute(id: string, routeCode: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/route`, {
+      method: "POST",
+      body: JSON.stringify({ route_code: routeCode }),
+    });
+  },
+  async startDispatchLoading(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/loading/start`, { method: "POST" });
+  },
+  async verifyDispatchLoading(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/loading/verify`, { method: "POST" });
+  },
+  async verifyDispatchFinal(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/verify`, { method: "POST" });
+  },
+  async dispatchOrder(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/dispatch`, { method: "POST" });
+  },
+  async transitDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/transit`, { method: "POST" });
+  },
+  async deliverDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/deliver`, { method: "POST" });
+  },
+  async closeDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/close`, { method: "POST" });
+  },
+  async cancelDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/cancel`, { method: "POST" });
+  },
+  async returnDispatch(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/return`, { method: "POST" });
+  },
+  async getDispatchesReadyForGateExit(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/dispatches/ready-for-gate-exit`, { cache: "no-store" });
+  },
+  async getDispatchKpis(): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/kpis`, { cache: "no-store" });
+  },
+  async getDrivers(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/drivers`, { cache: "no-store" });
+  },
+  async createDriver(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/drivers`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async updateDriver(driverId: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/drivers/${encodeURIComponent(driverId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+  async deleteDriver(driverId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/drivers/${encodeURIComponent(driverId)}`, {
+      method: "DELETE",
+    });
+  },
+  async getVehicles(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/vehicles`, { cache: "no-store" });
+  },
+  async createVehicle(data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/vehicles`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async updateVehicle(vehicleId: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/vehicles/${encodeURIComponent(vehicleId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+  async deleteVehicle(vehicleId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/vehicles/${encodeURIComponent(vehicleId)}`, {
+      method: "DELETE",
+    });
+  },
 };
+
+export const apiClient = api;
+

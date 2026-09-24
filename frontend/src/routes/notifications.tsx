@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { requireAuth } from "@/lib/auth-utils";
+import { requireAuth, getUserInfo } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/notifications")({
   beforeLoad: () => requireAuth(),
@@ -241,8 +241,7 @@ function Notifications() {
   const [selectedGrnNotif, setSelectedGrnNotif] = useState<any | null>(null);
 
   useEffect(() => {
-    const info = localStorage.getItem("user_info");
-    const parsedUser = info ? JSON.parse(info) : null;
+    const parsedUser = getUserInfo();
     const roles = parsedUser?.roles || [];
     const username = String(parsedUser?.username || "").toLowerCase();
     const role = roles.includes("SUPPLIER")

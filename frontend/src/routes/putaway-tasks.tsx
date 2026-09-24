@@ -732,25 +732,7 @@ function WarehousePutawayTasksPage() {
         </div>
       }
     >
-      {/* Store Manager Putaway Portal Banner */}
-      <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <div className="size-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
-            <Warehouse className="size-5" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-foreground">Store Manager Inbound Putaway Execution</h4>
-            <p className="text-[11px] text-muted-foreground">
-              Putaway execution is performed by Store Managers and Keepers directly inside their dedicated Store Portal.
-            </p>
-          </div>
-        </div>
-        <Button size="sm" className="rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shrink-0" asChild>
-          <Link to="/my-store">
-            Open My Store Putaways <ArrowRight className="size-3.5 ml-1" />
-          </Link>
-        </Button>
-      </div>
+
 
       {/* KPI Metrics Banner */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -784,59 +766,7 @@ function WarehousePutawayTasksPage() {
             {metrics.completed}
           </p>
         </Card>
-        <Card className="rounded-xl p-3.5 shadow-sm border bg-primary/5 border-primary/20 col-span-2 sm:col-span-1">
-          <p className="text-[11px] font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="size-3.5" /> {isTrackingOnly ? "Store Scope" : "QR Direct Flow"}
-          </p>
-          <p className="text-xs font-medium text-foreground mt-1.5 leading-snug">
-            {isTrackingOnly
-              ? "Dock Store Allocation → Store Manager Execution"
-              : "GRN QR → Bin QR → Store Stock"}
-          </p>
-        </Card>
       </div>
-
-      {/* Process Flow Banner */}
-      {isTrackingOnly ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5 text-xs text-foreground">
-          <div className="flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center shrink-0 font-bold">
-              <Boxes className="size-4" />
-            </div>
-            <div>
-              <span className="font-bold text-foreground">Warehouse Manager Tracking Mode:</span>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Putaway tasks are automatically created upon GRN completion and routed to destination stores based on Dock Allocation. Assigned Store Managers perform physical bin placement and confirmation.
-              </p>
-            </div>
-          </div>
-          <Badge variant="outline" className="border-blue-500/30 text-blue-700 dark:text-blue-400 font-semibold text-xs px-2.5 py-1">
-            Tracking Only
-          </Badge>
-        </div>
-      ) : (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3.5 text-xs text-foreground">
-          <div className="flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 font-bold">
-              <QrCode className="size-4" />
-            </div>
-            <div>
-              <span className="font-bold text-primary">GRN Material QR as Source of Truth:</span>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Manual Material Master Code selection is eliminated. The Putaway process is initiated strictly by scanning or uploading the QR code generated during GRN. All material, vendor, lot, and quantity details are automatically autofilled.
-              </p>
-            </div>
-          </div>
-          <Button
-            size="sm"
-            onClick={handleOpenPutawayModal}
-            className="rounded-xl gap-1 shrink-0 text-xs font-bold"
-          >
-            <PackageCheck className="size-3.5" /> Execute Putaway Now
-          </Button>
-        </div>
-      )}
-
       {/* Search and Filters Bar */}
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
@@ -1233,8 +1163,8 @@ function WarehousePutawayTasksPage() {
                 putawayStep === 1
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : grnData
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                  : "bg-muted/40 text-muted-foreground"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    : "bg-muted/40 text-muted-foreground"
               )}
               onClick={() => !isExecuting && setPutawayStep(1)}
             >
@@ -1250,8 +1180,8 @@ function WarehousePutawayTasksPage() {
                 putawayStep === 2
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : binData
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                  : "bg-muted/40 text-muted-foreground",
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    : "bg-muted/40 text-muted-foreground",
                 !grnData && "opacity-50 pointer-events-none"
               )}
               onClick={() => grnData && !isExecuting && setPutawayStep(2)}
@@ -1268,8 +1198,8 @@ function WarehousePutawayTasksPage() {
                 putawayStep === 3
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : executionResult
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                  : "bg-muted/40 text-muted-foreground",
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    : "bg-muted/40 text-muted-foreground",
                 (!grnData || !binData) && "opacity-50 pointer-events-none"
               )}
               onClick={() => grnData && binData && !isExecuting && setPutawayStep(3)}
@@ -1723,8 +1653,8 @@ function WarehousePutawayTasksPage() {
                       onClick={() =>
                         copyToClipboard(
                           selectedTaskDetails.material_qr ||
-                            selectedTaskDetails.barcode_value ||
-                            `QR-MAT-${selectedTaskDetails.item_code}`,
+                          selectedTaskDetails.barcode_value ||
+                          `QR-MAT-${selectedTaskDetails.item_code}`,
                           "QR Code"
                         )
                       }

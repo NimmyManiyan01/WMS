@@ -87,6 +87,19 @@ async def main():
             except Exception as e:
                 print(f"Error adding {col}: {e}")
 
+        req_cols = [
+            ("assembly_requisition_item", "is_custom", "BOOLEAN DEFAULT FALSE"),
+            ("assembly_requisition_item", "custom_material_name", "VARCHAR"),
+            ("material_request_item", "is_custom", "BOOLEAN DEFAULT FALSE"),
+            ("material_request_item", "custom_material_name", "VARCHAR"),
+        ]
+        for tbl, col, col_type in req_cols:
+            try:
+                await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                print(f"Added column {col} to {tbl}")
+            except Exception as e:
+                print(f"Error adding {col} to {tbl}: {e}")
+
         print("Constraints and columns fixed successfully!")
 
 if __name__ == "__main__":

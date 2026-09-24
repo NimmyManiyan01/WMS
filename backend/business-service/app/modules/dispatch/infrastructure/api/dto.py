@@ -3,7 +3,6 @@ Pydantic DTO Schemas for Outbound Dispatch and Gate Exit module.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -90,4 +89,3 @@ class OutboundDispatchResponse(BaseModel):
     updated_at: str
     gate_exit: Optional[OutboundGateExitResponse] = None
     active_exception: Optional[OutboundGateExitExceptionResponse] = None
-

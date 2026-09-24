@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api-client";
-import { requireRole } from "@/lib/auth-utils";
+import { getUserInfo, requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/damage-claims")({ beforeLoad: () => requireRole(["SUPPLIER","PROCUREMENT","WAREHOUSE","GATE_SECURITY","ADMIN"]), component: Page });
 const resolutions = ["REPLACEMENT","REPAIR_REWORK","CREDIT_NOTE","REFUND","RETURN_REPLACEMENT"];
 function Page() {
   const [claims,setClaims]=useState<any[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState<string>();
   const [forms,setForms]=useState<Record<string,any>>({});
-  const roles: string[] = typeof window === "undefined" ? [] : JSON.parse(localStorage.getItem("user_info") || "{}").roles || [];
+  const roles: string[] = getUserInfo()?.roles || [];
   const has=(role:string)=>roles.includes(role)||roles.includes("ADMIN");
   const load=useCallback(async()=>{setLoading(true);try{setClaims(await api.getDamageClaims());}catch(e){toast.error("Unable to load damage claims",{description:e instanceof Error?e.message:undefined});}finally{setLoading(false);}},[]);
   useEffect(()=>{void load();},[load]);

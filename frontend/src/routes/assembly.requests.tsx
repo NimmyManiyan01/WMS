@@ -16,12 +16,14 @@ import {
   PackageCheck,
   AlertCircle,
   Sparkles,
+  ArrowRightLeft,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -57,7 +59,19 @@ export const Route = createFileRoute("/assembly/requests")({
   component: AssemblyRequestsPage,
 });
 
-const UOM_OPTIONS = ["PCS", "MTR", "KG", "LTR", "BOX", "PKT", "SET", "NOS"];
+const UOM_OPTIONS = ["PCS", "MTR", "KG", "LTR", "BOX", "PKT", "SET", "NOS", "ROLL", "TON"];
+
+interface RequisitionItemRow {
+  material_id: string;
+  material_variant_id: string;
+  material_code: string;
+  variant_code: string;
+  material_name: string;
+  quantity: number | string;
+  uom: string;
+  is_custom: boolean;
+  custom_material_name: string;
+}
 
 function AssemblyRequestsPage() {
   const [requests, setRequests] = useState<any[]>([]);
@@ -81,7 +95,7 @@ function AssemblyRequestsPage() {
     remarks: "",
   });
 
-  const [items, setItems] = useState<any[]>([
+  const [items, setItems] = useState<RequisitionItemRow[]>([
     {
       material_id: "",
       material_variant_id: "",
@@ -90,6 +104,8 @@ function AssemblyRequestsPage() {
       material_name: "",
       quantity: 1,
       uom: "PCS",
+      is_custom: false,
+      custom_material_name: "",
     },
   ]);
 
@@ -113,17 +129,19 @@ function AssemblyRequestsPage() {
     fetchData();
   }, []);
 
-  const addItem = () => {
+  const addItem = (isCustom = false) => {
     setItems([
       ...items,
       {
         material_id: "",
         material_variant_id: "",
-        material_code: "",
+        material_code: isCustom ? "CUSTOM" : "",
         variant_code: "",
         material_name: "",
         quantity: 1,
         uom: "PCS",
+        is_custom: isCustom,
+        custom_material_name: "",
       },
     ]);
   };
@@ -134,6 +152,26 @@ function AssemblyRequestsPage() {
   };
 
   const handleSelectMaterial = (idx: number, matId: string) => {
+    if (matId === "__CUSTOM__") {
+      setItems(
+        items.map((it, i) =>
+          i === idx
+            ? {
+                ...it,
+                material_id: "",
+                material_variant_id: "",
+                material_code: "CUSTOM",
+                variant_code: "",
+                material_name: "",
+                is_custom: true,
+                custom_material_name: "",
+              }
+            : it,
+        ),
+      );
+      return;
+    }
+
     const foundMat = masterMaterials.find((m) => m.id === matId);
     if (!foundMat) return;
     const defaultVariant = foundMat.variants?.[0];
@@ -155,6 +193,26 @@ function AssemblyRequestsPage() {
               variant_code: defaultVariant?.variant_code || "",
               material_name: nameWithSpec,
               uom: defaultVariant?.uom || foundMat.base_uom || "PCS",
+              is_custom: false,
+              custom_material_name: "",
+            }
+          : it,
+      ),
+    );
+  };
+
+  const toggleRowMode = (idx: number, toCustom: boolean) => {
+    setItems(
+      items.map((it, i) =>
+        i === idx
+          ? {
+              ...it,
+              is_custom: toCustom,
+              material_id: "",
+              material_variant_id: "",
+              material_code: toCustom ? "CUSTOM" : "",
+              variant_code: "",
+              material_name: toCustom ? it.custom_material_name : "",
             }
           : it,
       ),
@@ -163,13 +221,23 @@ function AssemblyRequestsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (items.some((it) => !it.material_code?.trim() || !it.material_name?.trim())) {
-      toast.error("Please select a material for all item rows");
-      return;
-    }
-    if (items.some((it) => !it.quantity || parseFloat(it.quantity) <= 0)) {
-      toast.error("Quantity must be greater than 0");
-      return;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.is_custom) {
+        if (!it.custom_material_name?.trim()) {
+          toast.error(`Please enter the Custom Material Name for row ${i + 1}`);
+          return;
+        }
+      } else {
+        if (!it.material_id?.trim() || !it.material_code?.trim()) {
+          toast.error(`Please select a material for row ${i + 1}`);
+          return;
+        }
+      }
+      if (!it.quantity || parseFloat(it.quantity as string) <= 0) {
+        toast.error(`Quantity must be greater than 0 for row ${i + 1}`);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -182,13 +250,15 @@ function AssemblyRequestsPage() {
         required_date: formData.required_date,
         remarks: formData.remarks,
         items: items.map((it) => ({
-          material_id: it.material_id || null,
-          material_variant_id: it.material_variant_id || null,
-          material_code: it.material_code,
-          variant_code: it.variant_code || null,
-          material_name: it.material_name,
-          quantity: parseFloat(it.quantity) || 1,
+          material_id: it.is_custom ? null : it.material_id || null,
+          material_variant_id: it.is_custom ? null : it.material_variant_id || null,
+          material_code: it.is_custom ? "CUSTOM" : it.material_code,
+          variant_code: it.is_custom ? null : it.variant_code || null,
+          material_name: it.is_custom ? it.custom_material_name.trim() : it.material_name,
+          custom_material_name: it.is_custom ? it.custom_material_name.trim() : null,
+          quantity: parseFloat(it.quantity as string) || 1,
           uom: it.uom || "PCS",
+          is_custom: !!it.is_custom,
         })),
       };
 
@@ -204,6 +274,8 @@ function AssemblyRequestsPage() {
           material_name: "",
           quantity: 1,
           uom: "PCS",
+          is_custom: false,
+          custom_material_name: "",
         },
       ]);
       fetchData();
@@ -372,29 +444,59 @@ function AssemblyRequestsPage() {
                           </span>
                         )}
                       </div>
-
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         {req.items?.map((it: any, idx: number) => {
                           const reqQty = Number(
                             it.requestedQuantity || it.requested_quantity || it.quantity || 0,
                           );
                           const issQty = Number(it.issuedQuantity || it.issued_quantity || 0);
                           const remQty = Math.max(0, reqQty - issQty);
+                          const isCustomLine = Boolean(
+                            it.is_custom ||
+                            it.isCustom ||
+                            it.materialCode === "CUSTOM" ||
+                            it.material_code === "CUSTOM" ||
+                            (!it.material_id && !it.materialId && (it.custom_material_name || it.customMaterialName))
+                          );
+                          const matCreated = Boolean(
+                            it.materialCode &&
+                            it.materialCode !== "CUSTOM" &&
+                            it.materialCode !== "MAT-REQ" &&
+                            (it.custom_material_name || it.customMaterialName)
+                          );
+
                           return (
                             <span
                               key={idx}
-                              className="text-[11px] text-primary bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20 font-medium"
+                              className={cn(
+                                "text-[11px] px-2.5 py-1 rounded-lg border font-medium flex items-center gap-1.5",
+                                isCustomLine
+                                  ? "text-amber-700 dark:text-amber-300 bg-amber-500/10 border-amber-500/30"
+                                  : "text-primary bg-primary/10 border-primary/20",
+                              )}
                             >
-                              {it.materialName ||
-                                it.material_name ||
-                                it.materialCode ||
-                                it.material_code}
-                              :{" "}
-                              <strong>
-                                {reqQty} {it.uom}
-                              </strong>
+                              {isCustomLine && (
+                                <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-700 dark:text-amber-300 rounded">
+                                  ✨ NEW MATERIAL
+                                </span>
+                              )}
+                              {matCreated && (
+                                <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded">
+                                  ✓ CODE: {it.materialCode || it.material_code}
+                                </span>
+                              )}
+                              <span>
+                                {it.materialName ||
+                                  it.material_name ||
+                                  it.materialCode ||
+                                  it.material_code}
+                                :{" "}
+                                <strong>
+                                  {reqQty} {it.uom}
+                                </strong>
+                              </span>
                               {issQty > 0 && (
-                                <span className="ml-1.5 text-emerald-600 font-bold">
+                                <span className="ml-1 text-emerald-600 font-bold">
                                   (Issued: {issQty}/{reqQty}
                                   {remQty > 0 ? ` · Rem: ${remQty}` : " · Complete"})
                                 </span>
@@ -473,93 +575,212 @@ function AssemblyRequestsPage() {
                 <Label className="text-xs font-bold uppercase text-muted-foreground">
                   Requested Items
                 </Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addItem}
-                  className="h-7 text-xs rounded-lg"
-                >
-                  <Plus className="size-3 mr-1" /> Add Item
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addItem(false)}
+                    className="h-7 text-xs rounded-lg border-border/60"
+                  >
+                    <Plus className="size-3 mr-1" /> Add Standard Item
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => addItem(true)}
+                    className="h-7 text-xs rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-sm"
+                  >
+                    <Sparkles className="size-3 mr-1 text-amber-300" /> + Add Custom Item
+                  </Button>
+                </div>
               </div>
 
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
                 {items.map((item, idx) => (
                   <div
                     key={idx}
-                    className="p-3 bg-muted/20 border border-border/50 rounded-2xl flex flex-col sm:flex-row gap-2 items-start sm:items-center"
+                    className={cn(
+                      "p-3 rounded-2xl border transition-all flex flex-col gap-2.5",
+                      item.is_custom
+                        ? "bg-amber-500/5 border-amber-500/30 dark:bg-amber-950/10"
+                        : "bg-muted/20 border-border/50",
+                    )}
                   >
-                    <div className="flex-1 w-full">
-                      <Select
-                        value={item.material_id}
-                        onValueChange={(val) => handleSelectMaterial(idx, val)}
-                      >
-                        <SelectTrigger className="h-9 rounded-xl text-xs">
-                          <SelectValue placeholder="Select Material" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-60">
-                          {masterMaterials.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              <span className="font-mono font-bold text-primary">
-                                {m.material_code}
-                              </span>{" "}
-                              — {m.material_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {item.is_custom ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5">
+                            <Sparkles className="size-3 mr-1 text-amber-500 inline" /> Custom / New Raw Material
+                          </Badge>
+                          <button
+                            type="button"
+                            onClick={() => toggleRowMode(idx, false)}
+                            className="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium"
+                          >
+                            <ArrowRightLeft className="size-3" /> Select from Material Master instead
+                          </button>
+                        </div>
 
-                    <div className="w-24">
-                      <Input
-                        type="number"
-                        min="0.0001"
-                        step="any"
-                        placeholder="Qty"
-                        value={item.quantity}
-                        onChange={(e) =>
-                          setItems(
-                            items.map((it, i) =>
-                              i === idx ? { ...it, quantity: e.target.value } : it,
-                            ),
-                          )
-                        }
-                        className="h-9 rounded-xl text-xs"
-                        required
-                      />
-                    </div>
+                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                          <div className="flex-1 w-full">
+                            <Input
+                              placeholder="Enter custom raw material name (e.g. Special Impeller Shaft)"
+                              value={item.custom_material_name}
+                              onChange={(e) =>
+                                setItems(
+                                  items.map((it, i) =>
+                                    i === idx
+                                      ? {
+                                          ...it,
+                                          custom_material_name: e.target.value,
+                                          material_name: e.target.value,
+                                        }
+                                      : it,
+                                  ),
+                                )
+                              }
+                              className="h-9 rounded-xl text-xs bg-background/80 border-amber-500/30 focus-visible:ring-amber-500/40"
+                              required
+                              autoFocus={item.is_custom && !item.custom_material_name}
+                            />
+                          </div>
 
-                    <div className="w-20">
-                      <Select
-                        value={item.uom}
-                        onValueChange={(val) =>
-                          setItems(items.map((it, i) => (i === idx ? { ...it, uom: val } : it)))
-                        }
-                      >
-                        <SelectTrigger className="h-9 rounded-xl text-xs">
-                          <SelectValue placeholder="UOM" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {UOM_OPTIONS.map((u) => (
-                            <SelectItem key={u} value={u}>
-                              {u}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                          <div className="w-24">
+                            <Input
+                              type="number"
+                              min="0.0001"
+                              step="any"
+                              placeholder="Qty"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                setItems(
+                                  items.map((it, i) =>
+                                    i === idx ? { ...it, quantity: e.target.value } : it,
+                                  ),
+                                )
+                              }
+                              className="h-9 rounded-xl text-xs bg-background/80"
+                              required
+                            />
+                          </div>
 
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={items.length <= 1}
-                      onClick={() => removeItem(idx)}
-                      className="size-9 rounded-xl text-destructive hover:bg-destructive/10 shrink-0"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                          <div className="w-24">
+                            <Select
+                              value={item.uom}
+                              onValueChange={(val) =>
+                                setItems(
+                                  items.map((it, i) => (i === idx ? { ...it, uom: val } : it)),
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-9 rounded-xl text-xs bg-background/80">
+                                <SelectValue placeholder="UOM" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {UOM_OPTIONS.map((u) => (
+                                  <SelectItem key={u} value={u}>
+                                    {u}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={items.length <= 1}
+                            onClick={() => removeItem(idx)}
+                            className="size-9 rounded-xl text-destructive hover:bg-destructive/10 shrink-0"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                        <div className="flex-1 w-full">
+                          <Select
+                            value={item.material_id}
+                            onValueChange={(val) => handleSelectMaterial(idx, val)}
+                          >
+                            <SelectTrigger className="h-9 rounded-xl text-xs bg-background">
+                              <SelectValue placeholder="Select Material" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              <SelectItem
+                                value="__CUSTOM__"
+                                className="text-blue-600 font-semibold cursor-pointer border-b border-border/40 pb-1.5 focus:bg-blue-50 dark:focus:bg-blue-950"
+                              >
+                                <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                                  <Sparkles className="size-3.5 text-amber-500" /> + Add Custom Item (New Raw Material)
+                                </span>
+                              </SelectItem>
+                              {masterMaterials.map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  <span className="font-mono font-bold text-primary">
+                                    {m.material_code}
+                                  </span>{" "}
+                                  — {m.material_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="w-24">
+                          <Input
+                            type="number"
+                            min="0.0001"
+                            step="any"
+                            placeholder="Qty"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              setItems(
+                                items.map((it, i) =>
+                                    i === idx ? { ...it, quantity: e.target.value } : it,
+                                ),
+                              )
+                            }
+                            className="h-9 rounded-xl text-xs bg-background"
+                            required
+                          />
+                        </div>
+
+                        <div className="w-20">
+                          <Select
+                            value={item.uom}
+                            onValueChange={(val) =>
+                              setItems(items.map((it, i) => (i === idx ? { ...it, uom: val } : it)))
+                            }
+                          >
+                            <SelectTrigger className="h-9 rounded-xl text-xs bg-background">
+                              <SelectValue placeholder="UOM" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {UOM_OPTIONS.map((u) => (
+                                <SelectItem key={u} value={u}>
+                                  {u}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={items.length <= 1}
+                          onClick={() => removeItem(idx)}
+                          className="size-9 rounded-xl text-destructive hover:bg-destructive/10 shrink-0"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -570,7 +791,7 @@ function AssemblyRequestsPage() {
                 Remarks / Line Usage Justification
               </Label>
               <Textarea
-                placeholder="Specify production line or purpose (e.g. Urgent motors for Line 3 assembly)"
+                placeholder="Specify production line or purpose (e.g. Urgent custom raw material for assembly order)"
                 value={formData.remarks}
                 onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
                 className="rounded-xl text-xs min-h-[60px]"
@@ -661,21 +882,47 @@ function AssemblyRequestsPage() {
 
               <div className="space-y-2">
                 <p className="text-xs font-bold text-muted-foreground uppercase">Items</p>
-                <div className="p-3 bg-muted/20 border border-border/40 rounded-2xl space-y-2">
+                <div className="p-3 bg-muted/20 border border-border/40 rounded-2xl space-y-2.5">
                   {selectedRequest.items?.map((it: any, idx: number) => {
                     const reqQty = Number(
                       it.requestedQuantity || it.requested_quantity || it.quantity || 0,
                     );
                     const issQty = Number(it.issuedQuantity || it.issued_quantity || 0);
+                    const isCustomLine = Boolean(
+                      it.is_custom ||
+                      it.isCustom ||
+                      it.materialCode === "CUSTOM" ||
+                      it.material_code === "CUSTOM" ||
+                      (!it.material_id && !it.materialId && (it.custom_material_name || it.customMaterialName))
+                    );
+                    const matCreated = Boolean(
+                      it.materialCode &&
+                      it.materialCode !== "CUSTOM" &&
+                      it.materialCode !== "MAT-REQ" &&
+                      (it.custom_material_name || it.customMaterialName)
+                    );
+
                     return (
-                      <div key={idx} className="flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-semibold text-foreground">
-                            {it.materialName ||
-                              it.material_name ||
-                              it.materialCode ||
-                              it.material_code}
-                          </p>
+                      <div key={idx} className="flex justify-between items-center text-xs pb-2 border-b border-border/30 last:border-0 last:pb-0">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-foreground">
+                              {it.materialName ||
+                                it.material_name ||
+                                it.materialCode ||
+                                it.material_code}
+                            </p>
+                            {isCustomLine && (
+                              <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[9px] font-bold px-1.5 py-0">
+                                ✨ NEW MATERIAL
+                              </Badge>
+                            )}
+                            {matCreated && (
+                              <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[9px] font-bold px-1.5 py-0">
+                                ✓ Created ({it.materialCode || it.material_code})
+                              </Badge>
+                            )}
+                          </div>
                           <p className="font-mono text-[10px] text-muted-foreground">
                             {it.materialCode || it.material_code}
                             {it.variantCode || it.variant_code
