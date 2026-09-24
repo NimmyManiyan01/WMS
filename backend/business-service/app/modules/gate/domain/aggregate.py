@@ -240,6 +240,25 @@ class GateEntry(AggregateRoot):
         )
         self._register_event(event)
 
+    def mark_vehicle_exited(self, security_officer_id: str, exited_at: Optional[datetime] = None) -> None:
+        eligible_statuses = {
+            GateEntryStatus.RECEIVING_COMPLETED,
+            GateEntryStatus.RELEASED,
+            GateEntryStatus.DOCK_RELEASED,
+            GateEntryStatus.COMPLETED,
+            GateEntryStatus.QUALITY_PASSED,
+            GateEntryStatus.UNLOADED,
+        }
+        if self.status == GateEntryStatus.VEHICLE_EXITED:
+            raise DomainRuleViolationException("Vehicle has already exited.")
+        if self.status not in eligible_statuses and (hasattr(self.status, "value") and self.status.value not in [s.value for s in eligible_statuses]):
+            raise DomainRuleViolationException("Gate entry is not in an eligible post-receiving status for vehicle exit.")
+
+        self.status = GateEntryStatus.VEHICLE_EXITED
+        self.exited_at = exited_at or datetime.now(timezone.utc)
+        self.exited_by = security_officer_id
+        self.updated_at = datetime.now(timezone.utc)
+
     @classmethod
     def rehydrate(
         cls,

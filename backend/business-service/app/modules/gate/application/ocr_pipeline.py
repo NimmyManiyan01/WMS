@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-if os.getenv("ENABLE_PADDLE_OCR", "true").lower() == "true":
+if os.getenv("ENABLE_PADDLE_OCR", "false").lower() == "true":
     try:
         from paddleocr import PaddleOCR
     except ImportError:

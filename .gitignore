@@ -21,6 +21,7 @@ __pycache__/
 *$py.class
 *.so
 .pytest_cache/
+.pytest-tmp/
 .coverage
 htmlcov/
 
@@ -56,7 +57,7 @@ uploads/
 
 # Cloned or temporary artifacts
 .artifacts/
-WMS/
+/WMS/
 *.log
 # Compiler metadata
 *.iml

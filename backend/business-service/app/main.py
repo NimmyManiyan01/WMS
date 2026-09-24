@@ -1,7 +1,7 @@
 """
 FastAPI entrypoint for ams-wms-business-service.
 """
-# Reload triggered for Store Manager Dock Isolation fix
+# Reload triggered for Assembly and Store Manager auth
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +19,7 @@ from app.middleware.request_context import RequestContextMiddleware
 from app.modules.dock.infrastructure.api.router import router as dock_router
 from app.modules.gate.infrastructure.api.router import (
     preview_router as gate_preview_router,
+    
     router as gate_router,
 )
 from app.modules.gate.infrastructure.api.dashboard import router as dashboard_router
@@ -699,7 +700,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to create outbound workflow tables: {e}")
 
         try:
-            for tbl in ["material_request_item", "purchase_order_item", "material_stock"]:
+            for tbl in ["material_request_item", "purchase_order_item", "material_stock", "asn_line"]:
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_id UUID REFERENCES material(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_variant_id UUID REFERENCES material_variant(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS variant_code VARCHAR(128)")

@@ -194,6 +194,20 @@ const financeNav = [
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
+const managerNav = [
+  { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
+  {
+    label: "Suppliers",
+    to: "/master-data?module=manager&status=pending-approval",
+    icon: Building2,
+  },
+  {
+    label: "Material Requests",
+    to: "/procurement/material-requests?module=manager&status=manager-approval",
+    icon: ClipboardList,
+  },
+];
+
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
@@ -243,6 +257,75 @@ function getIconComponent(iconName: any) {
   return ICON_MAP[iconName] || LayoutDashboard;
 }
 
+function hasUserRole(user: { roles?: string[] } | null, role: string): boolean {
+  return Boolean(user?.roles?.includes(role));
+}
+
+function isGrnSession(user: { username?: string; roles?: string[] } | null): boolean {
+  const username = user?.username?.toLowerCase() ?? "";
+  return Boolean(
+    user?.roles?.some((role) =>
+      ["GRN", "GRN_MANAGER", "OPERATIONS_MANAGER", "OPERATIONS", "RECEIVING"].includes(role),
+    ) ||
+    username === "grn" ||
+    username.includes("grn"),
+  );
+}
+
+function isDispatchSession(user: { username?: string; roles?: string[] } | null): boolean {
+  const username = user?.username?.toLowerCase() ?? "";
+  return Boolean(
+    user?.roles?.some((role) =>
+      ["DISPATCH", "DISPATCH_MANAGER", "DISPATCH_OFFICER", "DISPATCH_OPERATOR"].includes(role),
+    ) ||
+    username === "dispatch" ||
+    username.includes("dispatch"),
+  );
+}
+
+function getNotificationRole(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "SUPPLIER")) return "SUPPLIER";
+  if (hasUserRole(user, "FINANCE")) return "FINANCE";
+  if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
+  if (hasUserRole(user, "MANAGER")) return "MANAGER";
+  if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "ASSEMBLY_MANAGER";
+  if (isDispatchSession(user)) return "DISPATCH";
+  if (isGrnSession(user)) return "GRN";
+  return "WAREHOUSE";
+}
+
+function getStrictRoleNav(user: { username?: string; roles?: string[] } | null): NavItem[] {
+  if (!user) return [];
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return adminNav;
+  if (hasUserRole(user, "PROCUREMENT")) return procurementNav;
+  if (hasUserRole(user, "MANAGER")) return managerNav;
+  if (hasUserRole(user, "SUPPLIER")) return supplierNav;
+  if (hasUserRole(user, "FINANCE")) return financeNav;
+  if (hasUserRole(user, "GATE_SECURITY") || hasUserRole(user, "GATE_OPERATOR"))
+    return gateSecurityNav;
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return assemblyNav;
+  if (hasUserRole(user, "STORE_MANAGER") || hasUserRole(user, "STORE_KEEPER"))
+    return storeManagerNav;
+  if (isDispatchSession(user)) return dispatchNav;
+  if (isGrnSession(user)) return grnNav;
+  return warehouseNav;
+}
+
+function getRoleLabel(user: { username?: string; roles?: string[] } | null): string {
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return "Administrator";
+  if (hasUserRole(user, "PROCUREMENT")) return "Procurement Manager";
+  if (hasUserRole(user, "MANAGER")) return "Manager";
+  if (hasUserRole(user, "FINANCE")) return "Finance Manager";
+  if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "Assembly Manager";
+  if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
+  if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
+  if (isDispatchSession(user)) return "Dispatch Manager";
+  if (isGrnSession(user)) return "GRN / Operations Manager";
+  return "Operations Manager";
+}
+
 export function AppShell({
   children,
   title,
@@ -257,7 +340,6 @@ export function AppShell({
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
   const searchStr = location.searchStr || "";
@@ -292,8 +374,6 @@ export function AppShell({
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    setMounted(true);
     document.documentElement.classList.toggle("dark", dark);
     try {
       const u = getUserInfo();
@@ -341,11 +421,16 @@ export function AppShell({
           window.removeEventListener("focus", fetchNotifications);
         };
       }
-    } catch (e) {
-      console.error("Failed to parse user info", e);
-    }
+    };
+
+    void fetchNotifications();
+    const interval = window.setInterval(fetchNotifications, 2000);
+    window.addEventListener("notifications:refresh", fetchNotifications);
+    window.addEventListener("focus", fetchNotifications);
     return () => {
-      if (cleanup) cleanup();
+      window.clearInterval(interval);
+      window.removeEventListener("notifications:refresh", fetchNotifications);
+      window.removeEventListener("focus", fetchNotifications);
     };
   }, [dark]);
   const currentQueryModule =

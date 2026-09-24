@@ -83,6 +83,12 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REDIS_URL: redis://redis:6379/0
       CORS_ALLOW_ORIGINS: '["http://localhost:8080","http://127.0.0.1:8080"]'
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-465}
+      EMAIL_TIMEOUT_SECONDS: ${EMAIL_TIMEOUT_SECONDS:-8}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-NexusWMS Procurement}
     depends_on:
       auth-service:
         condition: service_started

@@ -478,6 +478,7 @@ class MaterialRequestItemSchema(ApiModel):
     material_code: Optional[str] = None
     variant_code: Optional[str] = None
     material_name: Optional[str] = None
+    category: Optional[str] = None
     quantity: Decimal = Field(..., gt=0, description="Quantity must be strictly greater than zero")
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
     is_custom: Optional[bool] = False

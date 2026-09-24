@@ -140,7 +140,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     } catch {
       errorMessage = errorText || errorMessage;
     }
-    throw new Error(errorMessage);
+    const httpError = new Error(errorMessage) as Error & { status?: number };
+    httpError.status = response.status;
+    throw httpError;
   }
 
   // Successful DELETE requests commonly return 204 with no response body.
@@ -208,7 +210,20 @@ export const api = {
       };
       storeAuthSession(devUser, rememberMe);
       return devUser;
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const status =
+        typeof e === "object" && e !== null && "status" in e
+          ? Number((e as { status?: number }).status)
+          : undefined;
+
+      if (status === 401 || status === 403) {
+        throw e;
+      }
+
+      if (!(e instanceof TypeError)) {
+        throw e;
+      }
+
       console.warn("Dev server login failed, falling back to client-side mock:", e.message);
       const isProcurement = username.toLowerCase().includes("procurement");
       const isFinance = username.toLowerCase().includes("finance");
@@ -218,9 +233,12 @@ export const api = {
         username.toLowerCase().includes("grn") || username.toLowerCase().includes("receiving");
       const isAssembly = username.toLowerCase().includes("assembly");
       const isStore = username.toLowerCase().includes("store");
+      const isManager = username.toLowerCase().includes("manager") && !isAssembly && !isStore;
       const mockUser = {
         token: isFinance
           ? "mock-jwt-finance-token"
+          : isManager
+            ? "mock-jwt-manager-token"
           : isProcurement
             ? "mock-jwt-procurement-token"
             : isWarehouse
@@ -237,6 +255,8 @@ export const api = {
         username,
         roles: isFinance
           ? ["FINANCE"]
+          : isManager
+            ? ["MANAGER"]
           : isProcurement
             ? ["PROCUREMENT"]
             : isWarehouse
@@ -728,6 +748,69 @@ export const api = {
 
   async completeGateExit(gateEntryId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/gate-entries/${gateEntryId}/complete-gate-exit`, {
+      method: "POST",
+    });
+  },
+
+  async getOutboundDispatchQueue(status?: string, search?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (search) params.set("search", search);
+    const queryStr = params.toString() ? `?${params.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/dispatch/queue${queryStr}`);
+  },
+
+  async getOutboundDispatch(dispatchId: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}`);
+  },
+
+  async confirmOutboundGateExit(
+    dispatchId: string,
+    payload: { vehicle_verified: boolean; driver_verified: boolean; remarks?: string; vehicle_photo_base64?: string },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/gate-exit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async reportOutboundGateExitMismatch(
+    dispatchId: string,
+    payload: {
+      verification_result: string;
+      mismatch_reason: string;
+      actual_vehicle?: string;
+      actual_driver?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/report-mismatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async resolveOutboundGateExitMismatch(
+    dispatchId: string,
+    payload: {
+      resolution_action: string;
+      resolution_notes: string;
+      new_vehicle_number?: string;
+      new_driver_name?: string;
+      new_driver_phone?: string;
+    },
+  ): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/resolve-mismatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async seedSampleDispatches(force = false): Promise<any> {
+    const url = `${BUSINESS_API_URL}/api/v1/dispatch/seed-sample${force ? "?force=true" : ""}`;
+    return request<any>(url, {
       method: "POST",
     });
   },

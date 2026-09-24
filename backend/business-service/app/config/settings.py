@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     finance_password: str = Field(default="finance")
     warehouse_username: str = Field(default="warehouse")
     warehouse_password: str = Field(default="warehouse")
+    manager_username: str = Field(default="manager")
+    manager_password: str = Field(..., description="Required manager login secret; must be configured via environment variables.")
     assembly_manager_username: str = Field(default="assembly_manager")
     assembly_manager_password: str = Field(default="assembly123")
     gate_security_username: str = Field(default="gate_entry")
@@ -90,6 +92,8 @@ class Settings(BaseSettings):
     supplier_password: str = Field(default="supplier123")
     grn_username: str = Field(default="grn")
     grn_password: str = Field(default="grn123")
+    dispatch_username: str = Field(default="dispatch")
+    dispatch_password: str = Field(default="dispatch123")
 
     # --- Email SMTP Settings ----------------------------------------------------
     email_host: str = Field(default="smtp.gmail.com")
