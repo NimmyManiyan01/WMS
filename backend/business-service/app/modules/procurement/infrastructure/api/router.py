@@ -4419,6 +4419,12 @@ async def dev_login(
             "username": request.username,
             "roles": ["DISPATCH"]
         }
+    elif (hasattr(settings, "assembly_manager_username") and normalized_username == settings.assembly_manager_username.lower() and request.password == settings.assembly_manager_password) or (normalized_username in {"assembly", "assembly_manager"} and request.password in {getattr(settings, "assembly_manager_password", "assembly123"), "assembly123"}):
+        return {
+            "token": "mock-jwt-assembly-token",
+            "username": request.username,
+            "roles": ["ASSEMBLY_MANAGER"]
+        }
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

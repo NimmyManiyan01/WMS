@@ -169,8 +169,15 @@ export function getDefaultRouteForUser(user = getUserInfo()): string {
   if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
   if (roles.includes("GATE_SECURITY")) return "/gate-entry";
   if (roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (roles.includes("ASSEMBLY_MANAGER")) return "/assembly-dashboard";
   if (roles.includes("STORE_MANAGER") || roles.includes("STORE_KEEPER")) return "/my-store";
+  if (
+    roles.includes("ASSEMBLY_MANAGER") ||
+    roles.includes("ASSEMBLY") ||
+    user?.username?.toLowerCase() === "assembly" ||
+    user?.username?.toLowerCase() === "assembly_manager"
+  ) {
+    return "/assembly-dashboard";
+  }
   if (
     roles.includes("GRN") ||
     roles.includes("GRN_MANAGER") ||

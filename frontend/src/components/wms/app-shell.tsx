@@ -234,6 +234,7 @@ function getNotificationRole(user: { username?: string; roles?: string[] } | nul
   if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
   if (hasUserRole(user, "MANAGER")) return "MANAGER";
   if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "ASSEMBLY_MANAGER";
   if (isDispatchSession(user)) return "DISPATCH";
   if (isGrnSession(user)) return "GRN";
   return "WAREHOUSE";
@@ -262,6 +263,7 @@ function getRoleLabel(user: { username?: string; roles?: string[] } | null): str
   if (hasUserRole(user, "MANAGER")) return "Manager";
   if (hasUserRole(user, "FINANCE")) return "Finance Manager";
   if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "Assembly Manager";
   if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
   if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
   if (isDispatchSession(user)) return "Dispatch Manager";

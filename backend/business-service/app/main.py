@@ -1,7 +1,7 @@
 """
 FastAPI entrypoint for ams-wms-business-service.
 """
-# Reload triggered for Store Manager Dock Isolation fix
+# Reload triggered for Assembly and Store Manager auth
 from __future__ import annotations
 
 import asyncio
