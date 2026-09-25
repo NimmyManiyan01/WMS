@@ -81,7 +81,7 @@ export function hasRole(roles: string[] | string): boolean {
 
 export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
-  if (pathname === "/manager-dashboard") return ["MANAGER", "ADMIN", "SUPERUSER"];
+  if (pathname === "/manager-dashboard") return ["MANAGER", "PROCUREMENT_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/procurement") ||
     pathname === "/master-data" ||
@@ -165,7 +165,10 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
   const roles = user?.roles || [];
-  if (roles.includes("MANAGER") || roles.includes("PROCUREMENT_MANAGER") || user?.username?.toLowerCase()?.includes("manager")) return "/manager-dashboard";
+  // Route by explicit permissions only. Username-based routing can send users
+  // such as `storemanager` to a dashboard they cannot access, causing a
+  // redirect loop between the route guard and this fallback.
+  if (roles.includes("MANAGER") || roles.includes("PROCUREMENT_MANAGER")) return "/manager-dashboard";
   if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) return "/admin/users";
   if (roles.includes("FINANCE")) return "/finance-dashboard";
   if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
