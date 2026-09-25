@@ -283,6 +283,12 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
         grn_ids = {t.grn_id for t in tasks if t.grn_id}
         hu_ids = {t.handling_unit_id for t in tasks if t.handling_unit_id}
         store_ids = {t.destination_store_id for t in tasks if t.destination_store_id}
+        fg_ids = {t.finished_goods_id for t in tasks if t.finished_goods_id}
+        finished_goods = {}
+        if fg_ids:
+            from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
+            fg_res = await session.execute(select(AssemblyFinishedGoodsModel).where(AssemblyFinishedGoodsModel.id.in_(fg_ids)))
+            finished_goods = {fg.id: fg for fg in fg_res.scalars().all()}
 
         grns: dict[uuid.UUID, GrnModel] = {}
         if grn_ids:
@@ -408,6 +414,11 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 or f"QR-MAT-{t.item_code}"
             )
 
+            fg_record = finished_goods.get(t.finished_goods_id) if t.finished_goods_id else None
+            unit_metadata = t.placement_metadata or {}
+            recorded_putaway_quantity = unit_metadata.get("putaway_quantity")
+            if recorded_putaway_quantity is None and t.finished_goods_id and t.status in ("PUTAWAY_COMPLETED", "STORED"):
+                recorded_putaway_quantity = 1 if unit_metadata.get("unit_qr") else (float(fg_record.quantity) if fg_record else float(t.quantity))
             results.append({
                 "id": str(t.id),
                 "task_number": t.task_number,
@@ -419,6 +430,7 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 "material_qr": mat_qr,
                 "barcode_value": hu.barcode_value if hu else None,
                 "quantity": float(t.quantity),
+                "putaway_quantity": recorded_putaway_quantity,
                 "uom": t.uom,
                 "warehouse_id": t.warehouse_id,
                 "source_location": t.source_location,
@@ -1452,6 +1464,7 @@ async def complete_putaway(
 
     remaining_task_qty = task.quantity - request.quantity
     if remaining_task_qty <= 0:
+        task.placement_metadata = {**(task.placement_metadata or {}), "putaway_quantity": float(request.quantity)}
         task.quantity = Decimal("0")
         task.status = "PUTAWAY_COMPLETED"
         task.completed_by = user.username
@@ -2284,6 +2297,7 @@ async def execute_putaway(
         task.destination_location_id = location.id
 
         if is_completed or task.quantity <= request.quantity:
+            task.placement_metadata = {**(task.placement_metadata or {}), "putaway_quantity": float(request.quantity if task.quantity <= request.quantity else task.quantity)}
             task.quantity = Decimal("0")
             task.status = "PUTAWAY_COMPLETED"
             task.completed_by = user.username

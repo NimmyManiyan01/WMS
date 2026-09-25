@@ -940,7 +940,7 @@ function WarehousePutawayTasksPage() {
                               {task.item_code}
                             </code>
                             <span className="font-bold text-primary">
-                              {task.quantity.toLocaleString()} {task.uom}
+                              {(task.putaway_quantity ?? task.quantity).toLocaleString()} {task.uom}
                             </span>
                           </div>
                         </div>
@@ -1618,7 +1618,7 @@ function WarehousePutawayTasksPage() {
                   <div className="text-right font-mono">
                     <span className="text-[10px] text-muted-foreground uppercase font-sans">Remaining Qty</span>
                     <p className="text-lg font-black text-primary">
-                      {selectedTaskDetails.quantity.toLocaleString()} {selectedTaskDetails.uom}
+                      {(selectedTaskDetails.putaway_quantity ?? selectedTaskDetails.quantity).toLocaleString()} {selectedTaskDetails.uom}
                     </p>
                   </div>
                 </div>
