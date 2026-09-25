@@ -71,6 +71,8 @@ function AssemblyFinishedGoodsRequests() {
 
   useEffect(() => {
     void fetchRequests();
+    const timer = window.setInterval(() => void fetchRequests(), 10000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const filteredRequests = requests.filter((req) => {

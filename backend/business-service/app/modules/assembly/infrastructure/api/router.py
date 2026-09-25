@@ -635,6 +635,29 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
             if "PUMP-100" in (ar.remarks or ""):
                 product_name = "PUMP-100"
             planned_qty = (fgr.quantity if fgr else None) or Decimal("10.0")
+            if fgr:
+                available_fg = Decimal("0")
+                fg_code = (fgr.finished_goods_code or "").strip().upper()
+                fg_name = (fgr.finished_goods_name or "").strip().upper()
+                fg_filters = []
+                if fg_code:
+                    fg_filters.append(func.upper(AssemblyFinishedGoodsModel.product_code) == fg_code)
+                if fg_name:
+                    fg_filters.append(func.upper(AssemblyFinishedGoodsModel.product_name) == fg_name)
+                if fg_filters:
+                    available_fg = Decimal(str(await uow.session.scalar(
+                        select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0")))
+                        .join(StoreModel, StoreModel.id == AssemblyFinishedGoodsModel.store_id)
+                        .where(
+                            or_(*fg_filters),
+                            AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"]),
+                            StoreModel.status == "ACTIVE",
+                            or_(func.upper(StoreModel.store_type) == "FINISHED_GOODS", StoreModel.store_name.ilike("%Finished Goods%")),
+                        )
+                    ) or 0))
+                planned_qty = max(Decimal("0"), planned_qty - available_fg)
+                if planned_qty <= 0:
+                    continue
 
             mr = await uow.session.scalar(
                 select(MaterialRequestModel).where(
@@ -1091,9 +1114,13 @@ async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: Un
             fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_name) == req.finished_goods_name.strip().upper())
 
         if fg_conditions:
-            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).where(
+            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).join(
+                StoreModel, StoreModel.id == AssemblyFinishedGoodsModel.store_id
+            ).where(
                 or_(*fg_conditions),
-                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"])
+                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"]),
+                StoreModel.status == "ACTIVE",
+                or_(func.upper(StoreModel.store_type) == "FINISHED_GOODS", StoreModel.store_name.ilike("%Finished Goods%")),
             )
             fg_res = await uow.session.execute(fg_query)
             fg_available = Decimal(str(fg_res.scalar() or 0))
