@@ -186,6 +186,14 @@ function AssemblyDashboard() {
       to: "/assembly-finished-goods",
     },
     {
+      label: "FG Putaway Pending",
+      value: String(stats.putaway_pending ?? 0),
+      delta: `${stats.putaway_completed ?? 0} orders fully put away`,
+      icon: PackageCheck,
+      tone: "amber" as const,
+      to: "/assembly-finished-goods",
+    },
+    {
       label: "Genealogies & Serials",
       value: String(finishedGoods.filter((f) => f.serial_number || f.qr_code).length || finishedGoods.length || 0),
       delta: "End-to-end component traceability",

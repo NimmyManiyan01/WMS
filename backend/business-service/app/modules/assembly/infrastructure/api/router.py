@@ -274,6 +274,8 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
                               now: datetime) -> AssemblyFinishedGoodsModel | None:
     if passed_quantity <= 0:
         return None
+    order.putaway_status = "PUTAWAY_PENDING"
+    order.updated_at = now
     code = (product_code or finished_good_code(order.product_name)).strip().upper()
     warehouse = warehouse_id.strip().upper()
     location_value = location_code.strip().upper()
@@ -433,6 +435,7 @@ def serialize_order(order: AssemblyOrderModel, quality_status: str | None = None
         "assigned_team": order.assigned_team, "materials_count": len(order.items or []),
         "assembly_steps": order.assembly_steps or default_assembly_steps(),
         "status": order.status, "quality_status": quality_status,
+        "putaway_status": getattr(order, "putaway_status", "PUTAWAY_PENDING"),
         "planned_quantity": float(order.planned_quantity),
         "completed_quantity": float(order.completed_quantity), "rejected_quantity": float(order.rejected_quantity),
         "assigned_line": order.assigned_line, "assigned_operator": order.assigned_operator,
@@ -2313,6 +2316,9 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
             "on_hold": statuses["ON_HOLD"],
             "material_shortage": statuses["MATERIAL_SHORTAGE"],
             "quality_pending": statuses["QUALITY_CHECK"],
+            "putaway_pending": sum(1 for o in orders if getattr(o, "putaway_status", "PUTAWAY_PENDING") == "PUTAWAY_PENDING"),
+            "putaway_in_progress": sum(1 for o in orders if getattr(o, "putaway_status", "PUTAWAY_PENDING") == "PUTAWAY_IN_PROGRESS"),
+            "putaway_completed": sum(1 for o in orders if getattr(o, "putaway_status", "PUTAWAY_PENDING") == "PUTAWAY_COMPLETED"),
             "today_output": sum(float(o.completed_quantity) for o in orders if o.completed_at and o.completed_at.date() == today),
         },
         "status_chart": [{"status": key.replace("_", " ").title(), "count": statuses[key]} for key in status_keys],

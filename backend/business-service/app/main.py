@@ -1197,6 +1197,10 @@ async def lifespan(app: FastAPI):
             await run_ddl("CREATE UNIQUE INDEX IF NOT EXISTS ix_assembly_rework_number ON assembly_rework_order (rework_number)")
         except Exception: pass
         try:
+            await run_ddl("ALTER TABLE assembly_order ADD COLUMN IF NOT EXISTS putaway_status VARCHAR(32) NOT NULL DEFAULT 'PUTAWAY_PENDING'")
+            await run_ddl("CREATE INDEX IF NOT EXISTS ix_assembly_order_putaway_status ON assembly_order (putaway_status)")
+        except Exception: pass
+        try:
             await run_ddl("""
                 CREATE TABLE IF NOT EXISTS assembly_finished_goods (
                     id UUID PRIMARY KEY, assembly_order_id UUID NOT NULL UNIQUE REFERENCES assembly_order(id) ON DELETE RESTRICT,

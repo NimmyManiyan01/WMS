@@ -43,6 +43,7 @@ const statusClass: Record<string, string> = {
   IN_PROGRESS: "bg-blue-100 text-blue-700", COMPLETED: "bg-emerald-100 text-emerald-700",
   QUALITY_CHECK: "bg-violet-100 text-violet-700", CLOSED: "bg-green-100 text-green-700",
   ON_HOLD: "bg-orange-100 text-orange-700", MATERIAL_SHORTAGE: "bg-red-100 text-red-700",
+  PUTAWAY_COMPLETED: "bg-green-100 text-green-700", PUTAWAY_IN_PROGRESS: "bg-amber-100 text-amber-700",
 };
 
 function AssemblyOrders() {
@@ -376,7 +377,7 @@ function AssemblyOrders() {
     {loading ? <div className="grid h-64 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div>
       : filtered.length === 0 ? <Card className="grid h-64 place-items-center text-center text-muted-foreground"><div><Factory className="mx-auto mb-2 size-9 opacity-40" /><p>No assembly orders found.</p></div></Card>
       : <div className="grid gap-4 xl:grid-cols-2">{filtered.map((order) => <Card key={order.id} className="gap-4 rounded-2xl p-5 shadow-soft">
-        <div className="flex items-start justify-between gap-4"><div><p className="font-mono text-sm font-bold text-primary">{order.order_number}</p><h2 className="mt-1 text-xl font-bold">{order.product_name}</h2><p className="text-xs text-muted-foreground">From {order.request_number}</p></div><Badge className={statusClass[order.status]}>{order.status.replaceAll("_", " ")}</Badge></div>
+        <div className="flex items-start justify-between gap-4"><div><p className="font-mono text-sm font-bold text-primary">{order.order_number}</p><h2 className="mt-1 text-xl font-bold">{order.product_name}</h2><p className="text-xs text-muted-foreground">From {order.request_number}</p></div><div className="flex flex-wrap justify-end gap-2"><Badge className={statusClass[order.status]}>{order.status.replaceAll("_", " ")}</Badge>{order.putaway_status && order.putaway_status !== "PUTAWAY_PENDING" && <Badge className={statusClass[order.putaway_status] || "bg-slate-100 text-slate-700"}>FG {order.putaway_status.replace("PUTAWAY_", "").replaceAll("_", " ")}</Badge>}</div></div>
         <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-4 sm:grid-cols-3">
           <Field label="Quantity" value={String(order.planned_quantity)} />
           <Field label="Priority" value={order.priority} highlight={order.priority === "HIGH" || order.priority === "URGENT"} />

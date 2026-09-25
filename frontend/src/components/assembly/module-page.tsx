@@ -46,7 +46,11 @@ export function AssemblyModulePage({ section }: { section: string }) {
     finally { setLoading(false); }
   }, [info.title, section]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
+  }, [load]);
   const rows = useMemo(() => (data?.rows || []).filter((row: any) => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())), [data, query]);
   const columns = data?.columns || [];
 

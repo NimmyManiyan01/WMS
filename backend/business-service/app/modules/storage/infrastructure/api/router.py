@@ -45,6 +45,37 @@ from app.security.dependencies import CurrentUser, get_current_user, require_per
 router = APIRouter(prefix="/api/storage/putaway-tasks", tags=["storage"])
 
 
+async def _sync_finished_goods_putaway_status(uow: UnitOfWork, finished_goods_id: uuid.UUID, location_code: str | None, username: str, completed_at: datetime.datetime):
+    """Persist FG posting and linked Assembly order status after each unit putaway."""
+    from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel, AssemblyOrderModel
+
+    fg = await uow.session.get(AssemblyFinishedGoodsModel, finished_goods_id, with_for_update=True)
+    if not fg:
+        return None
+    active_statuses = ["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_PENDING", "PUTAWAY_IN_PROGRESS"]
+    remaining = await uow.session.scalar(select(func.count(PutawayTaskModel.id)).where(
+        PutawayTaskModel.finished_goods_id == fg.id,
+        PutawayTaskModel.status.in_(active_statuses),
+    )) or 0
+    fg.status = "AVAILABLE" if remaining == 0 else "PUTAWAY_PENDING"
+    if location_code:
+        fg.location_code = location_code
+    fg.updated_at = completed_at.replace(tzinfo=None) if completed_at.tzinfo else completed_at
+
+    order = await uow.session.get(AssemblyOrderModel, fg.assembly_order_id, with_for_update=True)
+    if order:
+        order.putaway_status = "PUTAWAY_COMPLETED" if remaining == 0 else "PUTAWAY_IN_PROGRESS"
+        order.updated_at = completed_at.replace(tzinfo=None) if completed_at.tzinfo else completed_at
+        if remaining == 0:
+            uow.session.add(NotificationModel(
+                id=uuid.uuid4(), user_role="ASSEMBLY_MANAGER",
+                title="Assembly Order Putaway Completed",
+                message=f"Finished goods for {order.order_number} ({order.product_name}) are fully put away in the Finished Goods Store.",
+                link=f"/assembly-orders?order={order.id}", is_read=False, created_at=completed_at,
+            ))
+    return order
+
+
 class LocationAssignmentRequest(BaseModel):
     store_id: uuid.UUID | None = None
     zone_id: uuid.UUID | None = None
@@ -1489,28 +1520,9 @@ async def complete_putaway(
 
     if getattr(task, "finished_goods_id", None):
         try:
-            from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
-            afg = await uow.session.get(AssemblyFinishedGoodsModel, task.finished_goods_id)
-            if afg:
-                remaining_fg_tasks = await uow.session.scalar(select(func.count(PutawayTaskModel.id)).where(
-                    PutawayTaskModel.finished_goods_id == afg.id,
-                    PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
-                )) or 0
-                afg.status = "AVAILABLE" if remaining_fg_tasks == 0 else "PUTAWAY_PENDING"
-                afg.location_code = dest_loc_str
-                afg.store_id = target_zone.store_id
-                afg.updated_at = completed_at.replace(tzinfo=None)
-                uow.session.add(
-                    NotificationModel(
-                        user_role="ASSEMBLY_MANAGER",
-                        title="Finished Goods Putaway Completed",
-                        message=f"{task.material_name} ({task.item_code}) has been put away into {target_store.store_name} ({dest_loc_str}).",
-                        link="/assembly-finished-goods",
-                        is_read=False,
-                    )
-                )
+            await _sync_finished_goods_putaway_status(uow, task.finished_goods_id, dest_loc_str, user.username, completed_at)
         except Exception as e:
-            logger.warning(f"Failed to update AssemblyFinishedGoodsModel on putaway complete: {e}")
+            logger.warning(f"Failed to update linked Assembly order on putaway complete: {e}")
 
     await uow.session.flush()
 
@@ -2344,6 +2356,12 @@ async def execute_putaway(
             performed_at=completed_at,
         )
     )
+
+    if task and getattr(task, "finished_goods_id", None) and is_completed:
+        try:
+            await _sync_finished_goods_putaway_status(uow, task.finished_goods_id, dest_loc_str, user.username, completed_at)
+        except Exception as e:
+            logger.warning(f"Failed to update linked Assembly order on QR putaway: {e}")
 
     await uow.session.flush()
 

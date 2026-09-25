@@ -28,6 +28,7 @@ class AssemblyOrderModel(Base):
     assembly_steps: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="DRAFT")
+    putaway_status: Mapped[str] = mapped_column(String(32), nullable=False, default="PUTAWAY_PENDING", index=True)
     planned_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("1"))
     completed_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"))
     rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"))
