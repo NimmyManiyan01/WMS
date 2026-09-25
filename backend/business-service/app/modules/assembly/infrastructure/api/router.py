@@ -588,6 +588,9 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
     )
     ar_res = await uow.session.execute(ar_stmt)
     completed_ars = ar_res.scalars().all()
+    existing_material_request_ids = set((await uow.session.execute(
+        select(AssemblyOrderModel.material_request_id)
+    )).scalars().all())
     for ar in completed_ars:
         existing_ao = await uow.session.scalar(
             select(AssemblyOrderModel).where(AssemblyOrderModel.request_number == ar.requisition_number)
@@ -636,6 +639,11 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
             if not mr:
                 mr = await uow.session.scalar(select(MaterialRequestModel).order_by(MaterialRequestModel.created_at.desc()))
             mr_id = mr.id if mr else uuid.uuid4()
+            # A legacy requisition may not have a directly linked Material
+            # Request. Never reuse the latest arbitrary request for multiple
+            # requisitions because AssemblyOrder.material_request_id is unique.
+            if mr_id in existing_material_request_ids:
+                continue
             now = datetime.now()
 
             items_list = [
@@ -730,6 +738,7 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
                 updated_at=now,
             )
             uow.session.add(order)
+            existing_material_request_ids.add(mr_id)
             changed = True
             await add_assembly_notification(
                 uow, "New assembly order created",
