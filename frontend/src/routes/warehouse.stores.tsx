@@ -610,7 +610,8 @@ function WarehouseStores() {
   // Store Manager Actions
   const openCreateMgrDialog = () => {
     setMgrFullName("");
-    setMgrEmployeeId("");
+    const autoEmpId = `EMP-MGR-${Math.floor(100000 + Math.random() * 900000)}`;
+    setMgrEmployeeId(autoEmpId);
     setMgrUsername("");
     setMgrEmail("");
     setMgrPassword("password");
@@ -1834,15 +1835,15 @@ function WarehouseStores() {
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">
-                  Employee ID <span className="text-rose-500">*</span>
+                <Label className="text-xs font-semibold flex items-center justify-between">
+                  <span>Employee ID <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-primary font-bold">Auto-generated</span>
                 </Label>
                 <Input
                   placeholder="EMP-MGR-001"
                   value={mgrEmployeeId}
-                  onChange={(e) => setMgrEmployeeId(e.target.value)}
-                  required
-                  className="text-xs uppercase font-mono rounded-xl"
+                  readOnly
+                  className="text-xs uppercase font-mono rounded-xl bg-muted/50 cursor-not-allowed"
                 />
               </div>
 

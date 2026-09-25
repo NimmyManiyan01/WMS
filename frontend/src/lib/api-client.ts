@@ -351,6 +351,7 @@ export const api = {
     storeManagerIdOrOpts?:
       | string
       | {
+          assignedStoreId?: string;
           storeManagerId?: string;
           storeManagerUsername?: string;
           storeManagerName?: string;
@@ -376,9 +377,10 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        allocation_request_id: allocationRequestId,
-        dock_id: dockId,
-        store_manager_id: smId,
+          allocation_request_id: allocationRequestId,
+          dock_id: dockId,
+          assigned_store_id: (storeManagerIdOrOpts as any)?.assignedStoreId || null,
+          store_manager_id: smId,
         store_manager_username: smUsername,
         store_manager_name: smName,
       }),

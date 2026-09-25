@@ -278,6 +278,7 @@ class DockAllocationService:
         session: AsyncSession,
         allocation_request_id: uuid.UUID,
         dock_id: uuid.UUID,
+        assigned_store_id: uuid.UUID,
         allocated_by: str,
         store_manager_id: Optional[str] = None,
         store_manager_username: Optional[str] = None,
@@ -304,6 +305,13 @@ class DockAllocationService:
                 detail="This dock is no longer available.\n\nAnother user has already allocated this dock.\n\nPlease select another available dock.",
             )
 
+        from app.modules.store.infrastructure.persistence.models import StoreModel
+        assigned_store = await session.get(StoreModel, assigned_store_id)
+        if not assigned_store or (assigned_store.status or "").upper() != "ACTIVE":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selected store is not active or available")
+        if dock.store_id and dock.store_id != assigned_store.id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Selected dock is permanently assigned to another store")
+
         # 2. Lock Allocation Request
         req_query = await session.execute(
             select(DockAllocationRequestModel)
@@ -329,16 +337,9 @@ class DockAllocationService:
         req.assigned_at = datetime.now(timezone.utc)
         req.status = "DOCK_ASSIGNED"
 
-        if not req.assigned_store_id and dock.store_id:
-            req.assigned_store_id = dock.store_id
-            try:
-                from app.modules.store.infrastructure.persistence.models import StoreModel
-                st_obj = await session.get(StoreModel, dock.store_id)
-                if st_obj:
-                    req.assigned_store_code = st_obj.store_code
-                    req.assigned_store_name = st_obj.store_name
-            except Exception:
-                pass
+        req.assigned_store_id = assigned_store.id
+        req.assigned_store_code = assigned_store.store_code
+        req.assigned_store_name = assigned_store.store_name
 
         # Resolve and assign Store Manager
         if store_manager_id or store_manager_username or store_manager_name:

@@ -320,6 +320,8 @@ function DockManagement() {
   }, [currentUserStore, isStoreUser, isWarehouseManager, userInfo]);
 
   const [storeManagers, setStoreManagers] = useState<StoreManager[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState<string>("");
   const [selectedStoreManagerId, setSelectedStoreManagerId] = useState<string>("");
 
   // Edit & Maintenance Modals
@@ -342,12 +344,13 @@ function DockManagement() {
   const loadAll = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [docksRes, overviewRes, pendingRes, historyRes, smRes] = await Promise.all([
+      const [docksRes, overviewRes, pendingRes, historyRes, smRes, storesRes] = await Promise.all([
         api.getDocks(),
         api.getDockOverviewMetrics().catch(() => null),
         api.getPendingAllocations().catch(() => []),
         api.getDockHistory().catch(() => []),
         api.getStoreManagers().catch(() => []),
+        api.getStores({ status: "ACTIVE" }).catch(() => []),
       ]);
 
       setDocks(docksRes);
@@ -356,6 +359,7 @@ function DockManagement() {
       if (Array.isArray(smRes)) {
         setStoreManagers(smRes);
       }
+      setStores(Array.isArray(storesRes) ? storesRes : (storesRes?.items || []));
 
       if (overviewRes) {
         setMetrics(overviewRes);
@@ -527,10 +531,15 @@ function DockManagement() {
     const chosenSm = storeManagers.find(
       (m) => m.id === selectedStoreManagerId || m.employee_id === selectedStoreManagerId
     );
+    if (!selectedStoreId) {
+      toast.error("Select an active store before allocating the dock.");
+      return;
+    }
 
     setActionBusy(true);
     try {
       await api.allocateDock(reqId, dockId, {
+        assignedStoreId: selectedStoreId,
         storeManagerId: chosenSm?.employee_id || chosenSm?.id || selectedStoreManagerId || undefined,
         storeManagerUsername: chosenSm?.username || undefined,
         storeManagerName: chosenSm?.full_name || undefined,
@@ -543,6 +552,7 @@ function DockManagement() {
       setSelectedDockIdToAllocate("");
       setSelectedRequestIdToAllocate("");
       setSelectedStoreManagerId("");
+      setSelectedStoreId("");
       await loadAll(true);
     } catch (error) {
       toast.error("Allocation failed", {
@@ -1276,6 +1286,19 @@ function DockManagement() {
                   ))}
                 </div>
               )}
+              {/* Assigned Store Selection */}
+              <div className="pt-2">
+                <Label className="text-xs font-semibold flex items-center justify-between">
+                  <span>Assign Available Store:</span>
+                  <span className="text-[10px] text-muted-foreground font-normal">Required</span>
+                </Label>
+                <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="mt-1.5 w-full h-9 rounded-xl border border-input bg-background px-3 text-xs font-medium">
+                  <option value="">-- Select Active Store --</option>
+                  {stores.filter((s) => (s.status || "").toUpperCase() === "ACTIVE").map((s) => (
+                    <option key={s.id} value={s.id}>{s.store_code} · {s.store_name}</option>
+                  ))}
+                </select>
+              </div>
               {/* Store Manager Selection */}
               <div className="pt-2">
                 <Label className="text-xs font-semibold flex items-center justify-between">
@@ -1309,7 +1332,7 @@ function DockManagement() {
                 Cancel
               </Button>
               <Button
-                disabled={!selectedRequestIdToAllocate || actionBusy}
+                disabled={!selectedRequestIdToAllocate || !selectedStoreId || actionBusy}
                 className="rounded-xl shadow-glow bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                 onClick={() => void handleAllocateDock()}
               >
@@ -1374,6 +1397,19 @@ function DockManagement() {
                 </div>
               )}
 
+              {/* Assigned Store Selection */}
+              <div className="pt-2">
+                <Label className="text-xs font-semibold flex items-center justify-between">
+                  <span>Assign Available Store:</span>
+                  <span className="text-[10px] text-muted-foreground font-normal">Required</span>
+                </Label>
+                <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="mt-1.5 w-full h-9 rounded-xl border border-input bg-background px-3 text-xs font-medium">
+                  <option value="">-- Select Active Store --</option>
+                  {stores.filter((s) => (s.status || "").toUpperCase() === "ACTIVE").map((s) => (
+                    <option key={s.id} value={s.id}>{s.store_code} · {s.store_name}</option>
+                  ))}
+                </select>
+              </div>
               {/* Store Manager Selection */}
               <div className="pt-2">
                 <Label className="text-xs font-semibold flex items-center justify-between">
@@ -1404,7 +1440,7 @@ function DockManagement() {
                 Cancel
               </Button>
               <Button
-                disabled={!selectedDockIdToAllocate || actionBusy}
+                disabled={!selectedDockIdToAllocate || !selectedStoreId || actionBusy}
                 className="rounded-xl shadow-glow bg-purple-600 hover:bg-purple-700 text-white font-semibold"
                 onClick={() => void handleAllocateDock()}
               >

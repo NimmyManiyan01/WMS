@@ -120,6 +120,7 @@ function Quotations() {
   const [rfq, setRfq] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [showOlderQuotations, setShowOlderQuotations] = useState(false);
+  const [inspectQuotation, setInspectQuotation] = useState<any | null>(null);
 
   // Selection Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -426,6 +427,16 @@ function Quotations() {
                           <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between">
                               <StatusBadge status={q.status} />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setInspectQuotation(q)}
+                                className="rounded-lg text-[10px] h-7 font-bold gap-1 bg-muted/30 hover:bg-muted/55 text-foreground"
+                              >
+                                <Eye className="size-3 text-primary" /> Final Review
+                              </Button>
+                            </div>
+                            <div className="flex items-center justify-between">
                               {isSelected ? (
                                 <span className="flex items-center gap-1 text-[9px] font-black text-success uppercase bg-success-soft/30 px-2 py-0.5 rounded-md">
                                   <Sparkles className="size-3" /> Selected
@@ -451,17 +462,17 @@ function Quotations() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40 text-xs">
-                  <tr className="bg-muted/30">
-                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
+                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
                       <div className="flex items-center gap-2 text-primary">
-                        <TableIcon className="size-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
+                        <TableIcon className="size-4" />
+                        <span className="text-[11px] font-black uppercase tracking-widest">
                           Decision Criteria
                         </span>
                       </div>
                     </td>
                     {comparisonQuotations.map((q) => (
-                      <td key={`cat-criteria-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                      <td key={`cat-criteria-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
                     ))}
                   </tr>
 
@@ -554,17 +565,17 @@ function Quotations() {
                   </tr>
 
                   {/* Category: Materials */}
-                  <tr className="bg-muted/30">
-                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
+                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
                       <div className="flex items-center gap-2 text-primary">
-                        <Package className="size-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
+                        <Package className="size-4" />
+                        <span className="text-[11px] font-black uppercase tracking-widest">
                           Item Rates & Quantities
                         </span>
                       </div>
                     </td>
                     {comparisonQuotations.map((q) => (
-                      <td key={`cat-m-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                      <td key={`cat-m-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
                     ))}
                   </tr>
 
@@ -615,17 +626,17 @@ function Quotations() {
                   ))}
 
                   {/* Category: Financials */}
-                  <tr className="bg-muted/30">
-                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
+                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
                       <div className="flex items-center gap-2 text-primary">
-                        <Wallet className="size-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
+                        <Wallet className="size-4" />
+                        <span className="text-[11px] font-black uppercase tracking-widest">
                           Commercial Adjustments
                         </span>
                       </div>
                     </td>
                     {comparisonQuotations.map((q) => (
-                      <td key={`cat-f-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                      <td key={`cat-f-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
                     ))}
                   </tr>
 
@@ -707,17 +718,17 @@ function Quotations() {
                   </tr>
 
                   {/* Category: Logistics */}
-                  <tr className="bg-muted/30">
-                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
+                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
                       <div className="flex items-center gap-2 text-primary">
-                        <Clock className="size-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
+                        <Clock className="size-4" />
+                        <span className="text-[11px] font-black uppercase tracking-widest">
                           Logistics & Timeline
                         </span>
                       </div>
                     </td>
                     {comparisonQuotations.map((q) => (
-                      <td key={`cat-l-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                      <td key={`cat-l-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
                     ))}
                   </tr>
 
@@ -772,18 +783,35 @@ function Quotations() {
                     ))}
                   </tr>
 
+                  <tr className="hover:bg-muted/5">
+                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
+                      <span className="text-xs font-bold">Mode of Payment</span>
+                    </td>
+                    {comparisonQuotations.map((q) => (
+                      <td
+                        key={`${q.id}-mode`}
+                        className={cn(
+                          "p-4 border-r border-border/40 text-xs font-semibold text-foreground",
+                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                        )}
+                      >
+                        {q.modeOfPayment || q.mode_of_payment || "-"}
+                      </td>
+                    ))}
+                  </tr>
+
                   {/* Documents & Comments */}
-                  <tr className="bg-muted/30">
-                    <td className="p-3 px-6 border-r border-border/40 sticky left-0 z-10 bg-muted/30 backdrop-blur-md">
+                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
+                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
                       <div className="flex items-center gap-2 text-primary">
-                        <MessageSquare className="size-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
+                        <MessageSquare className="size-4" />
+                        <span className="text-[11px] font-black uppercase tracking-widest">
                           Attachments & Evaluation
                         </span>
                       </div>
                     </td>
                     {comparisonQuotations.map((q) => (
-                      <td key={`cat-c-${q.id}`} className={cn("p-3 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]")}></td>
+                      <td key={`cat-c-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
                     ))}
                   </tr>
 
@@ -854,7 +882,7 @@ function Quotations() {
                             (isSelected || bestQuotationId === q.id) && "bg-primary-hover brightness-110",
                           )}
                         >
-                          {formatMoney(Math.floor(total))}
+                          {formatMoney(total)}
                         </td>
                       );
                     })}
@@ -1090,6 +1118,149 @@ function Quotations() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Supplier Quotation Final Review Inspection Dialog */}
+      <Dialog open={Boolean(inspectQuotation)} onOpenChange={(open) => !open && setInspectQuotation(null)}>
+        <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-2xl border-none p-0 shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75 [&>button]:hover:text-white">
+          {inspectQuotation && (() => {
+            const baseTotal = (inspectQuotation.lines || []).reduce(
+              (sum: number, l: any) =>
+                sum + parseFloat(l.quantity || 1) * parseFloat(l.unitPrice || l.unit_price || 0),
+              0,
+            );
+            const disc = parseFloat(inspectQuotation.discount || 0);
+            const netTaxable = Math.max(0, baseTotal - disc);
+            const taxRate = parseFloat(inspectQuotation.tax || 0);
+            const taxAmount = netTaxable * (taxRate / 100);
+            const freight = parseFloat(inspectQuotation.freightCharges || inspectQuotation.freight_charges || 0);
+            const other = parseFloat(inspectQuotation.additional_charges || inspectQuotation.additionalCharges || 0);
+            const grandTotal = parseFloat(inspectQuotation.totalAmount || inspectQuotation.total_amount || 0) || (netTaxable + taxAmount + freight + other);
+            const quotedItemsCount = (inspectQuotation.lines || []).filter((l: any) => parseFloat(l.unitPrice || l.unit_price || 0) > 0).length;
+
+            return (
+              <>
+                <div className="bg-success px-6 py-4 text-white">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
+                      <span className="grid size-8 place-items-center rounded-lg bg-white/15">
+                        <ShieldCheck className="size-5" />
+                      </span>
+                      Quotation Final Review
+                    </DialogTitle>
+                    <DialogDescription className="mt-0.5 text-sm font-normal text-white/85">
+                      RFQ: <span className="font-mono font-bold">{rfq?.rfqNumber || rfq?.rfq_number || "RFQ"}</span> | Supplier: <span className="font-bold">{inspectQuotation.supplierInfo?.supplierName || inspectQuotation.supplierName || "Supplier Partner"}</span>
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
+
+                <div className="space-y-4 p-5 max-h-[70vh] overflow-y-auto">
+                  {/* Taxable-Value Breakdown */}
+                  <div className="rounded-xl border border-border/70 bg-muted/10 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Taxable-Value Breakdown
+                      </h4>
+                      <span className="text-[10px] font-bold text-success uppercase">Backend Calculation Synced</span>
+                    </div>
+                    <div className="space-y-2.5 text-sm">
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                        <span className="text-muted-foreground font-medium">Subtotal (Gross Items)</span>
+                        <span className="font-semibold tabular-nums">{formatMoney(baseTotal)}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                        <span className="text-muted-foreground font-medium">Discount ({inspectQuotation.discount || 0}%)</span>
+                        <span className="font-semibold text-success tabular-nums">− {formatMoney(disc)}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-6 border-t border-border/60 pt-2">
+                        <span className="font-semibold text-foreground">Net Taxable Amount</span>
+                        <span className="font-semibold tabular-nums">{formatMoney(netTaxable)}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                        <span className="text-muted-foreground font-medium">GST / Tax ({taxRate}%)</span>
+                        <span className="font-semibold tabular-nums">{formatMoney(taxAmount)}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                        <div>
+                          <span className="text-muted-foreground font-medium block">Freight Charges</span>
+                          <span className="text-[10px] text-muted-foreground italic">(*Non-taxable / exclusive of item GST)</span>
+                        </div>
+                        <span className="font-semibold tabular-nums">{formatMoney(freight)}</span>
+                      </div>
+                      {other > 0 && (
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                          <span className="text-muted-foreground font-medium">Additional Charges</span>
+                          <span className="font-semibold tabular-nums">{formatMoney(other)}</span>
+                        </div>
+                      )}
+                      <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-6 border-t border-border pt-3">
+                        <span className="text-sm font-semibold uppercase tracking-wide">Final Grand Total</span>
+                        <span className="text-xl font-bold tracking-tight text-primary tabular-nums">
+                          {formatMoney(grandTotal)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Logistics & Commercials Grid */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-border/70 bg-background p-3">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Delivery Duration
+                      </Label>
+                      <p className="mt-1 text-sm font-semibold">{inspectQuotation.deliveryTime || inspectQuotation.delivery_time || "Not Specified"}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background p-3">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Expected Delivery Date
+                      </Label>
+                      <p className="mt-1 text-sm font-semibold tabular-nums">
+                        {inspectQuotation.expectedDeliveryDate || inspectQuotation.expected_delivery_date || "Not Specified"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background p-3">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Payment Terms & Mode
+                      </Label>
+                      <p className="mt-1 text-sm font-semibold">
+                        {inspectQuotation.paymentTerms || inspectQuotation.payment_terms || "Net 30"} ({inspectQuotation.modeOfPayment || inspectQuotation.mode_of_payment || "Bank Transfer"})
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background p-3">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Items Quoted
+                      </Label>
+                      <p className="mt-1 text-sm font-semibold">
+                        {quotedItemsCount} of {(inspectQuotation.lines || []).length} Items Quoted
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Remarks */}
+                  {inspectQuotation.remarks && (
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] uppercase font-black text-muted-foreground">
+                        Special Remarks / Commercial Conditions
+                      </Label>
+                      <div className="rounded-xl border border-border/40 bg-muted/30 p-2.5 text-xs italic leading-snug text-muted-foreground">
+                        {inspectQuotation.remarks}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="border-t border-border/70 bg-muted/10 p-4">
+                  <Button
+                    onClick={() => setInspectQuotation(null)}
+                    className="h-11 rounded-xl bg-success px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-success/90 w-full"
+                  >
+                    Close Review
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </AppShell>

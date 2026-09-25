@@ -45,6 +45,7 @@ class Quotation(AggregateRoot):
         delivery_time: str | None = None,
         expected_delivery_date: date | None = None,
         payment_terms: str | None = None,
+        mode_of_payment: str | None = None,
         warranty: str | None = None,
         quotation_validity: date | None = None,
         remarks: str | None = None,
@@ -65,6 +66,7 @@ class Quotation(AggregateRoot):
         self.delivery_time = delivery_time
         self.expected_delivery_date = expected_delivery_date
         self.payment_terms = payment_terms
+        self.mode_of_payment = mode_of_payment
         self.warranty = warranty
         self.quotation_validity = quotation_validity
         self.remarks = remarks
@@ -83,6 +85,7 @@ class Quotation(AggregateRoot):
         delivery_time: str | None = None,
         expected_delivery_date: date | None = None,
         payment_terms: str | None = None,
+        mode_of_payment: str | None = None,
         warranty: str | None = None,
         quotation_validity: date | None = None,
         remarks: str | None = None,
@@ -111,6 +114,7 @@ class Quotation(AggregateRoot):
             delivery_time=delivery_time,
             expected_delivery_date=expected_delivery_date,
             payment_terms=payment_terms,
+            mode_of_payment=mode_of_payment,
             warranty=warranty,
             quotation_validity=quotation_validity,
             remarks=remarks,

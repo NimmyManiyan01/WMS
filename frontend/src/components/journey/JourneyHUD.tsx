@@ -4,17 +4,22 @@ interface JourneyHUDProps {
   stages: JourneyStage[];
   activeIndex: number;
   scrollProgress: number;
+  overviewProgress?: number;
   onSelectStage: (index: number) => void;
+  onToggleTopView?: () => void;
 }
 
 export function JourneyHUD({
   stages,
   activeIndex,
   scrollProgress,
+  overviewProgress = 1,
   onSelectStage,
+  onToggleTopView,
 }: JourneyHUDProps) {
   const currentStage = stages[activeIndex] || stages[0];
   const stageCount = stages.length;
+  const isTopView = overviewProgress < 0.75;
 
   return (
     <nav
@@ -22,7 +27,21 @@ export function JourneyHUD({
       className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center select-none pointer-events-auto"
     >
       {/* 1. Stage Number & Title Indicator */}
-      <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-widest text-slate-300 mb-2">
+      <div className="flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-widest text-slate-300 mb-2">
+        {onToggleTopView && (
+          <button
+            type="button"
+            onClick={onToggleTopView}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer ${
+              isTopView
+                ? "bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
+                : "bg-white/5 border-white/15 text-slate-400 hover:text-white hover:border-white/30"
+            }`}
+            title={isTopView ? "Return to Gate Entry view" : "View warehouse front full view"}
+          >
+            {isTopView ? "Gate View ↓" : "Front View ↑"}
+          </button>
+        )}
         <span className="font-black text-cyan-400">
           {currentStage.number} / 0{stageCount}
         </span>

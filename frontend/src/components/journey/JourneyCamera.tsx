@@ -6,6 +6,7 @@ import type { JourneyStage } from "./data/journeyStages";
 interface JourneyCameraProps {
   stages: JourneyStage[];
   scrollProgress: number; // 0 to 1
+  overviewProgress?: number;
   mouseOffset: { x: number; y: number };
 }
 
@@ -29,9 +30,10 @@ const CAMERA_KEYFRAMES: {
   target: [number, number, number];
 }[] = [
     // 1. Stage 1: Gate Entry approach - Gate arm rises UP, truck moves forward (p = 0.00)
-    { p: 0.0000, pos: [-7.0, 4.5, 29.0], target: [0.8, 1.8, 18.0] },
+    // Positioned backward to give an expansive full view of the warehouse front facade, compound, and inbound truck
+    { p: 0.0000, pos: [-8.2, 5.6, 34.8], target: [0.4, 2.8, 14.5] },
     // 2. Tracking truck passing under raised gate arm (p = 0.035)
-    { p: 0.0350, pos: [-6.5, 4.5, 26.5], target: [0.8, 1.8, 15.0] },
+    { p: 0.0350, pos: [-7.0, 5.0, 29.2], target: [0.5, 2.2, 12.0] },
     // 3. Tracking truck through portal into warehouse (p = 0.070)
     { p: 0.0700, pos: [-4.8, 4.2, 16.5], target: [0.0, 1.8, 6.0] },
     // 4. Following truck into warehouse apron setup (p = 0.105)
@@ -69,12 +71,14 @@ const CAMERA_KEYFRAMES: {
 export function JourneyCamera({
   stages: _stages,
   scrollProgress,
+  overviewProgress = 1,
   mouseOffset,
 }: JourneyCameraProps) {
-  const { camera } = useThree();
-  const currentLookAt = useRef(new THREE.Vector3(0.8, 1.8, 18.0));
+  const { camera, scene, size } = useThree();
+  const initialized = useRef(false);
+  const currentLookAt = useRef(new THREE.Vector3(0.4, 2.8, 14.5));
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const p = clamp(scrollProgress, 0, 1);
 
     // Find the bounding keyframe segment
@@ -101,16 +105,44 @@ export function JourneyCamera({
       lerp(k1.target[2], k2.target[2], t)
     );
 
-    // Apply subtle mouse parallax to camera position
-    desiredPos.x += mouseOffset.x * 0.45;
-    desiredPos.y += mouseOffset.y * 0.35;
+    // ─── STARTING VIEW: WAREHOUSE FRONT FULL VIEW OVERVIEW ───
+    // Expansive framing capturing the triangular peaked roof, front facade, entry portal, and approach
+    const warehouseFrontTarget = new THREE.Vector3(0.0, 4.8, 10.0);
+    const overviewHeight = clamp(17.5 * (size.width < 768 ? 1.25 : 1.0), 16.0, 24.0);
+    const warehouseFrontPos = new THREE.Vector3(-6.5, overviewHeight, 43.5);
 
-    // Smooth lerp camera position
-    camera.position.lerp(desiredPos, 0.09);
+    // Smooth ease-in-out cubic curve for natural descent from full front view to gate entry
+    const easeInOutCubic = (val: number) =>
+      val < 0.5 ? 4 * val * val * val : 1 - Math.pow(-2 * val + 2, 3) / 2;
 
-    // Smooth lerp camera lookAt target
-    currentLookAt.current.lerp(desiredTarget, 0.09);
+    const approach = easeInOutCubic(clamp(overviewProgress, 0, 1));
+
+    // When overviewProgress is 0: camera is at the warehouse front full view.
+    // When overviewProgress -> 1: camera glides down and tilts into Gate Entry checkpoint.
+    desiredPos.lerpVectors(warehouseFrontPos, desiredPos.clone(), approach);
+    desiredTarget.lerpVectors(warehouseFrontTarget, desiredTarget.clone(), approach);
+
+    // Apply gentle mouse parallax
+    desiredPos.x += mouseOffset.x * 0.45 * approach;
+    desiredPos.y += mouseOffset.y * 0.35 * approach;
+
+    const smoothing = 1 - Math.exp(-12 * Math.min(delta, 0.1));
+    if (!initialized.current) {
+      camera.position.copy(desiredPos);
+      currentLookAt.current.copy(desiredTarget);
+      initialized.current = true;
+    } else {
+      camera.position.lerp(desiredPos, smoothing);
+      currentLookAt.current.lerp(desiredTarget, smoothing);
+    }
     camera.lookAt(currentLookAt.current);
+
+    if (scene.fog instanceof THREE.Fog) {
+      // Keep fog crisp for the front facade and compound while softly veiling distant interior
+      scene.fog.near = lerp(28, 22, approach);
+      scene.fog.far = lerp(130, 115, approach);
+    }
+
   });
 
   return null;

@@ -375,6 +375,7 @@ class SubmitQuotationUseCase:
             delivery_time=command.delivery_time,
             expected_delivery_date=command.expected_delivery_date,
             payment_terms=command.payment_terms,
+            mode_of_payment=command.mode_of_payment,
             warranty=command.warranty,
             quotation_validity=command.quotation_validity,
             remarks=command.remarks,

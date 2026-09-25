@@ -142,6 +142,7 @@ interface StoreDashboardKPIs {
   quarantined_quantity: number;
   damaged_quantity: number;
   low_stock_count: number;
+  low_stock_items?: number;
   zones_count: number;
   bins_count: number;
   assigned_docks_count: number;
@@ -175,11 +176,10 @@ interface StoreMovementActivity {
 }
 
 interface StoreDashboardMetricsResponse {
-  store_id: string;
-  store_code: string;
-  store_name: string;
+  store?: Store;
   kpis: StoreDashboardKPIs;
-  inventory_items: StoreInventoryItem[];
+  inventory_summary: any[];
+  inventory_items?: StoreInventoryItem[];
   recent_activity: StoreMovementActivity[];
 }
 
@@ -192,6 +192,7 @@ interface Store {
   store_manager_id?: string | null;
   store_manager_name?: string | null;
   status: string;
+  store_type?: string;
   created_at?: string;
   updated_at?: string;
   zones_count?: number;
@@ -616,7 +617,9 @@ function MyStorePage() {
       }
       const dStoreId = d.assigned_store_id;
       const dStoreCode = (d.assigned_store_code || "").toUpperCase();
-      if (d.status === "OCCUPIED" || d.status === "RESERVED") {
+      // A newly allocated dock is visible to its assigned store before the
+      // truck reaches it as well as while it is occupied.
+      if (["OCCUPIED", "RESERVED", "ALLOCATED", "DOCK_ASSIGNED"].includes((d.status || "").toUpperCase())) {
         if (sId && dStoreId && sId === dStoreId) return true;
         if (sCode && dStoreCode && sCode === dStoreCode) return true;
       }
@@ -918,8 +921,22 @@ function MyStorePage() {
     }
     setVerifyingMat(true);
     try {
-      const unit = await api.getHandlingUnit(matScanInput.trim());
+      let unit: any;
+      try {
+        unit = await api.getHandlingUnit(matScanInput.trim());
+      } catch {
+        // GRN batch labels are not handling-unit labels. Resolve them through
+        // the GRN QR endpoint so one scanned batch cannot default to the
+        // aggregate putaway-task quantity.
+        unit = await api.resolveGrnQr(matScanInput.trim());
+      }
       setVerifiedHU(unit);
+      const scannedBatchQty = Number(
+        unit.available_quantity ?? unit.batch_quantity ?? unit.quantity,
+      );
+      if (Number.isFinite(scannedBatchQty) && scannedBatchQty > 0) {
+        setConfirmedQty(String(scannedBatchQty));
+      }
       toast.success(`Material verified: ${unit.material_name} (${unit.item_code})`);
     } catch (err: any) {
       if (matScanInput.trim().toUpperCase() === executingTask.item_code.toUpperCase()) {
@@ -1598,10 +1615,10 @@ function MyStorePage() {
                       <TrendingDown className="size-3.5 text-orange-500" />
                     </div>
                     <p className="text-xl font-black tracking-tight text-orange-600 dark:text-orange-400">
-                      {storeMetrics?.kpis?.low_stock_count ?? 0}
+                      {storeMetrics?.kpis?.low_stock_count ?? storeMetrics?.kpis?.low_stock_items ?? 0}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      {(storeMetrics?.kpis?.low_stock_count ?? 0) > 0
+                      {(storeMetrics?.kpis?.low_stock_count ?? storeMetrics?.kpis?.low_stock_items ?? 0) > 0
                         ? "SKUs alert"
                         : "No low-stock SKUs"}
                     </p>
@@ -1782,7 +1799,7 @@ function MyStorePage() {
                         <Loader2 className="size-6 animate-spin text-primary" />
                         <p className="text-xs">Loading inventory summary...</p>
                       </div>
-                    ) : (storeMetrics?.inventory_items || []).length === 0 ? (
+                    ) : (storeMetrics?.inventory_summary || storeMetrics?.inventory_items || []).length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 px-4 text-center">
                         <Boxes className="size-8 text-muted-foreground/40" />
                         <p className="font-semibold text-sm text-foreground">No Stock In Store</p>
@@ -1815,7 +1832,7 @@ function MyStorePage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/20">
-                            {(storeMetrics?.inventory_items || [])
+                            {(storeMetrics?.inventory_summary || storeMetrics?.inventory_items || [])
                               .filter((item) => {
                                 if (!overviewSearch.trim()) return true;
                                 const q = overviewSearch.toLowerCase().trim();
@@ -1850,7 +1867,7 @@ function MyStorePage() {
                                       : "—"}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-mono font-extrabold text-foreground">
-                                    {Number(item.total_quantity).toLocaleString()} {item.uom}
+                                    {Number(item.total_quantity ?? item.quantity ?? 0).toLocaleString()} {item.uom}
                                   </td>
                                   <td className="py-2.5 px-3 text-center">
                                     <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
@@ -3402,14 +3419,14 @@ function MyStorePage() {
             </DialogContent>
           </Dialog>
 
-          {/* TAB 2: OUTBOUND PICKUP TASKS */}
+          {/* TAB 2: OUTBOUND PICKUP / FINISHED GOODS DISPATCH TASKS */}
           {activeTab === "pickup" && (
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="relative w-72">
                   <Search className="size-3.5 absolute left-3 top-2.5 text-muted-foreground" />
                   <Input
-                    placeholder="Search assigned pickup tasks..."
+                    placeholder={`Search assigned ${store?.store_type === "FINISHED_GOODS" ? "dispatch" : "pickup"} tasks...`}
                     value={pickupSearch}
                     onChange={(e) => setPickupSearch(e.target.value)}
                     className="pl-8 h-8 text-xs rounded-xl bg-background/50 border-border/40"
@@ -3448,7 +3465,7 @@ function MyStorePage() {
                 <Card className="border-dashed border-border/60 p-8 text-center bg-card/40">
                   <ClipboardList className="size-8 mx-auto text-muted-foreground opacity-40 mb-2" />
                   <p className="text-xs font-bold text-muted-foreground">
-                    No Outbound Pickup Tasks Found
+                    No Outbound {store?.store_type === "FINISHED_GOODS" ? "Dispatch" : "Pickup"} Tasks Found
                   </p>
                   <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                     Material requests assigned to your store by Warehouse will appear here for
@@ -3520,7 +3537,9 @@ function MyStorePage() {
 
                           <div className="pt-2 border-t border-border/40 flex items-center justify-between">
                             <span className="text-[10px] text-muted-foreground">
-                              {isCompleted ? `Picked by ${pt.picked_by}` : "Ready for Store Pickup"}
+                              {isCompleted
+                                ? `${store?.store_type === "FINISHED_GOODS" ? "Dispatched" : "Picked"} by ${pt.picked_by}`
+                                : `Ready for ${store?.store_type === "FINISHED_GOODS" ? "Dispatch" : "Store Pickup"}`}
                             </span>
                             {!isCompleted && (
                               <Button
@@ -3528,7 +3547,8 @@ function MyStorePage() {
                                 onClick={() => handleOpenExecutePickup(pt)}
                                 className="h-7 px-3 text-xs rounded-xl shadow-glow gap-1.5"
                               >
-                                <ScanLine className="size-3.5" /> Pick & Issue
+                                <ScanLine className="size-3.5" />
+                                {store?.store_type === "FINISHED_GOODS" ? "Dispatch" : "Pick & Issue"}
                               </Button>
                             )}
                           </div>
@@ -3546,7 +3566,8 @@ function MyStorePage() {
             <DialogContent className="sm:max-w-md rounded-2xl">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <ScanLine className="size-5 text-primary" /> Execute Store Pickup & Issue
+                  <ScanLine className="size-5 text-primary" />
+                  {store?.store_type === "FINISHED_GOODS" ? "Execute Finished Goods Dispatch" : "Execute Store Pickup & Issue"}
                 </DialogTitle>
                 <DialogDescription className="text-xs">
                   Pick and issue material from {store.store_name} to{" "}
@@ -3582,7 +3603,7 @@ function MyStorePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">2. Source Store Zone</Label>
+                    <Label className="text-xs font-semibold">2. Source Store Bin / Zone</Label>
                     <Select value={pickupZoneScan} onValueChange={setPickupZoneScan}>
                       <SelectTrigger className="text-xs rounded-xl">
                         <SelectValue placeholder="Select Zone" />

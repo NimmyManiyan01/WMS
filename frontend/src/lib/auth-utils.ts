@@ -164,14 +164,16 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 }
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
-  if (user?.roles.includes("ADMIN") || user?.roles.includes("SUPERUSER")) return "/admin/users";
-  if (user?.roles.includes("FINANCE")) return "/finance-dashboard";
-  if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
-  if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
-  if (user?.roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (user?.roles.includes("ASSEMBLY_MANAGER") || user?.roles.includes("ASSEMBLY") || user?.roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
-  if (user?.roles.includes("DISPATCH") || user?.roles.includes("DISPATCH_MANAGER") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
-  if (user?.roles.includes("STORE_MANAGER") || user?.roles.includes("STORE_KEEPER"))
+  const roles = user?.roles || [];
+  if (roles.includes("MANAGER") || roles.includes("PROCUREMENT_MANAGER") || user?.username?.toLowerCase()?.includes("manager")) return "/manager-dashboard";
+  if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) return "/admin/users";
+  if (roles.includes("FINANCE")) return "/finance-dashboard";
+  if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
+  if (roles.includes("GATE_SECURITY")) return "/gate-entry";
+  if (roles.includes("SUPPLIER")) return "/submit-quotation";
+  if (roles.includes("ASSEMBLY_MANAGER") || roles.includes("ASSEMBLY") || roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
+  if (roles.includes("DISPATCH") || roles.includes("DISPATCH_MANAGER") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
+  if (roles.includes("STORE_MANAGER") || roles.includes("STORE_KEEPER"))
     return "/my-store";
   if (
     roles.includes("GRN") ||

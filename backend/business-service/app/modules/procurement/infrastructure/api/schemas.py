@@ -257,6 +257,7 @@ class SubmitQuotationRequest(ApiModel):
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    mode_of_payment: Optional[str] = None
     warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
@@ -277,6 +278,7 @@ class QuotationResponse(ApiModel):
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    mode_of_payment: Optional[str] = None
     warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None

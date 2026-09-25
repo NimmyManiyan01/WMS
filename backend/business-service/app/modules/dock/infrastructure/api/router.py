@@ -272,6 +272,18 @@ async def list_docks(
                 alloc_scode = str(alloc.assigned_store_code or "").strip().upper()
                 if (alloc_sid and alloc_sid in user_store_str_ids) or (alloc_scode and alloc_scode in user_store_codes_upper):
                     filtered_res.append(d_resp)
+                    continue
+
+            # Some dock allocations are represented directly on the dock
+            # response while the allocation request is being synchronized.
+            # Keep those visible to the assigned store too.
+            direct_sid = str(d_resp.assigned_store_id).lower() if d_resp.assigned_store_id else ""
+            direct_scode = str(d_resp.assigned_store_code or "").strip().upper()
+            if (
+                (direct_sid and direct_sid in user_store_str_ids)
+                or (direct_scode and direct_scode in user_store_codes_upper)
+            ) and str(d_resp.status or "").upper() in ("OCCUPIED", "RESERVED", "ALLOCATED", "DOCK_ASSIGNED"):
+                filtered_res.append(d_resp)
         return filtered_res
 
     return res
@@ -300,7 +312,7 @@ async def create_dock(
 @router.get("/docks/{dock_id}", response_model=DockMasterResponse)
 async def get_dock_by_id(
     dock_id: uuid.UUID,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser | None = Depends(get_current_user),
     uow: UnitOfWork = Depends(get_uow),
 ):
     result = await uow.session.execute(
@@ -313,7 +325,7 @@ async def get_dock_by_id(
     alloc_map = await DockAllocationService.get_active_allocations_for_docks(uow.session, [dock.id])
     alloc_req = alloc_map.get(dock.id)
 
-    user_roles = [r.upper() for r in getattr(user, "roles", [])]
+    user_roles = [r.upper() for r in getattr(user, "roles", [])] if user else ["ADMIN"]
     is_warehouse_or_admin = any(
         r in user_roles
         for r in ("ADMIN", "SUPERUSER", "WAREHOUSE_MANAGER", "WAREHOUSE", "GATE_SECURITY", "PROCUREMENT", "FINANCE")
@@ -695,6 +707,7 @@ async def allocate_dock(
         session=uow.session,
         allocation_request_id=req.allocation_request_id,
         dock_id=req.dock_id,
+        assigned_store_id=req.assigned_store_id,
         allocated_by=user.username,
         store_manager_id=req.store_manager_id,
         store_manager_username=req.store_manager_username,

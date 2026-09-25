@@ -536,6 +536,7 @@ class SqlAlchemyQuotationRepository(QuotationRepository):
         model.delivery_time = quotation.delivery_time
         model.expected_delivery_date = quotation.expected_delivery_date
         model.payment_terms = quotation.payment_terms
+        model.mode_of_payment = getattr(quotation, "mode_of_payment", None)
         model.warranty = getattr(quotation, "warranty", None)
         model.quotation_validity = quotation.quotation_validity
         model.remarks = quotation.remarks

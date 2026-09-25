@@ -14,11 +14,13 @@ import { WarehouseForklift } from "./models/WarehouseForklift";
 import { PalletAndCargo } from "./models/PalletAndCargo";
 import { ConveyorSystem } from "./models/ConveyorSystem";
 import { AssemblyStation } from "./models/AssemblyStation";
+import { NatureEnvironment } from "./models/NatureEnvironment";
 
 interface JourneyCanvasProps {
   stages: JourneyStage[];
   activeIndex: number;
   scrollProgress: number; // 0 to 1
+  overviewProgress?: number;
   mouseOffset: { x: number; y: number };
   onSelectStage: (index: number) => void;
 }
@@ -40,6 +42,7 @@ export function JourneyCanvas({
   stages,
   activeIndex,
   scrollProgress,
+  overviewProgress = 1,
   mouseOffset,
   onSelectStage,
 }: JourneyCanvasProps) {
@@ -129,19 +132,21 @@ export function JourneyCanvas({
   }
 
   // ─── SCENE 2 & 3: FORKLIFT & PALLET KINEMATICS (STARTS ONLY AFTER GOODS LIST IS CHECKED!) ───
-  let forkliftPos: [number, number, number] = [-4.5, 0, -28.0];
+  let forkliftPos: [number, number, number] = [-8.5, 0, -30.5];
   let forkliftRot: [number, number, number] = [0, 0, 0];
-  const pickupLift = (1.25 - 0.15) / 2.65;
+  const forkLoadOffset = 1.65; // clear the backrest at Z 0.94 by 0.11m
+  const palletCarriageOffset = -0.084; // blade top meets the underside of the pallet deck
+  const pickupLift = (1.25 - palletCarriageOffset - 0.15) / 2.65;
   const shelfPalletY = 1.65; // shelf deck top 1.67, pallet feet start at local Y 0.02
-  const placementLift = (shelfPalletY - 0.15) / 2.65;
-  const raisedLift = (shelfPalletY + 0.15 - 0.15) / 2.65;
+  const placementLift = (shelfPalletY - palletCarriageOffset - 0.15) / 2.65;
+  const raisedLift = (shelfPalletY + 0.15 - palletCarriageOffset - 0.15) / 2.65;
   let forkLiftProgress = 0;
   let palletPos: [number, number, number] = [-8.5, 1.25, -23.8];
   let palletRot: [number, number, number] = [0, 0, 0];
 
   if (scrollProgress < 0.225) {
     // Goods list is being checked by the inspector: Forklift waits in receiving buffer
-    forkliftPos = [-4.5, 0, -28.0];
+    forkliftPos = [-8.5, 0, -30.5];
     forkliftRot = [0, 0, 0];
     forkLiftProgress = 0;
     // Unload only after parking and opening the truck doors.
@@ -155,40 +160,34 @@ export function JourneyCanvas({
     // AFTER goods list checked: Forklift approaches Dock 02 and slides forks under pallet
     const t = smoothstep(0.225, 0.255, scrollProgress);
     forkliftPos = [
-      lerp(-4.5, -8.5, t),
+      -8.5,
       0,
-      lerp(-28.0, -25.3, t),
+      lerp(-30.5, -25.45, t),
     ];
     forkliftRot = [0, 0, 0];
-    forkLiftProgress = lerp(0, pickupLift, t); // carriage elevates to match dock height (Y: 1.25)
+    forkLiftProgress = lerp(0, pickupLift, smoothstep(0.225, 0.238, scrollProgress)); // carriage elevates to match dock height (Y: 1.25)
     palletPos = [-8.5, 1.25, -23.8];
     palletRot = [0, 0, 0];
   } else if (scrollProgress < 0.275) {
     // Forklift raises forks, lifting pallet off dock platform
     const t = smoothstep(0.255, 0.275, scrollProgress);
-    forkliftPos = [-8.5, 0, -25.3];
+    forkliftPos = [-8.5, 0, -25.45];
     forkliftRot = [0, 0, 0];
     forkLiftProgress = lerp(pickupLift, 0.520, t);
     palletPos = [-8.5, 0.15 + forkLiftProgress * 2.65, -23.8];
     palletRot = [0, 0, 0];
+  } else if (scrollProgress < 0.287) {
+    // Reverse straight until both the pallet and mast clear the dock opening.
+    const t = smoothstep(0.275, 0.287, scrollProgress);
+    forkliftPos = [-8.5, 0, lerp(-25.45, -31, t)];
+    forkliftRot = [0, 0, 0];
+    forkLiftProgress = 0.520;
   } else if (scrollProgress < 0.305) {
-    // Forklift backs out from dock, lowers to safe transit height, and rotates 180 deg
-    const t = smoothstep(0.275, 0.305, scrollProgress);
-    forkliftPos = [
-      lerp(-8.5, -3.5, t),
-      0,
-      lerp(-25.3, -33.0, t),
-    ];
-    const rotY = lerp(0, Math.PI, t);
-    forkliftRot = [0, rotY, 0];
+    // Turn and lower only in the open warehouse apron, away from the platform.
+    const t = smoothstep(0.287, 0.305, scrollProgress);
+    forkliftPos = [lerp(-8.5, -3.5, t), 0, lerp(-31, -33, t)];
+    forkliftRot = [0, Math.PI * t, 0];
     forkLiftProgress = lerp(0.520, 0.120, t);
-    // Pallet follows forklift carriage rigidly
-    palletPos = [
-      forkliftPos[0] + Math.sin(rotY) * 1.5,
-      0.15 + forkLiftProgress * 2.65,
-      forkliftPos[2] + Math.cos(rotY) * 1.5,
-    ];
-    palletRot = [0, rotY, 0];
   } else if (scrollProgress < 0.345) {
     // Forklift transports pallet down the high-bay storage aisle toward Stage 03
     const t = smoothstep(0.305, 0.345, scrollProgress);
@@ -228,17 +227,17 @@ export function JourneyCanvas({
     forkLiftProgress = lerp(0.120, raisedLift, smoothstep(0.365, 0.375, scrollProgress));
   } else if (scrollProgress < 0.385) {
     // Insert the pallet into the middle bay while keeping the mast level.
-    forkliftPos = [lerp(4.2, 6.5, smoothstep(0.375, 0.385, scrollProgress)), 0, -68];
+    forkliftPos = [lerp(4.2, 6.35, smoothstep(0.375, 0.385, scrollProgress)), 0, -68];
     forkliftRot = [0, Math.PI / 2, 0];
     forkLiftProgress = raisedLift;
   } else if (scrollProgress < 0.390) {
     // Lower onto the shelf before releasing the load.
-    forkliftPos = [6.5, 0, -68];
+    forkliftPos = [6.35, 0, -68];
     forkliftRot = [0, Math.PI / 2, 0];
     forkLiftProgress = lerp(raisedLift, placementLift, smoothstep(0.385, 0.390, scrollProgress));
   } else {
     // Leave this same pallet in its bin. Withdraw fully before lowering the forks.
-    forkliftPos = [lerp(6.5, 4.2, smoothstep(0.390, 0.410, scrollProgress)), 0, -68];
+    forkliftPos = [lerp(6.35, 4.2, smoothstep(0.390, 0.410, scrollProgress)), 0, -68];
     forkliftRot = [0, Math.PI / 2, 0];
     forkLiftProgress = lerp(placementLift, 0.120, smoothstep(0.410, 0.425, scrollProgress));
     palletPos = [8, shelfPalletY, -68];
@@ -251,9 +250,9 @@ export function JourneyCanvas({
   if (palletOnForks) {
     const heading = forkliftRot[1];
     palletPos = [
-      forkliftPos[0] + Math.sin(heading) * 1.5,
-      0.15 + forkLiftProgress * 2.65,
-      forkliftPos[2] + Math.cos(heading) * 1.5,
+      forkliftPos[0] + Math.sin(heading) * forkLoadOffset,
+      0.15 + forkLiftProgress * 2.65 + palletCarriageOffset,
+      forkliftPos[2] + Math.cos(heading) * forkLoadOffset,
     ];
     palletRot = [...forkliftRot];
   }
@@ -279,29 +278,30 @@ export function JourneyCanvas({
   }
 
   return (
-    <div className="absolute inset-0 -z-10 bg-slate-950 overflow-hidden">
+    <div className="absolute inset-0 -z-10 bg-sky-400 overflow-hidden">
       <Canvas
-        camera={{ position: [-7.0, 4.5, 29.0], fov: 48, near: 0.1, far: 380 }}
-        gl={{ antialias: true, powerPreference: "high-performance" }}
+        camera={{ position: [-6.5, 17.5, 43.5], fov: 48, near: 0.1, far: 4000 }}
+        gl={{ antialias: true, powerPreference: "high-performance", alpha: false, stencil: false, depth: true }}
+        dpr={[1, 2]}
         shadows
       >
-        <color attach="background" args={["#020617"]} />
-        <fog attach="fog" args={["#020617", 20, 110]} />
+        <color attach="background" args={["#38bdf8"]} />
+        <fog attach="fog" args={["#7dd3fc", 90, 300]} />
 
-        {/* ─── LIGHTING RIG ─── */}
-        <ambientLight intensity={0.9} color="#cbd5e1" />
+        {/* ─── LIGHTING RIG (DAYLIGHT) ─── */}
+        <ambientLight intensity={1.2} color="#ffffff" />
         <directionalLight
-          position={[14, 28, 20]}
-          intensity={1.8}
+          position={[20, 35, 25]}
+          intensity={2.2}
           castShadow
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
-          shadow-camera-far={160}
-          shadow-camera-left={-25}
-          shadow-camera-right={25}
-          shadow-camera-top={25}
-          shadow-camera-bottom={-25}
-          color="#f8fafc"
+          shadow-camera-far={180}
+          shadow-camera-left={-30}
+          shadow-camera-right={30}
+          shadow-camera-top={30}
+          shadow-camera-bottom={-30}
+          color="#fffbeb"
         />
 
         {/* Key Operational Luminaires */}
@@ -321,10 +321,14 @@ export function JourneyCanvas({
         <pointLight position={[2, 6, -248]} intensity={3.5} color="#38bdf8" distance={25} />
 
         <Suspense fallback={null}>
+          {/* Nature Environment (Hills & Trees) */}
+          <NatureEnvironment />
+
           {/* Continuous Camera Trajectory Controller */}
           <JourneyCamera
             stages={stages}
             scrollProgress={scrollProgress}
+            overviewProgress={overviewProgress}
             mouseOffset={mouseOffset}
           />
 
@@ -361,6 +365,7 @@ export function JourneyCanvas({
             position={[-8.5, 0, -25]}
             doorOpenProgress={dockDoorOpen}
             doorNumber="DOCK 02"
+            pickupLane
           />
 
           {/* Warehouse Inspector: The man checking the goods list before forklift pick */}

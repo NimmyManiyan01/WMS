@@ -2720,16 +2720,12 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             sup_user.password_hash = password_hash
             sup_user.must_change_password = False
 
-        creds_section = (
-            f"Username: {username}\n"
-            f"Temporary Password: {temp_password}\n\n"
-            f"Note: For security, you will be required to change this password upon your first login.\n"
-        )
+        creds_section = ""
 
 
         subject = f"Purchase Order {po.po_number}"
 
-        asn_link = f"http://localhost:8080/login?redirect=/supplier/asns/new?poId={po.id}"
+        asn_link = f"http://localhost:8080/supplier/asns/new?poId={po.id}"
         view_link = f"http://localhost:8080/purchase-order?poId={po.id}"
 
         total_val = float(po.total_amount) if po.total_amount else 0.0
@@ -2740,7 +2736,6 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"PO Number: {po.po_number}\n"
             f"Total Amount: ₹ {total_val:,.2f}\n"
             f"Expected Delivery: {po.expected_delivery_date or 'As per terms'}\n\n"
-            f"{creds_section}\n"
             f"You can view the full PO details here:\n{view_link}\n\n"
             f"Once the shipment is ready, please login and submit the Advance Shipping Notice (ASN) here:\n{asn_link}\n\n"
             f"Regards,\n{po.procurement_officer or 'Procurement Team'}\nNexusWMS"
@@ -2762,9 +2757,9 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
                 "delivery": str(po.expected_delivery_date or "As per terms"),
                 "warehouse": po.delivery_warehouse_name or po.warehouse_id or "Main warehouse",
             } for item in po.items],
-            credentials=[("Username", username), ("Temporary password", temp_password)],
-            primary_cta=("Create advance shipping notice", asn_link),
-            secondary_cta=("View purchase order", view_link),
+            credentials=[],
+            primary_cta=("View purchase order", view_link),
+            secondary_cta=("Create advance shipping notice", asn_link),
             note="Submit the Advance Shipping Notice before dispatch so the warehouse and gate teams can prepare for your arrival.",
             signoff=po.procurement_officer or "NexusWMS Procurement Team",
         )
@@ -3641,7 +3636,7 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
 
         scalar_fields = {
             "status", "discount", "tax", "freight_charges", "total_amount",
-            "delivery_time", "expected_delivery_date", "payment_terms", "remarks"
+            "delivery_time", "expected_delivery_date", "payment_terms", "mode_of_payment", "remarks"
         }
         for field in scalar_fields:
             if field in request:
@@ -3787,6 +3782,7 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
         delivery_time=getattr(q, "delivery_time", None),
         expected_delivery_date=getattr(q, "expected_delivery_date", None),
         payment_terms=getattr(q, "payment_terms", None),
+        mode_of_payment=getattr(q, "mode_of_payment", None),
         warranty=getattr(q, "warranty", None),
         quotation_validity=getattr(q, "quotation_validity", None),
         remarks=getattr(q, "remarks", None),
@@ -4606,6 +4602,12 @@ async def dev_login(
             "token": "mock-jwt-grn-token",
             "username": request.username,
             "roles": ["GRN"]
+        }
+    elif (hasattr(settings, "manager_username") and normalized_username == settings.manager_username.lower() and request.password == settings.manager_password) or (normalized_username in {"manager", "mgr", "procurement_manager"} and request.password in {getattr(settings, "manager_password", "Manager@123"), "Manager@123", "password", "manager123", "Admin@123"}):
+        return {
+            "token": "mock-jwt-manager-token",
+            "username": request.username,
+            "roles": ["MANAGER"]
         }
     elif (hasattr(settings, "dispatch_username") and normalized_username == settings.dispatch_username.lower() and request.password == settings.dispatch_password) or normalized_username in {"dispatch", "dispatch_manager"}:
         return {

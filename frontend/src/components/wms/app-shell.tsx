@@ -166,7 +166,6 @@ const warehouseNav = [
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
-  { label: "Finished Goods Dispatch", to: "/dispatch", icon: Truck },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
@@ -340,6 +339,10 @@ export function AppShell({
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
   const searchStr = location.searchStr || "";
@@ -373,8 +376,19 @@ export function AppShell({
     }, 300);
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
+  const isGrnUser =
+    mounted &&
+    (user?.roles?.includes("GRN") ||
+      user?.roles?.includes("GRN_MANAGER") ||
+      user?.roles?.includes("OPERATIONS_MANAGER") ||
+      user?.roles?.includes("OPERATIONS") ||
+      user?.roles?.includes("RECEIVING") ||
+      user?.username?.toLowerCase() === "grn" ||
+      user?.username?.toLowerCase()?.includes("grn"));
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
+    let cleanup: (() => void) | undefined;
     try {
       const u = getUserInfo();
       setUser(u);
@@ -421,31 +435,14 @@ export function AppShell({
           window.removeEventListener("focus", fetchNotifications);
         };
       }
-    };
+    } catch (e) {
+      console.error("Failed to parse user info", e);
+    }
 
-    void fetchNotifications();
-    const interval = window.setInterval(fetchNotifications, 2000);
-    window.addEventListener("notifications:refresh", fetchNotifications);
-    window.addEventListener("focus", fetchNotifications);
     return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("notifications:refresh", fetchNotifications);
-      window.removeEventListener("focus", fetchNotifications);
+      if (cleanup) cleanup();
     };
-  }, [dark]);
-  const currentQueryModule =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("module")
-      : null;
-  const isGrnUser =
-    mounted &&
-    (user?.roles?.includes("GRN") ||
-      user?.roles?.includes("GRN_MANAGER") ||
-      user?.roles?.includes("OPERATIONS_MANAGER") ||
-      user?.roles?.includes("OPERATIONS") ||
-      user?.roles?.includes("RECEIVING") ||
-      user?.username?.toLowerCase() === "grn" ||
-      user?.username?.toLowerCase()?.includes("grn"));
+  }, [dark, isGrnUser]);
   const isAssemblyUser =
     mounted &&
     (user?.roles?.includes("ASSEMBLY") ||
@@ -1043,16 +1040,9 @@ export function parseDockAllocationDetails(n: any) {
   if (rawTime) {
     const d = new Date(rawTime);
     if (!isNaN(d.getTime())) {
-      allocatedAt = d
-        .toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
-        .replace(",", "");
+      // Keep SSR and browser output identical; locale/time-zone formatting
+      // otherwise causes hydration mismatches (for example AM vs U).
+      allocatedAt = d.toISOString().replace("T", " ").slice(0, 16) + " UTC";
     } else {
       allocatedAt = String(rawTime);
     }
