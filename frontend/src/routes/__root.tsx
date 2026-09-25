@@ -99,7 +99,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     if (typeof window === "undefined") return;
 
     // List of routes that don't require authentication
-    const publicRoutes = new Set(["/login"]);
+    const publicRoutes = new Set(["/login", "/"]);
 
     if (!publicRoutes.has(location.pathname)) requireRouteAccess(location.pathname);
   },

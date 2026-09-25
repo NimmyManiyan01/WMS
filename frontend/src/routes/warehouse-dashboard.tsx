@@ -20,6 +20,7 @@ import {
   LogOut,
   BarChart3,
   LayoutDashboard,
+  Truck,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export const Route = createFileRoute("/warehouse-dashboard")({
 function WarehouseDashboard() {
   const [data, setData] = useState<any>(null);
   const [materialCount, setMaterialCount] = useState<number | null>(null);
+  const [dispatchTrackingCount, setDispatchTrackingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,14 +56,16 @@ function WarehouseDashboard() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [res, mats] = await Promise.all([
+      const [res, mats, dispatches] = await Promise.all([
         api.getWarehouseDashboardMetrics(),
         api.getMaterials().catch(() => []),
+        api.getDispatches().catch(() => ({ items: [] })),
       ]);
       setData(res);
       if (Array.isArray(mats)) {
         setMaterialCount(mats.length);
       }
+      setDispatchTrackingCount(Array.isArray(dispatches) ? dispatches.length : (dispatches?.total || dispatches?.items?.length || 0));
     } catch (err: any) {
       console.error("Failed to load warehouse dashboard metrics", err);
       setError(err.message || "Failed to load warehouse dashboard data");
@@ -220,6 +224,14 @@ function WarehouseDashboard() {
       value: loading ? "..." : actionReq.active_quarantine_count,
       detail: `${Number(actionReq.active_quarantine_qty || 0).toLocaleString()} units segregated`,
       tone: "rose",
+    },
+    {
+      label: "Finished Goods Dispatch Tracking",
+      to: "/warehouse/finished-goods-requests",
+      icon: Truck,
+      value: loading ? "..." : dispatchTrackingCount,
+      detail: "Dispatch status and tracking",
+      tone: "purple",
     },
     {
       label: "Reports",

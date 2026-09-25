@@ -295,10 +295,23 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
     )
     fg_store = fg_store_res.scalars().first()
     if not fg_store:
-        fallback_res = await uow.session.execute(
-            select(StoreModel).where(StoreModel.status == "ACTIVE").order_by(StoreModel.created_at.asc())
+        # Finished goods must never be routed into an arbitrary raw-material
+        # store. Provision the dedicated store once when an installation has
+        # not created it yet; Warehouse and Assembly can then manage it from
+        # the normal Store Master / Finished Goods views.
+        fg_store = StoreModel(
+            id=uuid.uuid4(),
+            store_code="STR-FG",
+            store_name="Finished Goods Store",
+            description="Dedicated store for assembly finished goods",
+            warehouse_id=warehouse,
+            status="ACTIVE",
+            store_type="FINISHED_GOODS",
+            created_at=now,
+            updated_at=now,
         )
-        fg_store = fallback_res.scalars().first()
+        uow.session.add(fg_store)
+        await uow.session.flush()
 
     posting = await uow.session.scalar(select(AssemblyFinishedGoodsModel).where(
         AssemblyFinishedGoodsModel.assembly_order_id == order.id

@@ -16,6 +16,10 @@ export interface UserInfo {
 const AUTH_TOKEN_KEY = "auth_token";
 const USER_INFO_KEY = "user_info";
 
+function normalizeRole(role: string): string {
+  return role.trim().toUpperCase();
+}
+
 function getActiveStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   if (localStorage.getItem(AUTH_TOKEN_KEY)) return localStorage;
@@ -57,7 +61,10 @@ export function getUserInfo(): UserInfo | null {
       return null;
     }
 
-    return user as UserInfo;
+    return {
+      ...user,
+      roles: user.roles.map(normalizeRole),
+    } as UserInfo;
   } catch {
     return null;
   }
@@ -66,26 +73,28 @@ export function getUserInfo(): UserInfo | null {
 export function hasRole(roles: string[] | string): boolean {
   const user = getUserInfo();
   if (!user) return false;
-  if (user.roles.includes("ADMIN") || user.roles.includes("SUPERUSER")) return true;
-  const requiredRoles = Array.isArray(roles) ? roles : [roles];
-  return requiredRoles.some((role) => user.roles.includes(role));
+  const userRoles = user.roles.map(normalizeRole);
+  if (userRoles.includes("ADMIN") || userRoles.includes("SUPERUSER")) return true;
+  const requiredRoles = (Array.isArray(roles) ? roles : [roles]).map(normalizeRole);
+  return requiredRoles.some((role) => userRoles.includes(role));
 }
 
 export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
+  if (pathname === "/manager-dashboard") return ["MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/procurement") ||
     pathname === "/master-data" ||
     pathname === "/new-supplier"
   )
-    return ["PROCUREMENT", "ADMIN", "SUPERUSER"];
+    return ["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/finance")) return ["FINANCE", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/supplier") ||
     pathname === "/supplier-dashboard" ||
     pathname === "/submit-quotation"
   )
-    return ["SUPPLIER", "ADMIN", "SUPERUSER"];
+    return ["SUPPLIER", "PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/assembly"))
     return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/dispatch") || pathname.startsWith("/dispatch-"))
@@ -155,25 +164,37 @@ export function getSafeRedirectPath(redirectPath: unknown): string | null {
 }
 
 export function getDefaultRouteForUser(user = getUserInfo()): string {
-  if (user?.roles.includes("ADMIN") || user?.roles.includes("SUPERUSER")) return "/admin/users";
-  if (user?.roles.includes("FINANCE")) return "/finance-dashboard";
-  if (user?.roles.includes("PROCUREMENT")) return "/procurement-dashboard";
-  if (user?.roles.includes("GATE_SECURITY")) return "/gate-entry";
-  if (user?.roles.includes("SUPPLIER")) return "/submit-quotation";
-  if (user?.roles.includes("ASSEMBLY_MANAGER") || user?.roles.includes("ASSEMBLY") || user?.roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
-  if (user?.roles.includes("DISPATCH") || user?.roles.includes("DISPATCH_MANAGER") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
-  if (user?.roles.includes("STORE_MANAGER") || user?.roles.includes("STORE_KEEPER"))
+  const roles = user?.roles || [];
+  if (roles.includes("MANAGER") || roles.includes("PROCUREMENT_MANAGER") || user?.username?.toLowerCase()?.includes("manager")) return "/manager-dashboard";
+  if (roles.includes("ADMIN") || roles.includes("SUPERUSER")) return "/admin/users";
+  if (roles.includes("FINANCE")) return "/finance-dashboard";
+  if (roles.includes("PROCUREMENT")) return "/procurement-dashboard";
+  if (roles.includes("GATE_SECURITY")) return "/gate-entry";
+  if (roles.includes("SUPPLIER")) return "/submit-quotation";
+  if (roles.includes("ASSEMBLY_MANAGER") || roles.includes("ASSEMBLY") || roles.includes("ASSEMBLY_OPERATOR")) return "/assembly-dashboard";
+  if (roles.includes("DISPATCH") || roles.includes("DISPATCH_MANAGER") || user?.username?.toLowerCase() === "dispatch") return "/dispatch";
+  if (roles.includes("STORE_MANAGER") || roles.includes("STORE_KEEPER"))
     return "/my-store";
   if (
-    user?.roles.includes("GRN") ||
-    user?.roles.includes("GRN_MANAGER") ||
-    user?.roles.includes("OPERATIONS_MANAGER") ||
-    user?.roles.includes("OPERATIONS") ||
-    user?.roles.includes("RECEIVING") ||
+    roles.includes("GRN") ||
+    roles.includes("GRN_MANAGER") ||
+    roles.includes("OPERATIONS_MANAGER") ||
+    roles.includes("OPERATIONS") ||
+    roles.includes("RECEIVING") ||
     user?.username?.toLowerCase() === "grn" ||
     user?.username?.toLowerCase()?.includes("grn")
   ) {
     return "/grn";
+  }
+  if (
+    roles.includes("DISPATCH") ||
+    roles.includes("DISPATCH_MANAGER") ||
+    roles.includes("DISPATCH_OFFICER") ||
+    roles.includes("DISPATCH_OPERATOR") ||
+    user?.username?.toLowerCase() === "dispatch" ||
+    user?.username?.toLowerCase()?.includes("dispatch")
+  ) {
+    return "/dispatch";
   }
   return "/warehouse-dashboard";
 }

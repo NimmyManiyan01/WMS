@@ -48,6 +48,7 @@ export function AssemblyModulePage({ section }: { section: string }) {
 
   useEffect(() => { void load(); }, [load]);
   const rows = useMemo(() => (data?.rows || []).filter((row: any) => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())), [data, query]);
+  const columns = data?.columns || [];
 
   const openGenealogy = (item: any) => {
     const target = item.id || item.qr_code || item.serial_number || item.order_id || item.order || item.code || item.product;
@@ -76,9 +77,9 @@ export function AssemblyModulePage({ section }: { section: string }) {
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="rounded-2xl p-4 shadow-sm border">
               <p className="text-xs font-bold uppercase text-muted-foreground">Total records</p>
-              <p className="text-3xl font-black mt-1">{data.total}</p>
+              <p className="text-3xl font-black mt-1">{data?.total ?? data?.rows?.length ?? 0}</p>
             </Card>
-            {(data.status_summary || []).slice(0, 3).map((item: any) => (
+            {(data?.status_summary || []).slice(0, 3).map((item: any) => (
               <Card key={item.status} className="rounded-2xl p-4 shadow-sm border">
                 <p className="text-xs font-bold uppercase text-muted-foreground">
                   {item.status.replaceAll("_", " ")}
@@ -105,7 +106,7 @@ export function AssemblyModulePage({ section }: { section: string }) {
               <table className="w-full min-w-[900px] text-left text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    {data.columns.map((column: any) => (
+                    {columns.map((column: any) => (
                       <th
                         key={column.key}
                         className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-muted-foreground"
@@ -123,7 +124,7 @@ export function AssemblyModulePage({ section }: { section: string }) {
                         key={`${row.order_id || "row"}-${index}`}
                         className="hover:bg-muted/20 transition-colors"
                       >
-                        {data.columns.map((column: any) => {
+                    {(data?.columns || []).map((column: any) => {
                           const value = row[column.key];
                           const isStatus = ["status", "result"].includes(column.key);
                           const isDate = ["date", "posted", "issued_at", "reserved_at"].includes(column.key);
@@ -171,7 +172,7 @@ export function AssemblyModulePage({ section }: { section: string }) {
                   ) : (
                     <tr>
                       <td
-                        colSpan={data.columns.length + 1}
+                        colSpan={columns.length + 1}
                         className="px-4 py-16 text-center text-muted-foreground"
                       >
                         No records found.

@@ -105,13 +105,27 @@ function WarehouseAssemblyRequisitionsPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [reqData, storeData, catData] = await Promise.all([
+      const [reqData, storeData, hierarchyData, catData] = await Promise.all([
         api.getAssemblyRequisitions(),
         api.getStores({ status: "ACTIVE" }).catch(() => []),
+        api.getStoreHierarchy().catch(() => []),
         api.getMaterialCategories().catch(() => DEFAULT_CATEGORIES),
       ]);
       setRequisitions(reqData || []);
-      setStores(storeData || []);
+      // Store endpoints have returned both a plain array and wrapped payloads
+      // in older deployments. Normalize both shapes so the assignment list is
+      // never empty when the store master is populated.
+      const storeList = Array.isArray(storeData)
+        ? storeData
+        : Array.isArray((storeData as any)?.items)
+          ? (storeData as any).items
+          : [];
+      const hierarchyList = Array.isArray(hierarchyData)
+        ? hierarchyData
+        : Array.isArray((hierarchyData as any)?.stores)
+          ? (hierarchyData as any).stores
+          : [];
+      setStores(storeList.length ? storeList : hierarchyList);
       if (catData && catData.length > 0) {
         setCategories(catData);
       }

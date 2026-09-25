@@ -576,13 +576,22 @@ async def get_inventory_stats(
 
         total_skus = len(set(b[0].material_code for b in bals))
         total_available = sum(float(b[0].available_quantity) for b in bals)
+        stock_codes = {b[0].material_code for b in bals}
+        stock_res = await uow.session.execute(select(MaterialStockModel).where(MaterialStockModel.material_code.in_(stock_codes))) if stock_codes else None
+        stock_by_code = {s.material_code: s for s in (stock_res.scalars().all() if stock_res else [])}
+        by_material = {}
+        for bal, loc in bals:
+            by_material.setdefault(bal.material_code, 0.0)
+            by_material[bal.material_code] += float(bal.available_quantity or 0)
+        low_codes = [code for code, qty in by_material.items() if qty < float(getattr(stock_by_code.get(code), "reorder_point", 10.0))]
+        out_codes = [code for code, qty in by_material.items() if qty <= 0]
         return {
             "total_skus": total_skus,
             "total_available_units": total_available,
             "total_quarantined_units": 0.0,
             "total_units": total_available,
-            "low_stock_skus": 0,
-            "out_of_stock_skus": 0,
+            "low_stock_skus": len(low_codes),
+            "out_of_stock_skus": len(out_codes),
         }
 
     # Warehouse level
@@ -669,8 +678,22 @@ async def get_warehouse_dashboard_metrics(
     total_on_hand = sum(float(s.on_hand) for s in all_stocks)
     total_available = sum(float(s.available) for s in all_stocks)
     total_allocated = sum(float(s.allocated) for s in all_stocks)
-    low_stock_items = [s for s in all_stocks if float(s.on_hand) > 0 and float(s.on_hand) < float(s.reorder_point)]
-    out_of_stock_items = [s for s in all_stocks if float(s.on_hand) == 0]
+    # Count each affected store/material once. Global MaterialStock is not
+    # sufficient because a material can be healthy globally but low in one
+    # store.
+    loc_stock_res = await uow.session.execute(
+        select(InventoryLocationBalanceModel, StorageLocationModel, MaterialStockModel)
+        .join(StorageLocationModel, StorageLocationModel.id == InventoryLocationBalanceModel.storage_location_id)
+        .join(MaterialStockModel, MaterialStockModel.material_code == InventoryLocationBalanceModel.material_code)
+    )
+    store_material_totals = {}
+    store_material_meta = {}
+    for bal, loc, stock in loc_stock_res.all():
+        key = (loc.store_id, bal.material_code)
+        store_material_totals[key] = store_material_totals.get(key, 0.0) + float(bal.available_quantity or 0)
+        store_material_meta[key] = (bal, loc, stock)
+    low_store_items = [key for key, qty in store_material_totals.items() if qty < float(store_material_meta[key][2].reorder_point)]
+    out_store_items = [key for key, qty in store_material_totals.items() if qty <= 0]
 
     # 7. Stores, Zones, Bins
     stores_count_res = await uow.session.execute(select(func.count(StoreModel.id)))
@@ -795,21 +818,22 @@ async def get_warehouse_dashboard_metrics(
                 }
                 for q in active_quar[:5]
             ],
-            "low_stock_count": len(low_stock_items),
+            "low_stock_count": len(low_store_items),
             "low_stock_items": [
                 {
-                    "id": str(s.id),
-                    "material_code": s.material_code,
-                    "material_name": s.material_name,
-                    "category": s.category,
-                    "on_hand": float(s.on_hand),
-                    "available": float(s.available),
-                    "reorder_point": float(s.reorder_point),
-                    "uom": s.uom,
+                    "id": str(store_material_meta[key][0].id),
+                    "material_code": key[1],
+                    "material_name": store_material_meta[key][0].material_name,
+                    "category": store_material_meta[key][2].category,
+                    "on_hand": store_material_totals[key],
+                    "available": store_material_totals[key],
+                    "reorder_point": float(store_material_meta[key][2].reorder_point),
+                    "uom": store_material_meta[key][0].uom,
+                    "store_id": str(key[0]) if key[0] else None,
                 }
-                for s in low_stock_items[:5]
+                for key in low_store_items[:5]
             ],
-            "out_of_stock_count": len(out_of_stock_items),
+            "out_of_stock_count": len(out_store_items),
             "unassigned_locations_count": unassigned_putaway_count,
         },
         "inventory_snapshot": {
@@ -818,8 +842,8 @@ async def get_warehouse_dashboard_metrics(
             "total_available": total_available,
             "total_allocated": total_allocated,
             "total_quarantined": total_quar_qty,
-            "low_stock_count": len(low_stock_items),
-            "out_of_stock_count": len(out_of_stock_items),
+            "low_stock_count": len(low_store_items),
+            "out_of_stock_count": len(out_store_items),
         },
         "putaway_summary": {
             "pending_count": len(pending_putaway_list),

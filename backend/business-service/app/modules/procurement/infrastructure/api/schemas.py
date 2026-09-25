@@ -257,6 +257,7 @@ class SubmitQuotationRequest(ApiModel):
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    mode_of_payment: Optional[str] = None
     warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
@@ -277,6 +278,7 @@ class QuotationResponse(ApiModel):
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
+    mode_of_payment: Optional[str] = None
     warranty: Optional[str] = None
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
@@ -478,6 +480,7 @@ class MaterialRequestItemSchema(ApiModel):
     material_code: Optional[str] = None
     variant_code: Optional[str] = None
     material_name: Optional[str] = None
+    category: Optional[str] = None
     quantity: Decimal = Field(..., gt=0, description="Quantity must be strictly greater than zero")
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
     is_custom: Optional[bool] = False

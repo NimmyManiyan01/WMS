@@ -19,6 +19,7 @@ import {
   Trash2,
   Table as TableIcon,
   ArrowRight,
+  LogOut,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -88,7 +89,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { PoCameraScanner } from "@/components/wms/PoCameraScanner";
+
 
 function gateQrPayload(gateEntryNumber: string) {
   return `NEXUSWMS:GATE_ENTRY:${gateEntryNumber.trim().toUpperCase()}`;
@@ -114,6 +115,10 @@ type GateEntryRecord = {
   verificationStatus?: string | null;
   truckPhotoBase64?: string | null;
   verificationResult?: { reasons?: string[] } | null;
+  exited_at?: string | null;
+  exited_by?: string | null;
+  exitedAt?: string | null;
+  exitedBy?: string | null;
 };
 type CaptureKind = "po" | "vehicle";
 type ArrivalLineItem = {
@@ -153,7 +158,7 @@ function GateEntry() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState<CaptureKind | null>(null);
-  const [poScannerOpen, setPoScannerOpen] = useState(false);
+
   const [poDocument, setPoDocument] = useState<File | null>(null);
   const [vehiclePhoto, setVehiclePhoto] = useState<File | null>(null);
   const [poPreview, setPoPreview] = useState<string | null>(null);
@@ -436,10 +441,14 @@ function GateEntry() {
   async function scanCapture(kind: CaptureKind, file: File) {
     console.log(`Starting scanCapture for kind: ${kind}`, file);
     setScanning(null);
-    if (kind === "po") setPoDocument(file);
+    if (kind === "po") {
+      setPoDocument(file);
+      toast.success("PO document photo attached");
+      return;
+    }
     if (kind === "vehicle") setVehiclePhoto(file);
 
-    const toastId = toast.loading(`OCR is analyzing ${kind === "po" ? "document" : "vehicle"}...`);
+    const toastId = toast.loading("Analyzing vehicle photo...");
 
     try {
       console.log(`Calling api.scanOcr for ${kind}...`);
@@ -542,34 +551,7 @@ function GateEntry() {
     }
   }
 
-  async function handlePoScannerSuccess(data: any, file: File) {
-    setPoDocument(file);
-    const result = data.ocr_result || data;
 
-    setExtractedDetails({
-      ...data,
-      source: "local-ocr",
-      confidence: result.confidence,
-    });
-
-    if (result.po_number) {
-      setPoNumber(result.po_number);
-      const previewStatus = data.computedStatus || data.computed_status;
-      setPoVerificationStatus(
-        previewStatus === "PO_VERIFIED" ? "PO_VERIFIED" : "UNSCHEDULED_ARRIVAL",
-      );
-      void fetchPoDetails(result.po_number, true);
-    }
-    if (result.supplier_name) setSupplierName(result.supplier_name);
-    const foundLineItems = applyLineItems(result.line_items || result.lineItems);
-    if (!foundLineItems) {
-      setArrivalLineItems([]);
-      if (result.material_description) setMaterialDescription(result.material_description);
-      if (result.total_quantity) setTotalQuantity(String(result.total_quantity));
-    }
-    if (result.po_date) setPoDate(result.po_date);
-    if (result.delivery_date) setDeliveryDate(result.delivery_date);
-  }
 
   async function fetchPoDetails(number: string, preserveScannedFields = false) {
     if (!number || number.trim().length < 3) return;
@@ -890,6 +872,9 @@ function GateEntry() {
       setDriverPhone("");
       setPendingFormData(null);
       await loadEntries(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gate-entries:refresh"));
+      }
     } catch (error) {
       toast.error("Gate entry approval failed", {
         description: error instanceof Error ? error.message : undefined,
@@ -1055,17 +1040,17 @@ function GateEntry() {
           </SectionCard>
 
           <SectionCard
-            title="Arrival scanning & upload"
-            description="Capture from camera or upload an image or PDF—OCR/ANPR will process either"
-            icon={ScanLine}
+            title="Arrival photo capture & upload"
+            description="Capture from camera or upload PO photo/PDF and vehicle photo"
+            icon={Camera}
           >
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 w-full">
               <ScanCard
                 label="PO document"
-                detail={poDocument ? "PO document ready" : "Optional (Image/PDF)"}
+                detail={poDocument ? "PO document photo ready" : "Optional (Photo/PDF)"}
                 kind="po"
                 captured={!!poDocument}
-                onOpen={() => setPoScannerOpen(true)}
+                onOpen={setScanning}
                 onUpload={(f) => void scanCapture("po", f)}
               />
               <ScanCard
@@ -1617,12 +1602,7 @@ function GateEntry() {
           onCapture={(file) => void scanCapture(scanning, file)}
         />
       )}
-      {poScannerOpen && (
-        <PoCameraScanner
-          onClose={() => setPoScannerOpen(false)}
-          onOcrSuccess={handlePoScannerSuccess}
-        />
-      )}
+
       {lastCreatedEntry && (
         <dialog
           ref={approvalDialog}
@@ -2213,7 +2193,7 @@ function CameraScanner({
     );
   }
 
-  const title = kind === "po" ? "Scan purchase order" : "Capture vehicle photo";
+  const title = kind === "po" ? "Capture PO document photo" : "Capture vehicle photo";
 
   return createPortal(
     <dialog

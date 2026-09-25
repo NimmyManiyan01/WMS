@@ -4,9 +4,12 @@ Verifies that Warehouse users have full access to warehouse endpoints, while Sto
 remain properly restricted from global gate/storage endpoints.
 """
 import pytest
+from fastapi.security import HTTPAuthorizationCredentials
 from httpx import ASGITransport, AsyncClient
+from starlette.requests import Request
 
 from app.main import app
+from app.security.dependencies import get_current_user
 
 
 @pytest.mark.asyncio
@@ -40,6 +43,18 @@ async def test_warehouse_authorization_on_inventory_and_storage_endpoints():
         res_tx_custom = await client.get("/api/gate-entries/inventory-transactions", headers=warehouse_custom_headers)
         assert res_tx_custom.status_code == 200, f"Expected 200, got {res_tx_custom.status_code}: {res_tx_custom.text}"
         assert isinstance(res_tx_custom.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_manager_mock_token_has_explicit_approval_permissions_only():
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="mock-jwt-manager-token")
+
+    user = await get_current_user(request, credentials)
+
+    assert "ADMIN" not in user.roles
+    assert "procurement:approve" in user.permissions
+    assert "gate:approve" in user.permissions
 
 
 @pytest.mark.asyncio

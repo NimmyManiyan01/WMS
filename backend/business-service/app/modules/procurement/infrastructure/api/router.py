@@ -161,6 +161,16 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/procurement", tags=["procurement"])
 
 
+def verify_procurement_role(_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    roles_upper = {r.upper() for r in (_user.roles or [])}
+    if not any(r in roles_upper for r in ["PROCUREMENT", "PROCUREMENT_OFFICER", "MANAGER", "ADMIN", "SUPERUSER"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Procurement role required."
+        )
+    return _user
+
+
 @router.get("/health", tags=["ops"])
 async def procurement_health() -> dict:
     return {"status": "UP", "module": "procurement", "version": "v13:master-data-post-added"}
@@ -185,14 +195,14 @@ async def get_procurement_stats(uow: UnitOfWork = Depends(get_uow)):
         pending_supplier_registrations = pending_supplier_registrations_res.scalar() or 0
 
         pending_material_requests_stmt = select(func.count(MaterialRequestModel.id)).where(
-            MaterialRequestModel.status == "Pending Approval"
+            MaterialRequestModel.status == "Submitted"
         )
         pending_material_requests_res = await uow.session.execute(pending_material_requests_stmt)
         pending_material_requests = pending_material_requests_res.scalar() or 0
 
         pending_request_sources_stmt = (
             select(MaterialRequestModel.warehouse_id, MaterialRequestModel.department)
-            .where(MaterialRequestModel.status == "Pending Approval")
+            .where(MaterialRequestModel.status == "Submitted")
             .order_by(MaterialRequestModel.created_at.desc())
             .limit(3)
         )
@@ -462,7 +472,7 @@ MR_ALLOWED_STATUSES = {
 }
 MR_STATUS_TRANSITIONS = {
     "Draft": {"Submitted", "Closed"},
-    "Submitted": {"Pending Approval", "Rejected", "Closed"},
+    "Submitted": {"Approved", "Rejected", "Closed"},
     "Pending Approval": {"Approved", "Rejected", "Closed"},
     "Approved": {"Converted to RFQ", "Closed"},
     "Rejected": {"Draft", "Closed"},
@@ -477,6 +487,11 @@ def _normalize_mr_status(value: str | None) -> str:
 
 
 def _material_request_response(m: MaterialRequestModel) -> MaterialRequestResponse:
+    def loaded_item_category(item: MaterialRequestItemModel) -> str | None:
+        if not _is_rel_loaded(item, "material"):
+            return None
+        return getattr(item.material, "category", None)
+
     return MaterialRequestResponse(
         id=str(m.id),
         request_number=m.request_number,
@@ -772,7 +787,13 @@ async def update_material_request(id: str, request: CreateMaterialRequest, uow: 
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     mr = res.scalar_one_or_none()
     if not mr:
@@ -1045,7 +1066,13 @@ async def update_material_request_status(
             detail=f"Unsupported material request status '{request.status}'.",
         )
 
-    stmt = select(MaterialRequestModel).options(selectinload(MaterialRequestModel.items)).where(MaterialRequestModel.id == req_uuid)
+    stmt = (
+        select(MaterialRequestModel)
+        .options(
+            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+        )
+        .where(MaterialRequestModel.id == req_uuid)
+    )
     res = await uow.session.execute(stmt)
     mr = res.scalar_one_or_none()
     if not mr:
@@ -1069,8 +1096,9 @@ async def update_material_request_status(
     })
     mr.approval_history = history
     await uow.commit()
-    await uow.session.refresh(mr)
-    return _material_request_response(mr)
+    refreshed_res = await uow.session.execute(stmt)
+    refreshed_mr = refreshed_res.scalar_one_or_none()
+    return _material_request_response(refreshed_mr or mr)
 
 
 @router.get("/material-stock", response_model=List[MaterialStockResponse])
@@ -1603,9 +1631,8 @@ async def unblock_supplier(
 @router.post("/rfqs", response_model=RfqResponse, status_code=status.HTTP_201_CREATED)
 async def create_rfq(
     request: CreateRfqRequest,
-    background_tasks: BackgroundTasks,
     uow: UnitOfWork = Depends(get_uow),
-    _user: CurrentUser = Depends(get_current_user),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ) -> RfqResponse:
     try:
         if request.material_request_number:
@@ -1653,9 +1680,6 @@ async def create_rfq(
                 mr.approval_history = history
         await uow.commit()
 
-        if request.supplier_ids:
-            background_tasks.add_task(_notify_suppliers_rfq, str(rfq_id.value))
-
         stmt = select(RfqModel).options(
             selectinload(RfqModel.items),
             selectinload(RfqModel.suppliers).options(
@@ -1679,7 +1703,8 @@ async def create_rfq(
 @router.post("/rfqs/{id}/send")
 async def send_rfq_endpoint(
     id: str,
-    uow: UnitOfWork = Depends(get_uow)
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(verify_procurement_role),
 ):
     repo = SqlAlchemyRfqRepository(uow.session)
 
@@ -1770,7 +1795,13 @@ async def _notify_suppliers_rfq(rfq_id: str):
             logger.error(f"RFQ notify failed: RFQ {rfq_id} not found in database")
             return {"total": 0, "sent": 0, "failed": 1}
 
+        notified_supplier_ids = set()
+        notified_emails = set()
         for supplier in rfq.suppliers:
+            supplier_key = str(supplier.id)
+            if supplier_key in notified_supplier_ids:
+                continue
+            notified_supplier_ids.add(supplier_key)
             total += 1
 
             su_stmt = select(SupplierUserModel).where(SupplierUserModel.supplier_id == supplier.id)
@@ -1815,7 +1846,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
 
             email_pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
             email_valid = bool(raw_email and re.match(email_pattern, raw_email))
-            email = raw_email if email_valid else None
+            email = raw_email.lower() if email_valid else None
             subject = f"Request for Quotation - {rfq.rfq_number}"
 
             logger.info(
@@ -1829,56 +1860,37 @@ async def _notify_suppliers_rfq(rfq_id: str):
                 f"-----------------------------------------"
             )
 
+            if email and email in notified_emails:
+                logger.info(
+                    f"Skipping duplicate RFQ notification recipient {email} for RFQ {rfq.rfq_number}"
+                )
+                continue
             if email:
-                materials_str = ""
-                items_payload = []
-                for idx, item in enumerate(rfq.items):
-                    m_name = getattr(item, "material_name", "Material") or getattr(item, "material_code", "Material")
-                    m_qty = f"{item.quantity} {item.uom}"
-                    m_del = str(item.required_delivery_date) if item.required_delivery_date else (str(rfq.required_delivery_date) if rfq.required_delivery_date else "Standard")
-                    m_wh = str(item.warehouse) if item.warehouse else (str(rfq.warehouse) if rfq.warehouse else "Main")
-                    materials_str += f"\nMaterial: {m_name}\nQuantity: {m_qty}\nRequired Delivery: {m_del}\nWarehouse: {m_wh}\n"
-                    items_payload.append({
-                        "material": m_name,
-                        "quantity": m_qty,
-                        "delivery": m_del,
-                        "warehouse": m_wh,
-                    })
-
+                notified_emails.add(email)
                 login_link = f"http://localhost:8080/login?redirect=/submit-quotation?rfqId={rfq.id}"
 
                 body = (
                     f"Dear {supplier.supplier_name},\n\n"
-                    f"We request you to submit a quotation for the following materials:\n"
-                    f"{materials_str}\n"
-                    f"Please use the following link to login and submit your quotation:\n\n"
-                    f"{login_link}\n\n"
-                    f"Your Credentials:\n"
+                    f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}.\n\n"
+                    f"Please use your authorized email address and password to log in and open your supplier portal:\n\n"
+                    f"Login Portal: {login_link}\n"
+                    f"Authorized Email ID: {email}\n"
                     f"Username: {username}\n"
-                    f"Temporary Password: {temp_password}\n\n"
-                    f"Note: This temporary access password was generated for your quotation submission.\n"
+                    f"Password: {temp_password}\n\n"
+                    f"Note: Keep these credentials secure. Log in using your email ID and password to access the supplier portal and submit your quotation.\n"
                 )
-
-                details_payload = [
-                    ("RFQ Number", rfq.rfq_number),
-                    ("RFQ Date", str(rfq.rfq_date)),
-                    ("Procurement Officer", rfq.procurement_officer or "Procurement Team"),
-                    ("Warehouse", rfq.warehouse or "Main Warehouse"),
-                ]
-                if rfq.closing_date:
-                    details_payload.append(("Closing Date", str(rfq.closing_date)))
 
                 html_body = render_premium_email(
                     eyebrow="Request for quotation",
                     title=f"Quotation requested · {rfq.rfq_number}",
                     greeting=f"Hello {supplier.supplier_name},",
-                    intro="You have been invited to submit a commercial quotation. Review the requirements and respond through the secure supplier portal.",
-                    details=details_payload,
-                    items=items_payload,
-                    items_heading="Requested Materials",
-                    credentials=[("Username", username), ("Temporary password", temp_password)],
-                    primary_cta=("Review & submit quotation", login_link),
-                    note="Please submit your quotation before the RFQ closing date. Pricing and delivery commitments entered in the portal will form part of your official response.",
+                    intro=f"Your request has been approved by the manager. You have been invited to submit a commercial quotation for RFQ {rfq.rfq_number}. Log in to your supplier portal using your authorized email ID and password below.",
+                    details=(),
+                    items=(),
+                    items_heading=None,
+                    credentials=[("Authorized Email ID", email), ("Username", username), ("Password", temp_password)],
+                    primary_cta=("Login to supplier portal", login_link),
+                    note=f"This account is uniquely associated with your authorized email address ({email}). Use your email ID and password to log in and open your supplier portal.",
                 )
 
                 os.makedirs(os.path.join("media_uploads", "emails"), exist_ok=True)
@@ -2701,16 +2713,12 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             sup_user.password_hash = password_hash
             sup_user.must_change_password = False
 
-        creds_section = (
-            f"Username: {username}\n"
-            f"Temporary Password: {temp_password}\n\n"
-            f"Note: For security, you will be required to change this password upon your first login.\n"
-        )
+        creds_section = ""
 
 
         subject = f"Purchase Order {po.po_number}"
 
-        asn_link = f"http://localhost:8080/login?redirect=/supplier/asns/new?poId={po.id}"
+        asn_link = f"http://localhost:8080/supplier/asns/new?poId={po.id}"
         view_link = f"http://localhost:8080/purchase-order?poId={po.id}"
 
         total_val = float(po.total_amount) if po.total_amount else 0.0
@@ -2721,7 +2729,6 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"PO Number: {po.po_number}\n"
             f"Total Amount: ₹ {total_val:,.2f}\n"
             f"Expected Delivery: {po.expected_delivery_date or 'As per terms'}\n\n"
-            f"{creds_section}\n"
             f"You can view the full PO details here:\n{view_link}\n\n"
             f"Once the shipment is ready, please login and submit the Advance Shipping Notice (ASN) here:\n{asn_link}\n\n"
             f"Regards,\n{po.procurement_officer or 'Procurement Team'}\nNexusWMS"
@@ -2743,9 +2750,9 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
                 "delivery": str(po.expected_delivery_date or "As per terms"),
                 "warehouse": po.delivery_warehouse_name or po.warehouse_id or "Main warehouse",
             } for item in po.items],
-            credentials=[("Username", username), ("Temporary password", temp_password)],
-            primary_cta=("Create advance shipping notice", asn_link),
-            secondary_cta=("View purchase order", view_link),
+            credentials=[],
+            primary_cta=("View purchase order", view_link),
+            secondary_cta=("Create advance shipping notice", asn_link),
             note="Submit the Advance Shipping Notice before dispatch so the warehouse and gate teams can prepare for your arrival.",
             signoff=po.procurement_officer or "NexusWMS Procurement Team",
         )
@@ -3374,7 +3381,7 @@ def _to_rfq_response(rfq) -> RfqResponse:
     return RfqResponse(
         id=str(rfq.id),
         rfq_number=getattr(rfq, "rfq_number", None),
-        rfq_date=getattr(rfq, "rfq_date", None),
+        rfq_date=getattr(rfq, "rfq_date", None) or date.today(),
         status=getattr(rfq, "status", None),
         material_request_number=getattr(rfq, "material_request_number", None),
         required_delivery_date=getattr(rfq, "required_delivery_date", None),
@@ -3498,17 +3505,22 @@ async def submit_quotation(
     _user: CurrentUser = Depends(get_current_user),
 ) -> QuotationResponse:
     try:
+        supplier_id = request.supplier_id or _user.raw_claims.get("supplier_id")
+        if not supplier_id:
+            raise HTTPException(status_code=400, detail="Supplier ID is required for quotation submission")
+
         repo = SqlAlchemyQuotationRepository(uow.session)
         rfq_repo = SqlAlchemyRfqRepository(uow.session)
         use_case = SubmitQuotationUseCase(repo, rfq_repo)
         command = SubmitQuotationCommand(
             rfq_id=request.rfq_id,
-            supplier_id=request.supplier_id,
+            supplier_id=supplier_id,
             lines=[QuotationLineCommand(**l.dict()) for l in request.lines],
             documents=[QuotationDocumentCommand(**d.dict()) for d in request.documents] if request.documents else [],
             **request.dict(exclude={"lines", "rfq_id", "supplier_id", "documents"})
         )
         q_id = await use_case.handle(command)
+        await uow.commit()
         q = await repo.get_by_id(q_id)
         if not q:
             raise HTTPException(status_code=404, detail="Quotation could not be retrieved after save")
@@ -3617,7 +3629,7 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
 
         scalar_fields = {
             "status", "discount", "tax", "freight_charges", "total_amount",
-            "delivery_time", "expected_delivery_date", "payment_terms", "remarks"
+            "delivery_time", "expected_delivery_date", "payment_terms", "mode_of_payment", "remarks"
         }
         for field in scalar_fields:
             if field in request:
@@ -3711,12 +3723,25 @@ async def reject_quotation(
 
 def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
     lines = []
+    from sqlalchemy import inspect
     for l in q.lines:
         mat_name = getattr(l, "material_name", None)
         uom_val = getattr(l, "uom", None)
-        if not mat_name and getattr(l, "material", None):
-            mat_name = getattr(l.material, "material_name", None)
-            uom_val = getattr(l.material, "uom", None)
+        if not mat_name:
+            try:
+                mat_inst = l.__dict__.get("material")
+                if mat_inst:
+                    mat_name = getattr(mat_inst, "material_name", None)
+                    uom_val = getattr(mat_inst, "uom", None)
+                else:
+                    state = inspect(l)
+                    if state and "material" not in state.unloaded:
+                        mat_obj = getattr(l, "material", None)
+                        if mat_obj:
+                            mat_name = getattr(mat_obj, "material_name", None)
+                            uom_val = getattr(mat_obj, "uom", None)
+            except Exception:
+                pass
 
         lines.append(QuotationLineSchema(
             material_id=str(getattr(l, "material_id", None)) if getattr(l, "material_id", None) else None,
@@ -3750,6 +3775,7 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
         delivery_time=getattr(q, "delivery_time", None),
         expected_delivery_date=getattr(q, "expected_delivery_date", None),
         payment_terms=getattr(q, "payment_terms", None),
+        mode_of_payment=getattr(q, "mode_of_payment", None),
         warranty=getattr(q, "warranty", None),
         quotation_validity=getattr(q, "quotation_validity", None),
         remarks=getattr(q, "remarks", None),
@@ -4465,6 +4491,11 @@ async def dev_login(
 ) -> dict:
     from app.config.settings import get_settings
     settings = get_settings()
+    if settings.environment.lower() not in {"local", "test", "development"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Development login is disabled outside local/test/development environments.",
+        )
 
     account_result = await uow.session.execute(
         select(StoreManagerUserModel)
@@ -4490,7 +4521,7 @@ async def dev_login(
         role = {
             "SUPER_ADMIN": "ADMIN",
             "ADMIN_OFFICER": "ADMIN",
-            "PROCUREMENT_MANAGER": "PROCUREMENT",
+            "PROCUREMENT_MANAGER": "MANAGER",
             "PROCUREMENT_OFFICER": "PROCUREMENT",
             "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
             "STORE_OPERATOR": "STORE_KEEPER",
@@ -4513,25 +4544,26 @@ async def dev_login(
             "applications": account.applications or [],
         }
 
-    if request.username == settings.admin_username and request.password == settings.admin_password:
+    normalized_username = request.username.strip().lower()
+    if normalized_username == settings.admin_username.lower() and request.password == settings.admin_password:
         return {
             "token": "mock-jwt-admin-token",
             "username": settings.admin_username,
             "roles": ["ADMIN"]
         }
-    elif request.username == settings.procurement_username and request.password == settings.procurement_password:
+    elif normalized_username == settings.procurement_username.lower() and request.password == settings.procurement_password:
         return {
             "token": "mock-jwt-procurement-token",
             "username": settings.procurement_username,
             "roles": ["PROCUREMENT"]
         }
-    elif request.username == settings.finance_username and request.password == settings.finance_password:
+    elif normalized_username == settings.finance_username.lower() and request.password == settings.finance_password:
         return {
             "token": "mock-jwt-finance-token",
             "username": settings.finance_username,
             "roles": ["FINANCE"]
         }
-    elif request.username == settings.warehouse_username and request.password == settings.warehouse_password:
+    elif normalized_username == settings.warehouse_username.lower() and request.password == settings.warehouse_password:
         return {
             "token": "mock-jwt-warehouse-token",
             "username": settings.warehouse_username,
@@ -4558,11 +4590,29 @@ async def dev_login(
             "username": settings.supplier_username,
             "roles": ["SUPPLIER"]
         }
-    elif (hasattr(settings, "grn_username") and request.username == settings.grn_username and request.password == settings.grn_password) or request.username.lower() in ("grn", "grn_manager", "operations_manager"):
+    elif (hasattr(settings, "grn_username") and normalized_username == settings.grn_username.lower() and request.password == settings.grn_password) or normalized_username in {"grn", "grn_manager", "operations_manager"}:
         return {
             "token": "mock-jwt-grn-token",
             "username": request.username,
             "roles": ["GRN"]
+        }
+    elif (hasattr(settings, "manager_username") and normalized_username == settings.manager_username.lower() and request.password == settings.manager_password) or (normalized_username in {"manager", "mgr", "procurement_manager"} and request.password in {getattr(settings, "manager_password", "Manager@123"), "Manager@123", "password", "manager123", "Admin@123"}):
+        return {
+            "token": "mock-jwt-manager-token",
+            "username": request.username,
+            "roles": ["MANAGER"]
+        }
+    elif (hasattr(settings, "dispatch_username") and normalized_username == settings.dispatch_username.lower() and request.password == settings.dispatch_password) or normalized_username in {"dispatch", "dispatch_manager"}:
+        return {
+            "token": "mock-jwt-dispatch-token",
+            "username": request.username,
+            "roles": ["DISPATCH"]
+        }
+    elif (hasattr(settings, "assembly_manager_username") and normalized_username == settings.assembly_manager_username.lower() and request.password == settings.assembly_manager_password) or (normalized_username in {"assembly", "assembly_manager"} and request.password in {getattr(settings, "assembly_manager_password", "assembly123"), "assembly123"}):
+        return {
+            "token": "mock-jwt-assembly-token",
+            "username": request.username,
+            "roles": ["ASSEMBLY_MANAGER"]
         }
     else:
         raise HTTPException(
@@ -4790,6 +4840,14 @@ async def get_user_navigation(
             "items": [
                 {"label": "Dashboard", "to": "/finance-dashboard", "icon": "LayoutDashboard"},
                 {"label": "Pending Approvals", "to": "/finance/approvals", "icon": "FileCheck2"},
+            ]
+        },
+        "MANAGER": {
+            "module_label": "Manager Portal",
+            "items": [
+                {"label": "Dashboard", "to": "/manager-dashboard", "icon": "LayoutDashboard"},
+                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
+                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
             ]
         },
         "GATE_SECURITY": {

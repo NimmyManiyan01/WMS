@@ -148,6 +148,8 @@ class AssemblyRequisitionResponse(ApiModel):
     can_assign_store: bool = False
     availability_status: str = "AVAILABLE"
     availability_message: Optional[str] = None
+    pickup_tracking: List[dict] = []
+    pickup_progress: dict = {}
     created_at: datetime
     updated_at: datetime
 
@@ -336,6 +338,14 @@ async def _build_requisition_responses_with_availability(
         return max(effective_stk, loc_avail)
 
     responses = []
+    requisition_ids = [r.id for r in requisitions]
+    pickup_map: Dict[uuid.UUID, List[PickupTaskModel]] = {rid: [] for rid in requisition_ids}
+    if requisition_ids:
+        pickup_result = await session.execute(
+            select(PickupTaskModel).where(PickupTaskModel.requisition_id.in_(requisition_ids))
+        )
+        for task in pickup_result.scalars().all():
+            pickup_map.setdefault(task.requisition_id, []).append(task)
     for r in requisitions:
         item_schemas: List[AssemblyRequisitionItemSchema] = []
         req_res_rows = reservations_by_req_id.get(r.id, [])
@@ -516,6 +526,32 @@ async def _build_requisition_responses_with_availability(
             avail_status = "SHORTAGE"
             avail_msg = f"Material shortage ({tot_short} remaining) — Store assignment unavailable"
 
+        tasks = pickup_map.get(r.id, [])
+        tracking = [{
+            "task_number": task.task_number,
+            "material_code": task.material_code,
+            "material_name": task.material_name,
+            "requested_quantity": float(task.requested_quantity or 0),
+            "picked_quantity": float(task.picked_quantity or 0),
+            "remaining_quantity": float((task.requested_quantity or 0) - (task.picked_quantity or 0)),
+            "status": task.status,
+            "store_code": task.store_code,
+            "store_name": task.store_name,
+            "started_at": task.started_at,
+            "completed_at": task.completed_at,
+            "updated_at": task.updated_at,
+        } for task in tasks]
+        requested_total = sum((Decimal(str(task.requested_quantity or 0)) for task in tasks), Decimal("0"))
+        picked_total = sum((Decimal(str(task.picked_quantity or 0)) for task in tasks), Decimal("0"))
+        pickup_progress = {
+            "task_count": len(tasks),
+            "requested_quantity": float(requested_total),
+            "picked_quantity": float(picked_total),
+            "remaining_quantity": float(max(Decimal("0"), requested_total - picked_total)),
+            "status": "COMPLETED" if tasks and all((task.status or "").upper() == "COMPLETED" for task in tasks)
+                else ("PARTIAL" if picked_total > 0 else ("ASSIGNED" if tasks else "PENDING")),
+        }
+
         responses.append(
             AssemblyRequisitionResponse(
                 id=str(r.id),
@@ -546,6 +582,8 @@ async def _build_requisition_responses_with_availability(
                 can_assign_store=can_assign,
                 availability_status=avail_status,
                 availability_message=avail_msg,
+                pickup_tracking=tracking,
+                pickup_progress=pickup_progress,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )

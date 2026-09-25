@@ -1,5 +1,5 @@
 import * as React from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Building2,
   ChevronRight,
@@ -59,6 +59,8 @@ const steps = [
 
 function NewSupplier() {
   const navigate = useNavigate();
+  const location = useRouterState({ select: (state) => state.location });
+  const currentModule = new URLSearchParams(location.searchStr || "").get("module");
   const [currentStep, setCurrentStep] = React.useState(1);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isLookingUpIfsc, setIsLookingUpIfsc] = React.useState(false);
@@ -638,10 +640,18 @@ function NewSupplier() {
         },
       };
       await api.createSupplier(finalData);
-      toast.success("Supplier registered successfully", {
-        description: `${name} has been added to the system.`,
+      toast.success("Supplier sent for manager approval", {
+        description: `${name} has been added to the supplier approval queue.`,
       });
-      navigate({ to: "/procurement-dashboard" });
+      window.dispatchEvent(new Event("suppliers:changed"));
+      if (currentModule === "manager") {
+        navigate({
+          to: "/master-data",
+          search: { module: "manager", status: "pending-approval" } as any,
+        });
+      } else {
+        navigate({ to: "/master-data", search: { status: "pending-approval" } as any });
+      }
     } catch (error: any) {
       toast.error("Failed to register supplier", {
         description: error.message,

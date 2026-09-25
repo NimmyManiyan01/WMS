@@ -1,3 +1,4 @@
+
 package com.ams.common.domain;
 
 public class NotFoundException extends RuntimeException {

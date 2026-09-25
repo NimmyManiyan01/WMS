@@ -1708,7 +1708,18 @@ async def resolve_grn_qr(
         )
         task_obj = res_t.scalars().first()
 
-    # Calculate quantities
+    # Calculate quantities. A batch QR represents only that batch, not the
+    # entire GRN line (for example, 25 of a 100-unit receipt).
+    scanned_batch = None
+    if batch_number and grn_line:
+        batch_result = await uow.session.execute(
+            select(GrnBatchModel).where(
+                GrnBatchModel.grn_line_id == grn_line.id,
+                func.upper(GrnBatchModel.batch_number) == batch_number.upper(),
+            )
+        )
+        scanned_batch = batch_result.scalars().first()
+
     if grn_line:
         received_qty = Decimal(str(grn_line.good_quantity if grn_line.good_quantity and grn_line.good_quantity > 0 else (grn_line.received_quantity or 0)))
     elif hu_obj:
@@ -1717,6 +1728,9 @@ async def resolve_grn_qr(
         received_qty = Decimal(str(task_obj.quantity))
     else:
         received_qty = Decimal("0")
+
+    if scanned_batch is not None:
+        received_qty = Decimal(str(scanned_batch.batch_quantity))
 
     # Sum already put away quantity
     mov_stmt = (
@@ -1817,6 +1831,7 @@ async def resolve_grn_qr(
         "po_number": po_no or "N/A",
         "asn_number": asn_no or "N/A",
         "batch_lot_number": batch_number or "BATCH-01",
+        "batch_quantity": float(scanned_batch.batch_quantity) if scanned_batch else None,
         "received_quantity": float(received_qty),
         "already_put_away_quantity": float(already_put_away),
         "available_quantity": float(available_qty),

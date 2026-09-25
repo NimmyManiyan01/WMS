@@ -88,10 +88,11 @@ class SupplierDocument:
         lower_name = self.file_name.lower()
         if not any(lower_name.endswith(ext) for ext in allowed_exts):
             raise DomainRuleViolationException("Invalid document format. Only PDF and JPG files are allowed.")
-        # Validate size (max 10MB)
-        max_size_bytes = 10 * 1024 * 1024
+        # Validate size (max 20
+        # MB)
+        max_size_bytes = 20 * 1024 * 1024
         if self.file_size is not None and self.file_size > max_size_bytes:
-            raise DomainRuleViolationException("Document size exceeds maximum limit of 10 MB.")
+            raise DomainRuleViolationException("Document size exceeds maximum limit of 20 MB.")
 
 
 from app.common.domain.aggregate_root import AggregateRoot
@@ -193,7 +194,7 @@ class Supplier(AggregateRoot):
 
     def block(self) -> None:
         self.status = "Blocked"
-
+   
     def unblock(self) -> None:
         self.status = "Active"
 

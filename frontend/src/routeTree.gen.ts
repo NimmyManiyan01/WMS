@@ -48,6 +48,7 @@ import { Route as GateEntryRouteImport } from './routes/gate-entry'
 import { Route as GrnRouteImport } from './routes/grn'
 import { Route as InventoryRouteImport } from './routes/inventory'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ManagerDashboardRouteImport } from './routes/manager-dashboard'
 import { Route as MasterDataRouteImport } from './routes/master-data'
 import { Route as MyStoreRouteImport } from './routes/my-store'
 import { Route as NewSupplierRouteImport } from './routes/new-supplier'
@@ -292,6 +293,11 @@ const InventoryRoute = InventoryRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ManagerDashboardRoute = ManagerDashboardRouteImport.update({
+  id: '/manager-dashboard',
+  path: '/manager-dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MasterDataRoute = MasterDataRouteImport.update({
@@ -566,6 +572,7 @@ export interface FileRoutesByFullPath {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -651,6 +658,7 @@ export interface FileRoutesByTo {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -735,6 +743,7 @@ export interface FileRoutesById {
   '/grn': typeof GrnRoute
   '/inventory': typeof InventoryRoute
   '/login': typeof LoginRoute
+  '/manager-dashboard': typeof ManagerDashboardRoute
   '/master-data': typeof MasterDataRoute
   '/my-store': typeof MyStoreRoute
   '/new-supplier': typeof NewSupplierRoute
@@ -822,6 +831,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -907,6 +917,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -990,6 +1001,7 @@ export interface FileRouteTypes {
     | '/grn'
     | '/inventory'
     | '/login'
+    | '/manager-dashboard'
     | '/master-data'
     | '/my-store'
     | '/new-supplier'
@@ -1076,6 +1088,7 @@ export interface RootRouteChildren {
   GrnRoute: typeof GrnRoute
   InventoryRoute: typeof InventoryRoute
   LoginRoute: typeof LoginRoute
+  ManagerDashboardRoute: typeof ManagerDashboardRoute
   MasterDataRoute: typeof MasterDataRoute
   MyStoreRoute: typeof MyStoreRoute
   NewSupplierRoute: typeof NewSupplierRoute
@@ -1390,6 +1403,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/manager-dashboard': {
+      id: '/manager-dashboard'
+      path: '/manager-dashboard'
+      fullPath: '/manager-dashboard'
+      preLoaderRoute: typeof ManagerDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/master-data': {
@@ -1772,6 +1792,7 @@ const rootRouteChildren: RootRouteChildren = {
   GrnRoute: GrnRoute,
   InventoryRoute: InventoryRoute,
   LoginRoute: LoginRoute,
+  ManagerDashboardRoute: ManagerDashboardRoute,
   MasterDataRoute: MasterDataRoute,
   MyStoreRoute: MyStoreRoute,
   NewSupplierRoute: NewSupplierRoute,

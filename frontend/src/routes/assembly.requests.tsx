@@ -127,6 +127,8 @@ function AssemblyRequestsPage() {
 
   useEffect(() => {
     fetchData();
+    const timer = window.setInterval(() => void fetchData(), 10000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const addItem = (isCustom = false) => {
@@ -444,7 +446,7 @@ function AssemblyRequestsPage() {
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         {req.items?.map((it: any, idx: number) => {
                           const reqQty = Number(
                             it.requestedQuantity || it.requested_quantity || it.quantity || 0,
@@ -505,6 +507,24 @@ function AssemblyRequestsPage() {
                           );
                         })}
                       </div>
+                      {req.pickup_progress && req.pickup_progress.task_count > 0 && (
+                        <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs dark:border-blue-900 dark:bg-blue-950/30">
+                          <div className="flex flex-wrap items-center gap-2 font-bold text-blue-800 dark:text-blue-200">
+                            <PackageCheck className="size-3.5" />
+                            Store pickup: {String(req.pickup_progress.status || "ASSIGNED").replaceAll("_", " ")}
+                            <span className="font-normal text-blue-700 dark:text-blue-300">
+                              {req.pickup_progress.picked_quantity}/{req.pickup_progress.requested_quantity} issued
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            {(req.pickup_tracking || []).map((task: any) => (
+                              <span key={task.task_number}>
+                                {task.task_number}: {String(task.status || "PENDING").replaceAll("_", " ")} ({task.picked_quantity}/{task.requested_quantity})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="text-right shrink-0">

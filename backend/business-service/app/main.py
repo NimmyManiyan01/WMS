@@ -1,7 +1,7 @@
 """
 FastAPI entrypoint for ams-wms-business-service.
 """
-# Reload triggered for Store Manager Dock Isolation fix
+# Reload triggered for Assembly and Store Manager auth
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +19,7 @@ from app.middleware.request_context import RequestContextMiddleware
 from app.modules.dock.infrastructure.api.router import router as dock_router
 from app.modules.gate.infrastructure.api.router import (
     preview_router as gate_preview_router,
+    
     router as gate_router,
 )
 from app.modules.gate.infrastructure.api.dashboard import router as dashboard_router
@@ -160,6 +161,16 @@ async def lifespan(app: FastAPI):
             await run_ddl("ALTER TABLE inventory_receipt_posting ALTER COLUMN asn_number DROP NOT NULL")
         except Exception:
             pass
+
+        # Ensure gate_entry has exited_at and exited_by
+        for col in [
+            ("exited_at", "TIMESTAMP WITH TIME ZONE"),
+            ("exited_by", "VARCHAR(64)"),
+        ]:
+            try:
+                await run_ddl(f"ALTER TABLE gate_entry ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+            except Exception:
+                pass
 
         # Add columns to asn
         for col in [
@@ -385,6 +396,10 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 logger.warning("Unable to ensure store_manager_user.%s: %s", col[0], exc)
 
+        try:
+            await run_ddl("ALTER TABLE store ADD COLUMN IF NOT EXISTS store_type VARCHAR(64)")
+        except Exception: pass
+
         for col in [
             ("material_name", "VARCHAR(256)"),
             ("source_location", "VARCHAR(64) DEFAULT 'RECEIVING_AREA'"),
@@ -392,6 +407,7 @@ async def lifespan(app: FastAPI):
             ("destination_store_id", "UUID"),
             ("destination_zone_id", "UUID"),
             ("destination_bin_id", "UUID"),
+            ("finished_goods_id", "UUID"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE putaway_task ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
@@ -594,6 +610,7 @@ async def lifespan(app: FastAPI):
             await run_ddl("ALTER TABLE purchase_order ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
             await run_ddl("ALTER TABLE quotation ADD COLUMN IF NOT EXISTS additional_charges NUMERIC(18, 4) DEFAULT 0")
             await run_ddl("ALTER TABLE quotation ADD COLUMN IF NOT EXISTS warranty VARCHAR(128)")
+            await run_ddl("ALTER TABLE quotation ADD COLUMN IF NOT EXISTS mode_of_payment VARCHAR(128)")
         except Exception: pass
 
         # Create po_approval_history table
@@ -730,7 +747,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to create outbound workflow tables: {e}")
 
         try:
-            for tbl in ["material_request_item", "purchase_order_item", "material_stock"]:
+            for tbl in ["material_request_item", "purchase_order_item", "material_stock", "asn_line"]:
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_id UUID REFERENCES material(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS material_variant_id UUID REFERENCES material_variant(id) ON DELETE SET NULL")
                 await run_ddl(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS variant_code VARCHAR(128)")
@@ -1193,6 +1210,12 @@ async def lifespan(app: FastAPI):
             """)
             await run_ddl("CREATE UNIQUE INDEX IF NOT EXISTS ix_assembly_fg_order ON assembly_finished_goods (assembly_order_id)")
             await run_ddl("CREATE INDEX IF NOT EXISTS ix_assembly_fg_product ON assembly_finished_goods (product_code)")
+            for column, column_type in [
+                ("qr_code", "VARCHAR(255)"),
+                ("serial_number", "VARCHAR(128)"),
+                ("store_id", "UUID"),
+            ]:
+                await run_ddl(f"ALTER TABLE assembly_finished_goods ADD COLUMN IF NOT EXISTS {column} {column_type}")
         except Exception: pass
         try:
             await run_ddl("UPDATE putaway_task SET status = 'OPEN' WHERE status = 'PUTAWAY_PENDING'")

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -32,13 +32,19 @@ export const Route = createFileRoute("/master-data")({
   component: MasterData,
 });
 function MasterData() {
+  const location = useRouterState({ select: (state) => state.location });
+  const routeParams = new URLSearchParams(location.searchStr || "");
+  const currentModule = routeParams.get("module");
+  const routeStatus = routeParams.get("status");
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [procurementStats, setProcurementStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() =>
+    routeStatus === "pending-approval" ? "pending approval" : "all",
+  );
   const loadSuppliers = async () => {
     setLoading(true);
     setError(null);
@@ -63,6 +69,11 @@ function MasterData() {
   useEffect(() => {
     loadSuppliers();
   }, []);
+  useEffect(() => {
+    if (routeStatus === "pending-approval") {
+      setStatusFilter("pending approval");
+    }
+  }, [routeStatus]);
   const filteredSuppliers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return suppliers.filter((supplier) => {
@@ -104,7 +115,10 @@ function MasterData() {
       subtitle="Manage suppliers used for procurement and warehouse operations"
       actions={
         <Button className="rounded-xl shadow-glow" asChild>
-          <Link to="/new-supplier">
+          <Link
+            to="/new-supplier"
+            search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+          >
             <Plus className="size-4" /> Add Supplier
           </Link>
         </Button>
@@ -117,8 +131,8 @@ function MasterData() {
           delta={pendingRequests > 0 ? "View Requests →" : "From Warehouse"}
           icon={ClipboardList}
           tone="warning"
-          to="/procurement/material-requests?status=pending-procurement"
-          infoTooltip="Material requests from the warehouse that are waiting for procurement review."
+          to="/procurement/material-requests?status=manager-approval"
+          infoTooltip="Material requests from the warehouse that are waiting for manager approval."
           showArrow
         />
         <StatCard
@@ -191,7 +205,7 @@ function MasterData() {
                   <p className="text-sm font-bold text-foreground">
                     {loading
                       ? "..."
-                      : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting procurement review`}
+                      : `${pendingRequests} material request${pendingRequests === 1 ? "" : "s"} awaiting manager approval`}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {loading ? "Loading sources..." : pendingRequestSourceText}
@@ -204,7 +218,7 @@ function MasterData() {
                 className="rounded-xl h-8 px-4 text-xs font-bold shrink-0"
                 asChild
               >
-                <Link to="/procurement/material-requests?status=pending-procurement">
+                <Link to="/procurement/material-requests?status=manager-approval">
                   Review <ArrowRight className="ml-1.5 size-3.5" />
                 </Link>
               </Button>
@@ -377,7 +391,10 @@ function MasterData() {
               </div>
               {!query && statusFilter === "all" && (
                 <Button size="sm" className="rounded-lg" asChild>
-                  <Link to="/new-supplier">
+                  <Link
+                    to="/new-supplier"
+                    search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
+                  >
                     <Plus /> Add supplier
                   </Link>
                 </Button>
@@ -415,6 +432,7 @@ function MasterData() {
                           <Link
                             to="/supplier/$supplierId"
                             params={{ supplierId: supplier.supplierId || supplier.id }}
+                            search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
                             className="font-semibold text-primary hover:underline"
                           >
                             {supplier.supplierName || supplier.supplier_name}
@@ -449,6 +467,7 @@ function MasterData() {
                             <Link
                               to="/supplier/$supplierId"
                               params={{ supplierId: supplier.supplierId || supplier.id }}
+                              search={currentModule === "manager" ? ({ module: "manager" } as any) : undefined}
                             >
                               View <ArrowRight className="ml-1 size-3.5" />
                             </Link>

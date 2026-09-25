@@ -22,6 +22,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/procurement/finished-goods")({
@@ -240,14 +247,24 @@ function ProcurementFinishedGoods() {
                 <Label htmlFor="fg-uom" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   UOM <span className="text-red-500">*</span>
                 </Label>
-                <Input
-                  id="fg-uom"
+                <Select
                   value={form.uom}
-                  onChange={(e) => setForm((c) => ({ ...c, uom: e.target.value }))}
-                  className="h-11 rounded-xl"
-                  placeholder="PCS"
-                  required
-                />
+                  onValueChange={(v) => setForm((c) => ({ ...c, uom: v }))}
+                >
+                  <SelectTrigger id="fg-uom" className="h-11 rounded-xl">
+                    <SelectValue placeholder="Select UOM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PCS">PCS (Pieces)</SelectItem>
+                    <SelectItem value="KG">KG (Kilograms)</SelectItem>
+                    <SelectItem value="MTR">MTR (Meters)</SelectItem>
+                    <SelectItem value="LTR">LTR (Liters)</SelectItem>
+                    <SelectItem value="BOX">BOX (Boxes)</SelectItem>
+                    <SelectItem value="SET">SET (Sets)</SelectItem>
+                    <SelectItem value="TON">TON (Metric Tons)</SelectItem>
+                    <SelectItem value="PACK">PACK (Packages)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

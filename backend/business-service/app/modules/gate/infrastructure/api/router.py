@@ -413,6 +413,12 @@ def _to_gate_entry_response(
         else str(entry.exited_at) if entry.exited_at else None
     )
 
+    exited_at_val = (
+        entry.exited_at.isoformat()
+        if hasattr(entry, "exited_at") and entry.exited_at and hasattr(entry.exited_at, "isoformat")
+        else None
+    )
+
     return GateEntryResponse(
         id=entry.id,
         gate_entry_number=entry.gate_entry_number or f"GE-{entry.id[:8]}",
@@ -502,6 +508,8 @@ def _gate_entry_from_model(model: GateEntryModel) -> GateEntry:
 
 
 async def _save_gate_entry(session, entry: GateEntry, document_data: bytes | None = None) -> None:
+    if not entry.gate_entry_number:
+        entry.gate_entry_number = _generate_gate_entry_number()
     result = await session.execute(select(GateEntryModel).where(GateEntryModel.id == uuid.UUID(entry.id)))
     model = result.scalar_one_or_none()
     ocr = entry.ocr_result
@@ -783,18 +791,10 @@ async def create_gate_entry(
 
     # 2. Dynamic OCR processing or extraction
     ocr_res: Optional[OcrResult] = None
-    if request.document_image_base64:
-        try:
-            doc_bytes = base64.b64decode(request.document_image_base64, validate=True)
-            ocr_res = _po_ocr_engine.process_po_document(doc_bytes)
-        except Exception:
-            pass
-
     po_record = await _lookup_database_po(uow.session, po_num)
 
-    # The scan preview has already populated the submitted form. Do not run a
-    # second OCR pass and overwrite those verified values with logo/header
-    # text. Master PO data is authoritative whenever it is available.
+    # The scan preview or form input has already populated the submitted fields.
+    # Master PO data is authoritative whenever it is available.
     if asn:
         ocr_res = OcrResult(
             po_number=po_num,
@@ -819,12 +819,12 @@ async def create_gate_entry(
     else:
         ocr_res = OcrResult(
             po_number=po_num,
-            supplier_name=request.supplier_name or (ocr_res.supplier_name if ocr_res else ""),
-            material_description=request.material_description or (ocr_res.material_description if ocr_res else ""),
-            total_quantity=request.total_quantity if request.total_quantity is not None else (ocr_res.total_quantity if ocr_res else 0.0),
-            po_date=request.po_date or (ocr_res.po_date if ocr_res else ""),
-            delivery_date=request.delivery_date or (ocr_res.delivery_date if ocr_res else ""),
-            confidence=ocr_res.confidence if ocr_res else 0.0,
+            supplier_name=request.supplier_name or "",
+            material_description=request.material_description or "",
+            total_quantity=request.total_quantity if request.total_quantity is not None else 0.0,
+            po_date=request.po_date or "",
+            delivery_date=request.delivery_date or "",
+            confidence=1.0,
         )
 
     # 3. Cross-verify 6 fields
@@ -3082,7 +3082,11 @@ async def list_gate_entries(
     uow: UnitOfWork = Depends(get_uow),
 ) -> list[GateEntryResponse]:
     try:
-        query = select(GateEntryModel).order_by(GateEntryModel.created_at.desc())
+        query = select(GateEntryModel).where(
+            GateEntryModel.gate_entry_number.isnot(None),
+            GateEntryModel.gate_entry_number != "",
+            GateEntryModel.status.notin_(["REJECTED", "CANCELLED", "DRAFT"])
+        ).order_by(GateEntryModel.created_at.desc())
         if status:
             query = query.where(GateEntryModel.status == status.strip().upper())
         result = await uow.session.execute(query)

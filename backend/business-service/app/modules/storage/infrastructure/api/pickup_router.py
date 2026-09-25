@@ -30,10 +30,12 @@ from app.modules.storage.infrastructure.persistence.models import (
     HandlingUnitModel,
     InventoryIssueTransactionModel,
     InventoryLocationBalanceModel,
+    InventoryMovementHistoryModel,
     PickupTaskModel,
     StorageLocationModel,
 )
 from app.modules.store.infrastructure.persistence.models import (
+    StoreBinModel,
     StoreManagerUserModel,
     StoreModel,
     StoreZoneModel,
@@ -436,15 +438,23 @@ async def complete_pickup_task(
             detail=f"Scanned Material QR does not match requested material '{target_mat_code}'.",
         )
 
-    # 4. Store Zone Validation
+    # 4. Store Zone/Bin Validation. Pickup labels may contain either a zone
+    # QR or a bin QR; a bin resolves to its owning zone for the stock issue.
     scanned_zone_str = payload.zone_scan.strip()
     zone: StoreZoneModel | None = None
+    scanned_bin: StoreBinModel | None = None
 
     # Try UUID
     try:
         zone = await uow.session.get(StoreZoneModel, uuid.UUID(scanned_zone_str))
     except (ValueError, TypeError):
         pass
+
+    if zone is None:
+        try:
+            scanned_bin = await uow.session.get(StoreBinModel, uuid.UUID(scanned_zone_str))
+        except (ValueError, TypeError):
+            pass
 
     if zone is None:
         # Check if JSON payload or QR string like WMS:ZONE:<code>:<id>
@@ -457,18 +467,37 @@ async def complete_pickup_task(
             try:
                 parsed_z = json.loads(scanned_zone_str)
                 if isinstance(parsed_z, dict):
-                    candidate_code = parsed_z.get("zone_code") or parsed_z.get("zone_id") or scanned_zone_str
+                    candidate_code = (
+                        parsed_z.get("bin_code")
+                        or parsed_z.get("bin_id")
+                        or parsed_z.get("zone_code")
+                        or parsed_z.get("zone_id")
+                        or scanned_zone_str
+                    )
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        zone_stmt = select(StoreZoneModel).where(
-            or_(
-                func.upper(StoreZoneModel.zone_code) == candidate_code.strip().upper(),
-                func.lower(StoreZoneModel.zone_name) == candidate_code.strip().lower(),
+        if scanned_bin is None:
+            bin_stmt = select(StoreBinModel).where(
+                or_(
+                    func.upper(StoreBinModel.bin_code) == candidate_code.strip().upper(),
+                    func.lower(StoreBinModel.bin_name) == candidate_code.strip().lower(),
+                )
             )
-        )
-        zone_res = await uow.session.execute(zone_stmt)
-        zone = zone_res.scalars().first()
+            bin_res = await uow.session.execute(bin_stmt)
+            scanned_bin = bin_res.scalars().first()
+        if scanned_bin is not None:
+            zone = await uow.session.get(StoreZoneModel, scanned_bin.zone_id)
+
+        if zone is None:
+            zone_stmt = select(StoreZoneModel).where(
+                or_(
+                    func.upper(StoreZoneModel.zone_code) == candidate_code.strip().upper(),
+                    func.lower(StoreZoneModel.zone_name) == candidate_code.strip().lower(),
+                )
+            )
+            zone_res = await uow.session.execute(zone_stmt)
+            zone = zone_res.scalars().first()
     if not zone:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -485,6 +514,11 @@ async def complete_pickup_task(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Zone '{zone.zone_code}' does not belong to assigned Store '{task.store_name}'. Cannot pick from another Store.",
+        )
+    if scanned_bin is not None and scanned_bin.store_id != task.store_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Bin '{scanned_bin.bin_code}' does not belong to assigned Store '{task.store_name}'.",
         )
 
     # 5. Inventory Stock Validation & Concurrency Lock
@@ -536,8 +570,16 @@ async def complete_pickup_task(
     # Decrement location balance if existing
     loc_balance_stmt = (
         select(InventoryLocationBalanceModel)
+        .join(StorageLocationModel, InventoryLocationBalanceModel.storage_location_id == StorageLocationModel.id)
         .where(
             InventoryLocationBalanceModel.material_code == task.material_code,
+            StorageLocationModel.store_id == task.store_id,
+            StorageLocationModel.zone_id == zone.id,
+        )
+        .where(
+            StorageLocationModel.bin_id == scanned_bin.id
+            if scanned_bin is not None
+            else True
         )
         .with_for_update()
     )
@@ -574,6 +616,37 @@ async def complete_pickup_task(
     )
     uow.session.add(issue_tx)
 
+    # Keep the common pickup workflow auditable for finished goods as a
+    # dispatch movement, while retaining TAKEAWAY for raw-material stores.
+    store_obj = await uow.session.get(StoreModel, task.store_id)
+    is_finished_goods = bool(
+        store_obj and (
+            (store_obj.store_type or "").upper() == "FINISHED_GOODS"
+            or "FINISHED GOODS" in (store_obj.store_name or "").upper()
+        )
+    )
+    uow.session.add(InventoryMovementHistoryModel(
+        id=uuid.uuid4(),
+        movement_type="DISPATCH" if is_finished_goods else "TAKEAWAY",
+        material_code=task.material_code,
+        material_name=task.material_name,
+        material_qr=scanned_mat[:128],
+        from_location=f"{task.store_name} / {zone.zone_code}",
+        to_location=task.department or ("CUSTOMER_DISPATCH" if is_finished_goods else "ASSEMBLY"),
+        quantity=payload.quantity,
+        uom=task.uom,
+        stock_before=stock_before,
+        stock_after=stock_after,
+        performed_by=user.username or "store_keeper",
+        user_role="STORE_MANAGER" if "STORE_MANAGER" in roles else "STORE_KEEPER",
+        warehouse_id="MAIN",
+        store_id=task.store_id,
+        store_code=task.store_code,
+        reference_document=req_no_val,
+        remarks="Finished goods dispatch" if is_finished_goods else "Assembly material pickup",
+        performed_at=now_utc,
+    ))
+
     # 8. Update Task Status
     task.picked_quantity = task.picked_quantity + payload.quantity
     task.picked_zone_id = zone.id
@@ -606,9 +679,9 @@ async def complete_pickup_task(
             all_tasks = all_tasks_res.scalars().all()
             all_completed = all(t.status.upper() == "COMPLETED" for t in all_tasks)
             if all_completed:
-                req.status = "COMPLETED"
+                req.status = "PICKED_UP"
             else:
-                req.status = "PARTIALLY_ISSUED"
+                req.status = "PARTIALLY_PICKED_UP"
             req.updated_at = now_utc
 
         # Update matching AssemblyStockReservationModel status
