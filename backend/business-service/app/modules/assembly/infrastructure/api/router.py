@@ -1999,6 +1999,29 @@ async def assembly_module_overview(section: str, uow: UnitOfWork = Depends(get_u
                          "reserved_at": record.reserved_at.isoformat(), "status": record.status,
                          "order_id": str(record.assembly_order_id)})
     elif section == "material-issues":
+        columns = [{"key": "order", "label": "Assembly order"}, {"key": "issue", "label": "Pickup task"},
+                   {"key": "warehouse", "label": "Store"}, {"key": "materials", "label": "Material / quantity"},
+                   {"key": "issued_by", "label": "Picked by"}, {"key": "issued_at", "label": "Updated"},
+                   {"key": "status", "label": "Status"}]
+        pickup_tasks = (await uow.session.execute(select(PickupTaskModel).order_by(
+            PickupTaskModel.updated_at.desc()
+        ))).scalars().all()
+        order_by_request = {order.request_number: order for order in orders if order.request_number}
+        for task in pickup_tasks:
+            order = order_by_request.get(task.requisition_number)
+            picked = task.picked_quantity or Decimal("0")
+            requested = task.requested_quantity or Decimal("0")
+            rows.append({
+                "order": order.order_number if order else task.requisition_number,
+                "issue": task.task_number,
+                "warehouse": task.store_name or task.store_code,
+                "materials": f"{task.material_code} ({picked:g}/{requested:g} {task.uom})",
+                "issued_by": task.completed_by or task.started_by or task.assigned_by,
+                "issued_at": (task.completed_at or task.updated_at or task.created_at).isoformat(),
+                "status": task.status,
+                "order_id": str(order.id) if order else None,
+            })
+    elif section == "material-issues-legacy":
         columns = [{"key": "order", "label": "Assembly order"}, {"key": "issue", "label": "Issue number"},
                    {"key": "warehouse", "label": "Warehouse"}, {"key": "materials", "label": "Materials"},
                    {"key": "issued_by", "label": "Issued by"}, {"key": "issued_at", "label": "Issue date"},
