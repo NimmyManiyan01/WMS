@@ -1111,6 +1111,30 @@ export const api = {
       },
     );
   },
+  async reserveAssemblyRequisitionStock(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(id)}/reserve-stock`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  },
+  async createMaterialRequestForAssemblyShortage(id: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/assembly-requisitions/${encodeURIComponent(id)}/create-material-request`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  },
+  async getAssemblyStockReservations(storeId?: string): Promise<any[]> {
+    const endpoint = storeId
+      ? `${BUSINESS_API_URL}/api/v1/assembly-requisitions/reservations/by-store/${encodeURIComponent(storeId)}`
+      : `${BUSINESS_API_URL}/api/v1/assembly-requisitions/reservations/all`;
+    return request<any[]>(endpoint);
+  },
   async createMaterialForAssemblyRequisitionItem(
     requisitionId: string,
     itemId: string,

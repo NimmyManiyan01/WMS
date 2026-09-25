@@ -1395,6 +1395,17 @@ class SqlAlchemyGrnRepository(GrnRepository):
                 .order_by(DockAssignmentModel.assigned_at.desc())
             )
             dock_assignment = da_res.scalars().first()
+            if dock_assignment:
+                dock_assignment.prepared_grn_id = grn.id
+                dock_assignment.receiving_completed_at = now
+                dock_assignment.receiving_completed_by = posted_by
+                if dock_assignment.gate_entry_id:
+                    ge_res = await self._session.execute(
+                        select(GateEntryModel).where(GateEntryModel.id == dock_assignment.gate_entry_id)
+                    )
+                    ge_obj = ge_res.scalar_one_or_none()
+                    if ge_obj:
+                        ge_obj.status = "RECEIVING_COMPLETED"
 
         dest_store_id = dock_assignment.assigned_store_id if dock_assignment else None
         assigned_to = (

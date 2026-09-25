@@ -175,12 +175,42 @@ class AssemblyRequisitionItemModel(Base):
     variant_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     material_name: Mapped[str] = mapped_column(String(256), nullable=False)
     requested_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     issued_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0.0"))
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
     is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     custom_material_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     requisition: Mapped[AssemblyRequisitionModel] = relationship("AssemblyRequisitionModel", back_populates="items")
+
+
+class AssemblyStockReservationModel(Base):
+    __tablename__ = "assembly_stock_reservation"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    requisition_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("assembly_requisition.id", ondelete="CASCADE"), nullable=False, index=True)
+    requisition_item_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("assembly_requisition_item.id", ondelete="CASCADE"), nullable=False, index=True)
+    requisition_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    material_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    material_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    required_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="RESERVED FOR ASSEMBLY", index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("store.id", ondelete="SET NULL"), nullable=True, index=True)
+    store_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    store_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    zone_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bin_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    location_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    storage_location_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("storage_location.id", ondelete="SET NULL"), nullable=True)
+    reserved_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    requisition: Mapped[AssemblyRequisitionModel] = relationship("AssemblyRequisitionModel")
+    requisition_item: Mapped[AssemblyRequisitionItemModel] = relationship("AssemblyRequisitionItemModel")
 
 
 class PickupTaskModel(Base):

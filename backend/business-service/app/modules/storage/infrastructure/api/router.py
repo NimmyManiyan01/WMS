@@ -1305,13 +1305,16 @@ async def complete_putaway(
         location = loc_res.scalar_one_or_none()
 
     if location is None:
+        store = await uow.session.get(StoreModel, target_zone.store_id)
+        store_code = store.store_code if store else "STORE"
+        loc_code = f"LOC-{store_code}-{target_zone.zone_code}-{target_bin.bin_code}"
         loc_res = await uow.session.execute(
             select(StorageLocationModel).where(
-                StorageLocationModel.warehouse_id == task.warehouse_id,
-                StorageLocationModel.store_id == target_zone.store_id,
-                StorageLocationModel.zone_id == target_zone.id,
-                StorageLocationModel.bin_id == target_bin.id,
-                StorageLocationModel.active.is_(True),
+                or_(
+                    StorageLocationModel.bin_id == target_bin.id,
+                    func.upper(StorageLocationModel.location_code) == loc_code.upper(),
+                    StorageLocationModel.location_code == loc_code,
+                )
             ).with_for_update()
         )
         location = loc_res.scalars().first()

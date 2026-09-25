@@ -148,6 +148,27 @@ interface StoreDashboardKPIs {
   assigned_docks_count: number;
 }
 
+interface StoreAssemblyReservationItem {
+  id: string;
+  requisition_id: string;
+  requisition_item_id: string;
+  requisition_number: string;
+  material_code: string;
+  material_name: string;
+  required_quantity: number;
+  reserved_quantity: number;
+  uom: string;
+  status: string;
+  store_id?: string | null;
+  store_code?: string | null;
+  store_name?: string | null;
+  zone_code?: string | null;
+  bin_code?: string | null;
+  location_code?: string | null;
+  reserved_by: string;
+  reserved_at: string;
+}
+
 interface StoreInventoryItem {
   material_code: string;
   material_name: string;
@@ -155,6 +176,7 @@ interface StoreInventoryItem {
   uom: string;
   total_quantity: number;
   available_quantity: number;
+  reserved_quantity?: number;
   quarantined_quantity: number;
   damaged_quantity: number;
   locations_count: number;
@@ -181,6 +203,7 @@ interface StoreDashboardMetricsResponse {
   inventory_summary: any[];
   inventory_items?: StoreInventoryItem[];
   recent_activity: StoreMovementActivity[];
+  assembly_reservations?: StoreAssemblyReservationItem[];
 }
 
 interface Store {
@@ -1826,6 +1849,7 @@ function MyStorePage() {
                               <th className="py-2.5 px-3">Material</th>
                               <th className="py-2.5 px-3">Category</th>
                               <th className="py-2.5 px-3 text-right">Available</th>
+                              <th className="py-2.5 px-3 text-right">Reserved (Assembly)</th>
                               <th className="py-2.5 px-3 text-right">Quarantined</th>
                               <th className="py-2.5 px-3 text-right">Total</th>
                               <th className="py-2.5 px-3 text-center">Locations</th>
@@ -1861,6 +1885,15 @@ function MyStorePage() {
                                   <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                                     {Number(item.available_quantity).toLocaleString()} {item.uom}
                                   </td>
+                                  <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                    {Number(item.reserved_quantity ?? 0) > 0 ? (
+                                      <span className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/20 text-[10px]">
+                                        🔒 {Number(item.reserved_quantity).toLocaleString()} {item.uom}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground font-normal text-[11px]">—</span>
+                                    )}
+                                  </td>
                                   <td className="py-2.5 px-3 text-right font-mono text-amber-600 dark:text-amber-400">
                                     {Number(item.quarantined_quantity) > 0
                                       ? `${Number(item.quarantined_quantity).toLocaleString()} ${item.uom}`
@@ -1883,6 +1916,85 @@ function MyStorePage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Assembly Stock Reservations Card */}
+                {(storeMetrics?.assembly_reservations || []).length > 0 && (
+                  <Card className="lg:col-span-3 border-indigo-500/30 bg-indigo-500/5 shadow-soft overflow-hidden">
+                    <CardHeader className="p-4 border-b border-indigo-500/20 bg-indigo-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="size-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-300">
+                          <Sparkles className="size-4" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-sm font-bold text-indigo-950 dark:text-indigo-100 flex items-center gap-2">
+                            Assembly Stock Reservations
+                            <span className="text-[10px] bg-indigo-600 text-white font-black px-2 py-0.5 rounded-full">
+                              {(storeMetrics?.assembly_reservations || []).length} Active
+                            </span>
+                          </CardTitle>
+                          <CardDescription className="text-xs text-indigo-700 dark:text-indigo-300">
+                            Inventory locked exclusively for Assembly Requisitions — Not available for unrelated issue.
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-indigo-500/10 text-[11px] font-semibold uppercase text-indigo-900 dark:text-indigo-200 border-b border-indigo-500/20">
+                            <tr>
+                              <th className="py-2.5 px-3.5">Requisition #</th>
+                              <th className="py-2.5 px-3.5">Material</th>
+                              <th className="py-2.5 px-3.5 text-right">Required</th>
+                              <th className="py-2.5 px-3.5 text-right">Reserved Qty</th>
+                              <th className="py-2.5 px-3.5">Status</th>
+                              <th className="py-2.5 px-3.5">Store / Location</th>
+                              <th className="py-2.5 px-3.5 text-right">Reserved Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-indigo-500/10 bg-card/60">
+                            {(storeMetrics?.assembly_reservations || []).map((res) => (
+                              <tr key={res.id} className="hover:bg-indigo-500/10 transition-colors">
+                                <td className="py-2.5 px-3.5 font-mono font-bold text-primary">
+                                  {res.requisition_number}
+                                </td>
+                                <td className="py-2.5 px-3.5">
+                                  <div className="font-semibold text-foreground">{res.material_name}</div>
+                                  <div className="font-mono text-[10px] text-muted-foreground">{res.material_code}</div>
+                                </td>
+                                <td className="py-2.5 px-3.5 text-right font-mono text-muted-foreground">
+                                  {Number(res.required_quantity)} {res.uom}
+                                </td>
+                                <td className="py-2.5 px-3.5 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                                  🔒 {Number(res.reserved_quantity)} {res.uom}
+                                </td>
+                                <td className="py-2.5 px-3.5">
+                                  <span className="font-bold text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 uppercase tracking-wide">
+                                    {res.status || "RESERVED FOR ASSEMBLY"}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3.5 text-[11px] text-muted-foreground">
+                                  {res.store_name || res.store_code ? (
+                                    <span className="font-medium text-foreground">
+                                      📍 {res.store_name || res.store_code}
+                                      {res.zone_code ? ` · Zone ${res.zone_code}` : ""}
+                                      {res.bin_code && res.bin_code !== "DEFAULT" ? ` · Bin ${res.bin_code}` : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="italic opacity-70">Store Inventory</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3.5 text-right text-[11px] text-muted-foreground">
+                                  {res.reserved_at ? new Date(res.reserved_at).toLocaleDateString() : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Recent Store Activity (1 Col) */}
                 <Card className="border-border/40 shadow-soft overflow-hidden">

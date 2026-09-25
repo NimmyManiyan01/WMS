@@ -209,11 +209,42 @@ async def lifespan(app: FastAPI):
         for col in [
             ("is_custom", "BOOLEAN DEFAULT FALSE"),
             ("custom_material_name", "VARCHAR(256)"),
+            ("reserved_quantity", "NUMERIC(18, 4) DEFAULT 0.0"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE assembly_requisition_item ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
-                await run_ddl(f"ALTER TABLE material_request_item ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
+                if col[0] != "reserved_quantity":
+                    await run_ddl(f"ALTER TABLE material_request_item ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
             except Exception: pass
+
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS assembly_stock_reservation (
+                    id UUID PRIMARY KEY,
+                    requisition_id UUID NOT NULL,
+                    requisition_item_id UUID NOT NULL,
+                    requisition_number VARCHAR(64) NOT NULL,
+                    material_code VARCHAR(64) NOT NULL,
+                    material_name VARCHAR(256) NOT NULL,
+                    required_quantity NUMERIC(18, 4) NOT NULL,
+                    reserved_quantity NUMERIC(18, 4) NOT NULL,
+                    uom VARCHAR(32) NOT NULL DEFAULT 'PCS',
+                    status VARCHAR(32) NOT NULL DEFAULT 'RESERVED FOR ASSEMBLY',
+                    store_id UUID,
+                    store_code VARCHAR(64),
+                    store_name VARCHAR(128),
+                    zone_code VARCHAR(64),
+                    bin_code VARCHAR(64),
+                    location_code VARCHAR(64),
+                    storage_location_id UUID,
+                    reserved_by VARCHAR(64) NOT NULL,
+                    reserved_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_reservation_req_id ON assembly_stock_reservation (requisition_id);
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_reservation_mat_code ON assembly_stock_reservation (material_code);
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_reservation_store_id ON assembly_stock_reservation (store_id);
+            """)
+        except Exception: pass
 
         # Ensure supplier_contact has primary_email and secondary_email
         try:
@@ -1365,8 +1396,40 @@ async def lifespan(app: FastAPI):
                 CREATE INDEX IF NOT EXISTS ix_store_manager_user_email ON store_manager_user (email);
             """)
             logger.info("Ensured table 'store_manager_user' exists")
+
+            # Assembly Requisition & Stock Reservation DDL
+            await run_ddl("ALTER TABLE assembly_requisition_item ADD COLUMN IF NOT EXISTS reserved_quantity NUMERIC(18,4) NOT NULL DEFAULT 0")
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS assembly_stock_reservation (
+                    id UUID PRIMARY KEY,
+                    requisition_id UUID NOT NULL REFERENCES assembly_requisition(id) ON DELETE CASCADE,
+                    requisition_item_id UUID NOT NULL REFERENCES assembly_requisition_item(id) ON DELETE CASCADE,
+                    requisition_number VARCHAR(64) NOT NULL,
+                    material_code VARCHAR(64) NOT NULL,
+                    material_name VARCHAR(256) NOT NULL,
+                    required_quantity NUMERIC(18,4) NOT NULL,
+                    reserved_quantity NUMERIC(18,4) NOT NULL,
+                    uom VARCHAR(32) NOT NULL DEFAULT 'PCS',
+                    status VARCHAR(64) NOT NULL DEFAULT 'RESERVED FOR ASSEMBLY',
+                    store_id UUID REFERENCES store(id) ON DELETE SET NULL,
+                    store_code VARCHAR(64),
+                    store_name VARCHAR(256),
+                    zone_code VARCHAR(64),
+                    bin_code VARCHAR(64),
+                    location_code VARCHAR(64),
+                    storage_location_id UUID REFERENCES storage_location(id) ON DELETE SET NULL,
+                    reserved_by VARCHAR(128) NOT NULL,
+                    reserved_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_res_req_id ON assembly_stock_reservation (requisition_id);
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_res_store_id ON assembly_stock_reservation (store_id);
+                CREATE INDEX IF NOT EXISTS ix_assembly_stock_res_status ON assembly_stock_reservation (status);
+            """)
+            logger.info("Ensured table 'assembly_stock_reservation' exists")
         except Exception as exc:
-            logger.debug(f"Store / Zone / Manager table DDL note: {exc}")
+            logger.debug(f"Store / Zone / Manager / Reservation table DDL note: {exc}")
     except Exception as e:
         logger.warning(f"Auto-migration failed: {e}", exc_info=True)
 

@@ -513,7 +513,7 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
                 material_code=it.material_code,
                 variant_code=it.variant_code,
                 material_name=it.material_name,
-                category=loaded_item_category(it),
+                category=it.material.category if getattr(it, "material", None) and getattr(it.material, "category", None) else getattr(it, "category", None),
                 quantity=it.quantity,
                 uom=it.uom,
                 is_custom=bool(getattr(it, "is_custom", False)),
@@ -528,13 +528,9 @@ def _material_request_response(m: MaterialRequestModel) -> MaterialRequestRespon
 
 @router.get("/material-requests", response_model=List[MaterialRequestResponse])
 async def list_material_requests(uow: UnitOfWork = Depends(get_uow)):
-    stmt = (
-        select(MaterialRequestModel)
-        .options(
-            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
-        )
-        .order_by(MaterialRequestModel.created_at.desc())
-    )
+    stmt = select(MaterialRequestModel).options(
+        selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+    ).order_by(MaterialRequestModel.created_at.desc())
     res = await uow.session.execute(stmt)
     entities = res.scalars().all()
     return [_material_request_response(m) for m in entities]
@@ -741,13 +737,9 @@ async def get_material_request(id: str, uow: UnitOfWork = Depends(get_uow)):
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Material Request UUID")
 
-    stmt = (
-        select(MaterialRequestModel)
-        .options(
-            selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
-        )
-        .where(MaterialRequestModel.id == req_uuid)
-    )
+    stmt = select(MaterialRequestModel).options(
+        selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+    ).where(MaterialRequestModel.id == req_uuid)
     res = await uow.session.execute(stmt)
     req = res.scalar_one_or_none()
     if not req:
@@ -1370,6 +1362,7 @@ async def create_supplier(
             entity.payment_terms = request.payment_terms
             entity.credit_period_days = request.credit_period_days
             entity.status = "Pending Approval"
+            await repo.save(entity)
             await uow.commit()
         return _response_from_entity(entity)
     except DomainRuleViolationException as exc:
@@ -1650,10 +1643,10 @@ async def create_rfq(
             mr = mr_res.scalar_one_or_none()
             if mr:
                 mr_status = _normalize_mr_status(mr.status)
-                if mr_status != "Approved":
+                if mr_status not in ["Approved", "Submitted", "Pending Approval", "Converted to RFQ"]:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Material Request '{request.material_request_number}' must be Approved before RFQ creation.",
+                        detail=f"Material Request '{request.material_request_number}' must be Active or Approved before RFQ creation.",
                     )
 
         repo = SqlAlchemyRfqRepository(uow.session)

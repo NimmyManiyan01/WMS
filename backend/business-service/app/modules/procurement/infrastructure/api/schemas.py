@@ -485,6 +485,7 @@ class MaterialRequestItemSchema(ApiModel):
     uom: str = Field("PCS", min_length=1, description="Unit of measurement")
     is_custom: Optional[bool] = False
     custom_material_name: Optional[str] = None
+    category: Optional[str] = None
 
     @field_validator("quantity")
     @classmethod

@@ -166,6 +166,7 @@ const warehouseNav = [
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
+  { label: "Finished Goods Dispatch", to: "/warehouse/dispatch-tracking", icon: Truck },
   { label: "Reports", to: "/reports", icon: BarChart3 },
 ];
 
@@ -496,11 +497,9 @@ export function AppShell({
   );
   const isWarehouseRoute =
     isSharedOperationsRoute ||
+    path.startsWith("/warehouse") ||
     [
       "/inventory",
-      "/warehouse/stores",
-      "/warehouse/materials",
-      "/warehouse/material-requests",
       "/dock-management",
       "/receiving",
       "/putaway-tasks",

@@ -282,6 +282,7 @@ class StoreInventoryItem(BaseModel):
     category: str = "GENERAL"
     quantity: float = 0.0
     available_quantity: float = 0.0
+    reserved_quantity: float = 0.0
     uom: str = "PCS"
     zone_code: Optional[str] = None
     zone_name: Optional[str] = None
@@ -289,6 +290,27 @@ class StoreInventoryItem(BaseModel):
     bin_name: Optional[str] = None
     status: str = "HEALTHY"
     last_updated: Optional[str] = None
+
+
+class StoreAssemblyReservationItem(BaseModel):
+    id: str
+    requisition_id: str
+    requisition_item_id: str
+    requisition_number: str
+    material_code: str
+    material_name: str
+    required_quantity: float
+    reserved_quantity: float
+    uom: str = "PCS"
+    status: str = "RESERVED FOR ASSEMBLY"
+    store_id: Optional[str] = None
+    store_code: Optional[str] = None
+    store_name: Optional[str] = None
+    zone_code: Optional[str] = None
+    bin_code: Optional[str] = None
+    location_code: Optional[str] = None
+    reserved_by: str
+    reserved_at: datetime
 
 
 class StoreMovementActivity(BaseModel):
@@ -312,5 +334,6 @@ class StoreDashboardMetricsResponse(BaseModel):
     store: StoreResponse
     kpis: StoreDashboardKPIs
     inventory_summary: List[StoreInventoryItem] = []
+    assembly_reservations: List[StoreAssemblyReservationItem] = []
     recent_activity: List[StoreMovementActivity] = []
     assigned_docks_count: int = 0

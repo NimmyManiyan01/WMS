@@ -33,6 +33,7 @@ from app.modules.store.infrastructure.api.schemas import (
     StoreDashboardMetricsResponse,
     StoreInventoryItem,
     StoreMovementActivity,
+    StoreAssemblyReservationItem,
     StoreManagerAssign,
     StoreManagerCreate,
     StoreManagerOption,
@@ -53,6 +54,7 @@ from app.modules.store.infrastructure.api.schemas import (
     ZoneWithBinsResponse,
 )
 from app.modules.storage.infrastructure.persistence.models import (
+    AssemblyStockReservationModel,
     InventoryLocationBalanceModel,
     StorageLocationModel,
 )
@@ -931,6 +933,55 @@ async def _build_store_dashboard_metrics(uow: UnitOfWork, store: StoreModel) -> 
     )
     assigned_docks_count = (await uow.session.execute(docks_count_stmt)).scalar() or 0
 
+    # 5. Query Assembly Stock Reservations for this store / stored materials
+    res_conditions = [
+        AssemblyStockReservationModel.store_id == store.id,
+        AssemblyStockReservationModel.store_code == store.store_code,
+    ]
+    if seen_skus:
+        res_conditions.append(AssemblyStockReservationModel.material_code.in_(seen_skus))
+
+    res_stmt = (
+        select(AssemblyStockReservationModel)
+        .where(
+            or_(*res_conditions),
+            AssemblyStockReservationModel.status.in_(["RESERVED FOR ASSEMBLY", "FULFILLED", "RESERVED"]),
+        )
+        .order_by(AssemblyStockReservationModel.reserved_at.desc())
+    )
+    res_rows = (await uow.session.execute(res_stmt)).scalars().all()
+
+    assembly_reservations: List[StoreAssemblyReservationItem] = []
+    reserved_qty_by_code: Dict[str, float] = {}
+    for r in res_rows:
+        assembly_reservations.append(
+            StoreAssemblyReservationItem(
+                id=str(r.id),
+                requisition_id=str(r.requisition_id),
+                requisition_item_id=str(r.requisition_item_id),
+                requisition_number=r.requisition_number,
+                material_code=r.material_code,
+                material_name=r.material_name,
+                required_quantity=float(r.required_quantity or 0),
+                reserved_quantity=float(r.reserved_quantity or 0),
+                uom=r.uom or "PCS",
+                status=r.status or "RESERVED FOR ASSEMBLY",
+                store_id=str(r.store_id) if r.store_id else str(store.id),
+                store_code=r.store_code or store.store_code,
+                store_name=r.store_name or store.store_name,
+                zone_code=r.zone_code,
+                bin_code=r.bin_code,
+                location_code=r.location_code,
+                reserved_by=r.reserved_by,
+                reserved_at=r.reserved_at,
+            )
+        )
+        reserved_qty_by_code[r.material_code] = reserved_qty_by_code.get(r.material_code, 0.0) + float(r.reserved_quantity or 0)
+
+    for item in inv_items:
+        if item.material_code in reserved_qty_by_code:
+            item.reserved_quantity = reserved_qty_by_code[item.material_code]
+
     kpis = StoreDashboardKPIs(
         total_skus=len(seen_skus),
         total_quantity=total_qty,
@@ -950,6 +1001,7 @@ async def _build_store_dashboard_metrics(uow: UnitOfWork, store: StoreModel) -> 
         store=store_resp,
         kpis=kpis,
         inventory_summary=inv_items,
+        assembly_reservations=assembly_reservations,
         recent_activity=recent_activity,
         assigned_docks_count=assigned_docks_count,
     )
@@ -1025,6 +1077,32 @@ async def get_store_dashboard_metrics_by_id(
         )
 
     return await _build_store_dashboard_metrics(uow, store)
+
+
+@router.get("/me/assembly-reservations", response_model=List[StoreAssemblyReservationItem])
+async def get_my_store_assembly_reservations(
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[StoreAssemblyReservationItem]:
+    """Get active stock reservations for Assembly requirements in the current user's store."""
+    metrics = await get_my_store_dashboard_metrics(uow=uow, user=user)
+    return metrics.assembly_reservations
+
+
+@router.get("/{store_id}/assembly-reservations", response_model=List[StoreAssemblyReservationItem])
+async def get_store_assembly_reservations_by_id(
+    store_id: str,
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[StoreAssemblyReservationItem]:
+    """Get active stock reservations for Assembly requirements in a specific store."""
+    store = await _resolve_store(uow.session, store_id)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Store '{store_id}' not found")
+    if not await _is_store_authorized(uow.session, store, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    metrics = await _build_store_dashboard_metrics(uow, store)
+    return metrics.assembly_reservations
 
 
 @router.get("", response_model=List[StoreResponse])

@@ -26,12 +26,15 @@ class SQLAlchemyDispatchRepository(DispatchRepository):
         self._session = session
 
     async def save(self, order: DispatchOrder) -> DispatchOrder:
-        stmt = select(DispatchModel).options(selectinload(DispatchModel.items)).where((DispatchModel.id.cast(String) == order.id) | (DispatchModel.dispatch_number == order.dispatch_number))
+        stmt = select(DispatchModel).options(selectinload(DispatchModel.items)).where((DispatchModel.id.cast(String) == str(order.id)) | (DispatchModel.dispatch_number == order.dispatch_number))
         res = await self._session.execute(stmt)
         model = res.scalar_one_or_none()
         if not model:
             model = DispatchModel(id=order.id)
             self._session.add(model)
+            existing_items_map = {}
+        else:
+            existing_items_map = {str(item.id): item for item in (model.items or [])}
 
         model.dispatch_number = order.dispatch_number
         model.order_number = order.order_number
@@ -56,13 +59,10 @@ class SQLAlchemyDispatchRepository(DispatchRepository):
         model.notes = order.notes
         model.updated_at = order.updated_at
 
-        # Sync items properly without primary key collision
-        existing_items_map = {str(item.id): item for item in model.items} if model.items else {}
         incoming_item_ids = set()
-
         for d_item in order.items:
-            incoming_item_ids.add(d_item.id)
-            item_model = existing_items_map.get(d_item.id)
+            incoming_item_ids.add(str(d_item.id))
+            item_model = existing_items_map.get(str(d_item.id))
             if not item_model:
                 item_model = DispatchItemModel(
                     id=d_item.id,
@@ -92,16 +92,15 @@ class SQLAlchemyDispatchRepository(DispatchRepository):
         order.recorded_events.clear()
 
         await self._session.flush()
-        return self._to_domain(model)
+        
+        # Reload with items loaded
+        stmt_reload = select(DispatchModel).options(selectinload(DispatchModel.items)).where(DispatchModel.id == model.id)
+        res_reload = await self._session.execute(stmt_reload)
+        reloaded_model = res_reload.scalar_one_or_none()
+        return self._to_domain(reloaded_model or model)
 
     async def get_by_id(self, dispatch_id: str) -> DispatchOrder | None:
-        try:
-            model = await self._session.get(DispatchModel, dispatch_id)
-            if model:
-                return self._to_domain(model)
-        except Exception:
-            pass
-        stmt = select(DispatchModel).options(selectinload(DispatchModel.items)).where((DispatchModel.id.cast(String) == dispatch_id) | (DispatchModel.dispatch_number == dispatch_id))
+        stmt = select(DispatchModel).options(selectinload(DispatchModel.items)).where((DispatchModel.id.cast(String) == str(dispatch_id)) | (DispatchModel.dispatch_number == str(dispatch_id)))
         res = await self._session.execute(stmt)
         model = res.scalar_one_or_none()
         return self._to_domain(model) if model else None

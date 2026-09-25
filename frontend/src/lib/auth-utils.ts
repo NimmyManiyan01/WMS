@@ -98,7 +98,7 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/assembly"))
     return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/dispatch") || pathname.startsWith("/dispatch-"))
-    return ["DISPATCH", "DISPATCH_MANAGER", "WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
+    return ["DISPATCH", "DISPATCH_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname === "/gate-dashboard" ||
     pathname === "/gate-entry" ||
