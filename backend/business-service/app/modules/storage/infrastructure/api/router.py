@@ -1526,6 +1526,76 @@ async def resolve_grn_qr(
     if not raw_code:
         raise HTTPException(status_code=422, detail="GRN Material QR code is required")
 
+    # Assembly finished goods are produced internally and therefore do not
+    # have a supplier GRN. Resolve their Assembly QR directly to the FG
+    # posting and its Finished Goods Store putaway task.
+    if raw_code.upper().startswith("FG-QR|"):
+        from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
+
+        fg_query = select(AssemblyFinishedGoodsModel).where(
+            or_(
+                func.upper(AssemblyFinishedGoodsModel.qr_code) == raw_code.upper(),
+                func.upper(AssemblyFinishedGoodsModel.serial_number) == raw_code.upper(),
+            )
+        )
+        fg = (await uow.session.execute(fg_query)).scalars().first()
+        if not fg:
+            parts = raw_code.split("|")
+            product_code = parts[1].strip().upper() if len(parts) > 1 else ""
+            serial = next((part[4:] for part in parts if part.upper().startswith("SN:")), "")
+            if product_code:
+                fg = (await uow.session.execute(select(AssemblyFinishedGoodsModel).where(
+                    func.upper(AssemblyFinishedGoodsModel.product_code) == product_code,
+                    func.upper(AssemblyFinishedGoodsModel.serial_number) == serial.upper() if serial else True,
+                ).order_by(AssemblyFinishedGoodsModel.updated_at.desc()))).scalars().first()
+        if not fg:
+            raise HTTPException(status_code=404, detail="Finished Goods QR was not found in Assembly postings")
+
+        fg_task = (await uow.session.execute(select(PutawayTaskModel).where(
+            PutawayTaskModel.finished_goods_id == fg.id,
+            PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
+        ).order_by(PutawayTaskModel.created_at.desc()))).scalars().first()
+        if not fg_task:
+            raise HTTPException(status_code=409, detail="No active Finished Goods Putaway task exists for this QR")
+
+        movement_total = await uow.session.scalar(select(func.coalesce(
+            func.sum(PutawayMovementModel.confirmed_quantity), 0
+        )).where(PutawayMovementModel.putaway_task_id == fg_task.id)) or Decimal("0")
+        received_qty = Decimal(str(fg.quantity or fg_task.quantity or 0))
+        already_put_away = Decimal(str(movement_total))
+        available_qty = max(Decimal("0"), received_qty - already_put_away)
+        if available_qty <= 0:
+            raise HTTPException(status_code=422, detail="Finished Goods QR has already been completely put away")
+
+        fg_store = await uow.session.get(StoreModel, fg_task.destination_store_id) if fg_task.destination_store_id else None
+        return {
+            "valid": True,
+            "material_code": fg.product_code,
+            "material_name": fg.product_name,
+            "material_description": fg.product_name,
+            "material_variant": "Finished Goods",
+            "material_category": "Finished Goods",
+            "grn_number": "FG-INTERNAL",
+            "grn_id": None,
+            "po_number": "N/A",
+            "asn_number": "N/A",
+            "batch_lot_number": None,
+            "received_quantity": float(received_qty),
+            "already_put_away_quantity": float(already_put_away),
+            "available_quantity": float(available_qty),
+            "uom": fg.uom or fg_task.uom or "PCS",
+            "supplier_name": "Assembly",
+            "warehouse_id": fg.warehouse_id or fg_task.warehouse_id or "MAIN",
+            "store_id": str(fg_task.destination_store_id) if fg_task.destination_store_id else None,
+            "store_name": fg_store.store_name if fg_store else "Finished Goods Store",
+            "store_code": fg_store.store_code if fg_store else "STR-FG",
+            "current_location": fg.location_code or fg_task.source_location or "ASSEMBLY_LINE",
+            "putaway_task_id": str(fg_task.id),
+            "putaway_status": fg_task.status,
+            "handling_unit_id": None,
+            "qr_code": raw_code,
+        }
+
     item_code: str | None = None
     grn_number: str | None = None
     batch_number: str | None = None
