@@ -186,6 +186,9 @@ class DispatchOrder:
         self.updated_at = datetime.now(timezone.utc)
 
     def verify_loading(self) -> None:
+        for item in self.items:
+            item.quantity_loaded = float(item.quantity_packed or item.quantity_ordered)
+            item.status = "LOADED"
         self.status = DispatchStatus.LOADING_VERIFIED
         self.updated_at = datetime.now(timezone.utc)
 
@@ -194,6 +197,8 @@ class DispatchOrder:
         self.updated_at = datetime.now(timezone.utc)
 
     def dispatch(self) -> None:
+        for item in self.items:
+            item.status = "DISPATCHED"
         self.status = DispatchStatus.DISPATCHED
         self.updated_at = datetime.now(timezone.utc)
 

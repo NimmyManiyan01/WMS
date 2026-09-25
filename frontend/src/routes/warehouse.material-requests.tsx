@@ -89,7 +89,28 @@ export const formatSpecCode = (code?: string): string => {
   return code.replace(/-V(\d+)$/i, "-S$1");
 };
 
+interface MaterialRequestSearch {
+  source_requisition_id?: string;
+  source_requisition_number?: string;
+  department?: string;
+  priority?: string;
+  required_date?: string;
+  remarks?: string;
+  items_json?: string;
+}
+
 export const Route = createFileRoute("/warehouse/material-requests")({
+  validateSearch: (search: Record<string, unknown>): MaterialRequestSearch => {
+    return {
+      source_requisition_id: search.source_requisition_id as string | undefined,
+      source_requisition_number: search.source_requisition_number as string | undefined,
+      department: search.department as string | undefined,
+      priority: search.priority as string | undefined,
+      required_date: search.required_date as string | undefined,
+      remarks: search.remarks as string | undefined,
+      items_json: search.items_json as string | undefined,
+    };
+  },
   component: WarehouseMaterialRequests,
 });
 
@@ -269,10 +290,22 @@ function MaterialMasterSearchCombobox({
 }
 
 function WarehouseMaterialRequests() {
+  const searchParams = Route.useSearch();
   const [requests, setRequests] = useState<any[]>([]);
   const [masterMaterials, setMasterMaterials] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [uoms, setUoms] = useState<string[]>([]);
+  const [categoriesList, setCategoriesList] = useState<string[]>([
+    "Raw Materials",
+    "Mechanical Components",
+    "Electrical",
+    "Steel & Metals",
+    "Fasteners & Hardware",
+    "Chemicals & Coatings",
+    "Pipes & Fittings",
+    "Packaging",
+    "Consumables",
+  ]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -303,16 +336,18 @@ function WarehouseMaterialRequests() {
       material_name: "",
       quantity: 1,
       uom: "",
+      category: "Raw Materials",
     },
   ]);
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [reqData, matData, locationData, uomData] = await Promise.all([
+      const [reqData, matData, locationData, uomData, catData] = await Promise.all([
         api.getMaterialRequests(),
         api.getMaterials({ status: "Active" }).catch(() => []),
         api.getStorageLocations().catch(() => []),
         api.getMaterialUoms().catch(() => []),
+        api.getMaterialCategories().catch(() => []),
       ]);
 
       api.getSuppliers({ status: "Active" })
@@ -323,6 +358,9 @@ function WarehouseMaterialRequests() {
       const warehouseIds = [...new Set(locationData.map((row: any) => row.warehouse_id).filter(Boolean))] as string[];
       setWarehouses(warehouseIds.sort());
       setUoms(uomData);
+      if (catData && catData.length > 0) {
+        setCategoriesList(catData);
+      }
       setFormData((prev) => ({
         ...prev,
         warehouse_id: prev.warehouse_id || "Main Warehouse",
@@ -338,6 +376,75 @@ function WarehouseMaterialRequests() {
     const user = getUserInfo();
     setFormData((prev) => ({ ...prev, requested_by: user?.username?.trim() || "" }));
   }, []);
+
+  // Pre-fill from Assembly Requisition shortage redirect
+  useEffect(() => {
+    if (searchParams.source_requisition_id || searchParams.items_json) {
+      const handlePreFill = async () => {
+        try {
+          const { requestNumber, nextMaterialSequence } =
+            (await api.getNextMaterialRequestNumber().catch(() => ({
+              requestNumber: "MR-PENDING",
+              nextMaterialSequence: 1,
+            }))) as any;
+          setNextRequestNumber(requestNumber);
+          setBaseMaterialSequence(nextMaterialSequence || 1);
+
+          let parsedItems: any[] = [];
+          if (searchParams.items_json) {
+            try {
+              parsedItems = JSON.parse(searchParams.items_json);
+            } catch {}
+          }
+
+          if (parsedItems && parsedItems.length > 0) {
+            setItems(
+              parsedItems.map((it: any) => ({
+                material_id: it.material_id || it.materialId || "",
+                material_variant_id: it.material_variant_id || it.materialVariantId || "",
+                material_code: it.material_code || it.materialCode || "CUSTOM",
+                variant_code: it.variant_code || it.variantCode || "",
+                material_name:
+                  it.material_name ||
+                  it.materialName ||
+                  it.custom_material_name ||
+                  it.customMaterialName ||
+                  "Material",
+                quantity: it.quantity || 1,
+                uom: it.uom || "PCS",
+                category: it.category || "Raw Materials",
+                is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
+                custom_material_name: it.custom_material_name || it.customMaterialName || null,
+              })),
+            );
+          }
+
+          const user = getUserInfo();
+          setFormData((prev) => ({
+            ...prev,
+            request_number: requestNumber || prev.request_number,
+            warehouse_id: prev.warehouse_id || "Main Warehouse",
+            department: searchParams.department || prev.department || "Assembly",
+            priority: (searchParams.priority || "HIGH").toUpperCase(),
+            required_date:
+              searchParams.required_date ||
+              prev.required_date ||
+              new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+            remarks:
+              searchParams.remarks ||
+              (searchParams.source_requisition_number
+                ? `Shortage fulfillment for Assembly Requisition ${searchParams.source_requisition_number}`
+                : prev.remarks),
+            requested_by: user?.username?.trim() || prev.requested_by || "",
+          }));
+          setIsCreating(true);
+        } catch {
+          setIsCreating(true);
+        }
+      };
+      handlePreFill();
+    }
+  }, [searchParams.source_requisition_id, searchParams.items_json, searchParams.source_requisition_number, searchParams.department, searchParams.priority, searchParams.required_date, searchParams.remarks]);
   const addItem = () => {
     const nextSeq = baseMaterialSequence + items.length;
     const code = `MAT-${String(nextSeq).padStart(3, "0")}`;
@@ -936,18 +1043,53 @@ function WarehouseMaterialRequests() {
 
                         <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
                           <Label className="text-xs font-semibold text-foreground">Category</Label>
-                          <Input
-                            placeholder="Category..."
-                            className={cn(
-                              "h-10 rounded-xl text-sm font-medium transition-colors",
-                              Boolean(item.material_id)
-                                ? "bg-muted/50 cursor-not-allowed text-foreground border-border/60"
-                                : "bg-background"
-                            )}
+                          <Select
                             value={item.category || selectedMat?.category || "Raw Materials"}
-                            readOnly={Boolean(item.material_id)}
-                            onChange={(e) => handleItemChange(idx, "category", e.target.value)}
-                          />
+                            onValueChange={(val) => handleItemChange(idx, "category", val)}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
+                              <SelectValue placeholder="Select Category..." />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              {categoriesList.map((cat) => (
+                                <SelectItem key={cat} value={cat} className="text-xs">
+                                  {cat}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {(() => {
+                            const curCat = item.category || selectedMat?.category || "Raw Materials";
+                            const matchSups = activeSuppliers.filter((s: any) =>
+                              Array.isArray(s.category)
+                                ? s.category.some((c: string) => c.toLowerCase() === curCat.toLowerCase())
+                                : (s.category || "").toLowerCase() === curCat.toLowerCase(),
+                            );
+                            return (
+                              <p
+                                className={cn(
+                                  "text-[10px] font-medium flex items-center gap-1 mt-0.5",
+                                  matchSups.length > 0
+                                    ? "text-emerald-700 dark:text-emerald-400"
+                                    : "text-amber-700 dark:text-amber-400",
+                                )}
+                              >
+                                {matchSups.length > 0 ? (
+                                  <>
+                                    <CheckCircle2 className="size-3 shrink-0 text-emerald-600" />
+                                    <span>
+                                      {matchSups.length} active supplier{matchSups.length > 1 ? "s" : ""} available for this category
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertCircle className="size-3 shrink-0 text-amber-600" />
+                                    <span>No active suppliers found for this category</span>
+                                  </>
+                                )}
+                              </p>
+                            );
+                          })()}
                         </div>
 
                         <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
@@ -996,6 +1138,52 @@ function WarehouseMaterialRequests() {
                       </div>
                     );
                   })}
+                </div>
+
+                {/* Informational Alert for Selected Categories */}
+                <div className="rounded-2xl p-4 bg-muted/20 border border-border/50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Info className="size-4 text-primary shrink-0" />
+                    <span className="text-xs font-bold text-foreground">
+                      Category Supplier Availability (Informational Alert)
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2.5">
+                    {[
+                      ...new Set(
+                        items.map((it) => it.category || "Raw Materials").filter(Boolean),
+                      ),
+                    ].map((catName) => {
+                      const supCount = activeSuppliers.filter((s: any) =>
+                        Array.isArray(s.category)
+                          ? s.category.some(
+                              (c: string) => c.toLowerCase() === catName.toLowerCase(),
+                            )
+                          : (s.category || "").toLowerCase() === catName.toLowerCase(),
+                      ).length;
+                      return (
+                        <div
+                          key={catName}
+                          className={cn(
+                            "px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2",
+                            supCount > 0
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
+                              : "bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300",
+                          )}
+                        >
+                          <strong>{catName}:</strong>
+                          <span>
+                            {supCount > 0
+                              ? `${supCount} active supplier${supCount > 1 ? "s" : ""} available for this category`
+                              : "No active suppliers found for this category"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    * Informational notice: Supplier availability will not prevent submission. You can submit to Procurement with 0, 1, or multiple active suppliers.
+                  </p>
                 </div>
               </div>
 
@@ -1671,19 +1859,19 @@ function WarehouseMaterialRequests() {
                             : "text-amber-700 dark:text-amber-400",
                         )}
                       >
-                        Procurement Supplier Master
+                        Category Supplier Master (Informational Alert)
                       </p>
                       {hasSuppliers ? (
                         <p className="text-sm font-bold text-foreground mt-0.5">
-                          {matchingSuppliers.length} Active Supplier{matchingSuppliers.length === 1 ? "" : "s"} for Category '{primaryCategory}'
+                          {matchingSuppliers.length} active supplier{matchingSuppliers.length === 1 ? "" : "s"} available for this category
                         </p>
                       ) : (
                         <div>
                           <p className="text-sm font-bold text-foreground mt-0.5">
-                            0 Active Suppliers for Category '{primaryCategory}'
+                            No active suppliers found for this category
                           </p>
                           <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 font-medium">
-                            Request will notify Procurement to source / suggest suppliers for this material.
+                            Informational alert only — You can still submit this Material Request. Procurement will source required suppliers.
                           </p>
                         </div>
                       )}
@@ -1698,7 +1886,7 @@ function WarehouseMaterialRequests() {
                         : "border-amber-500/30 text-amber-700 dark:text-amber-400",
                     )}
                   >
-                    {hasSuppliers ? "Ready for RFQ" : "Procurement Action Required"}
+                    Informational Alert
                   </Badge>
                 </div>
               );

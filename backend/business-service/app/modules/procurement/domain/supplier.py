@@ -252,7 +252,7 @@ class Supplier(AggregateRoot):
             bank_info=bank_info,
             documents=documents or [],
             remarks=remarks.strip() if remarks else None,
-            status="Active",
+            status="Pending Approval",
             created_by=created_by,
         )
 

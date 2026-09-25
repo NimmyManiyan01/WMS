@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import {
   ClipboardCheck,
@@ -73,6 +73,7 @@ const DEFAULT_CATEGORIES = [
 const UOM_OPTIONS = ["PCS", "MTR", "KG", "LTR", "BOX", "PKT", "SET", "NOS", "ROLL", "TON"];
 
 function WarehouseAssemblyRequisitionsPage() {
+  const navigate = useNavigate();
   const [requisitions, setRequisitions] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
@@ -199,16 +200,24 @@ function WarehouseAssemblyRequisitionsPage() {
   };
 
   const handleAssignStore = async () => {
-    if (!assigningReq || !selectedStoreId) {
+    if (!assigningReq) {
       toast.error("Please select a Store to fulfill this requisition");
       return;
     }
 
+    const storeIdToUse =
+      selectedStoreId ||
+      assigningReq.suggestedStoreId ||
+      assigningReq.suggested_store_id ||
+      assigningReq.assignedStoreId ||
+      assigningReq.assigned_store_id ||
+      (stores.length > 0 ? stores[0].id : "");
+
     setAssigning(true);
     try {
-      const res = await api.assignAssemblyRequisitionStore(assigningReq.id, selectedStoreId);
+      const res = await api.assignAssemblyRequisitionStore(assigningReq.id, storeIdToUse);
       toast.success(
-        `Requisition assigned to ${res?.assigned_store?.store_name || "Store"}! Pickup tasks created for Store Keepers.`,
+        `Requisition automatically assigned to ${res?.assigned_store?.store_name || "Store"}! Pickup tasks created for Store Keepers.`,
       );
       setAssigningReq(null);
       setSelectedStoreId("");
@@ -218,6 +227,70 @@ function WarehouseAssemblyRequisitionsPage() {
     } finally {
       setAssigning(false);
     }
+  };
+
+  // Action states
+  const [reservingId, setReservingId] = useState<string | null>(null);
+
+  const handleReserveStock = async (req: any) => {
+    setReservingId(req.id);
+    try {
+      const res = await api.reserveAssemblyRequisitionStock(req.id);
+      toast.success(
+        `Successfully reserved available inventory for Requisition ${res.requisition_number || res.requisitionNumber || req.requisitionNumber}!`,
+      );
+      if (viewingReq && viewingReq.id === req.id) {
+        setViewingReq(res);
+      }
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reserve available stock");
+    } finally {
+      setReservingId(null);
+    }
+  };
+
+  const handleCreateShortageMR = (req: any) => {
+    const shortageItems = (req.items || [])
+      .map((it: any) => {
+        const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
+        const resQ = Number(it.reserved_quantity ?? 0);
+        const shortageQ = Number(it.shortage_quantity ?? Math.max(0, reqQ - resQ));
+        if (shortageQ > 0) {
+          return {
+            material_id: it.material_id || it.materialId || "",
+            material_variant_id: it.material_variant_id || it.materialVariantId || "",
+            material_code: it.material_code || it.materialCode || "CUSTOM",
+            variant_code: it.variant_code || it.variantCode || "",
+            material_name:
+              it.material_name ||
+              it.materialName ||
+              it.custom_material_name ||
+              it.customMaterialName ||
+              "Material",
+            quantity: shortageQ,
+            uom: it.uom || "PCS",
+            category: it.category || "Raw Materials",
+            is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
+            custom_material_name: it.custom_material_name || it.customMaterialName || null,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    navigate({
+      to: "/warehouse/material-requests",
+      search: {
+        source_requisition_id: req.id,
+        source_requisition_number: req.requisitionNumber || req.requisition_number,
+        department: req.department || "Assembly",
+        priority: req.priority || "HIGH",
+        required_date: req.requiredDate || req.required_date || "",
+        remarks: `Shortage fulfillment for Assembly Requisition ${req.requisitionNumber || req.requisition_number}`,
+        items_json: JSON.stringify(shortageItems),
+      },
+    });
   };
 
   const filteredRequisitions = useMemo(() => {
@@ -243,7 +316,7 @@ function WarehouseAssemblyRequisitionsPage() {
   return (
     <AppShell
       title="Assembly Material Requisitions"
-      subtitle="Review internal requisitions from Assembly and assign destination Stores for physical pickup"
+      subtitle="Review internal requisitions from Assembly, reserve stock, order shortages, and assign destination Stores for pickup"
     >
       <div className="space-y-6">
         {/* Filters */}
@@ -266,6 +339,7 @@ function WarehouseAssemblyRequisitionsPage() {
               <SelectContent>
                 <SelectItem value="ALL">All Status</SelectItem>
                 <SelectItem value="PENDING">Pending Store Assignment</SelectItem>
+                <SelectItem value="RESERVED">Stock Reserved</SelectItem>
                 <SelectItem value="ASSIGNED_TO_STORE">Assigned to Store</SelectItem>
                 <SelectItem value="PICKING">Picking In Progress</SelectItem>
                 <SelectItem value="PARTIALLY_ISSUED">Partially Issued</SelectItem>
@@ -295,21 +369,31 @@ function WarehouseAssemblyRequisitionsPage() {
             <ClipboardCheck className="size-10 mx-auto text-muted-foreground opacity-40 mb-3" />
             <h3 className="text-sm font-bold text-foreground">No Requisitions Found</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-              Assembly requisitions awaiting warehouse store assignment or processing will appear
-              here.
+              Assembly requisitions awaiting warehouse stock reservation, shortage replenishment, or store assignment will appear here.
             </p>
           </Card>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-4">
             {filteredRequisitions.map((req) => {
               const isAssigned = Boolean(req.assignedStoreId || req.assigned_store_id);
-              const isPending = (req.status || "").toUpperCase() === "PENDING";
-              const allAvailable = Boolean(
-                req.allItemsAvailable ??
-                req.all_items_available ??
+              const isPending =
+                (req.status || "").toUpperCase() === "PENDING" ||
+                (req.status || "").toUpperCase() === "RESERVED";
+              const canAssign = Boolean(
                 req.canAssignStore ??
-                req.can_assign_store,
+                req.can_assign_store ??
+                req.allItemsAvailable ??
+                req.all_items_available,
               );
+              const totalShortage = Number(req.total_shortage ?? req.totalShortage ?? 0);
+              const totalReserved = Number(req.total_reserved ?? req.totalReserved ?? 0);
+              const totalRequired = Number(req.total_required ?? req.totalRequired ?? 0);
+              const hasUnreservedAvailable = (req.items || []).some((it: any) => {
+                const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
+                const resQ = Number(it.reserved_quantity ?? 0);
+                const avQ = Number(it.available_quantity ?? 0);
+                return avQ > 0 && resQ < reqQ;
+              });
 
               return (
                 <Card
@@ -317,9 +401,9 @@ function WarehouseAssemblyRequisitionsPage() {
                   className="border-border/40 hover:border-primary/40 transition-colors shadow-soft"
                 >
                   <CardContent className="p-5">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2.5">
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                      <div className="space-y-3 flex-1">
+                        <div className="flex items-center gap-2.5 flex-wrap">
                           <span className="font-mono text-sm font-bold text-foreground">
                             {req.requisitionNumber || req.requisition_number}
                           </span>
@@ -329,14 +413,24 @@ function WarehouseAssemblyRequisitionsPage() {
                               className={cn(
                                 "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
                                 req.priority === "URGENT"
-                                  ? "bg-red-100 text-red-700"
+                                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
                                   : req.priority === "HIGH"
-                                    ? "bg-amber-100 text-amber-700"
-                                    : "bg-blue-100 text-blue-700",
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                    : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
                               )}
                             >
                               {req.priority}
                             </span>
+                          )}
+                          {totalReserved > 0 && (
+                            <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 text-[10px] font-bold">
+                              🔒 {totalReserved} Reserved
+                            </Badge>
+                          )}
+                          {totalShortage > 0 && (
+                            <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30 text-[10px] font-bold">
+                              ⚠ Shortage: {totalShortage}
+                            </Badge>
                           )}
                         </div>
 
@@ -357,65 +451,36 @@ function WarehouseAssemblyRequisitionsPage() {
                           </span>
                         </div>
 
-                        {/* Custom Items Banner */}
-                        {((req.items || []).some(
-                          (it: any) =>
-                            it.isCustom ||
-                            it.is_custom ||
-                            it.materialCode === "CUSTOM" ||
-                            it.material_code === "CUSTOM",
-                        )) && (
-                          <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3 text-xs">
-                            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-medium">
-                              <Sparkles className="size-4 text-amber-500 shrink-0" />
-                              <span>
-                                Contains{" "}
-                                <strong>
-                                  {
-                                    (req.items || []).filter(
-                                      (it: any) =>
-                                        it.isCustom ||
-                                        it.is_custom ||
-                                        it.materialCode === "CUSTOM" ||
-                                        it.material_code === "CUSTOM",
-                                    ).length
-                                  }{" "}
-                                  New / Custom Raw Material(s)
-                                </strong>{" "}
-                                requiring Material Master creation.
-                              </span>
-                            </div>
-                          </div>
-                        )}
-
                         {/* Store Info & Material Availability Banner */}
                         {isAssigned ? (
-                          <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-2 font-medium">
-                            <Warehouse className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-3 py-2 rounded-xl flex items-center gap-2 font-medium">
+                            <Warehouse className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span>
                               Assigned Store:{" "}
                               <strong>{req.assignedStoreName || req.assigned_store_name}</strong> (
-                              {req.assignedStoreCode || req.assigned_store_code})
+                              {req.assignedStoreCode || req.assigned_store_code}) · Tasks dispatched to Store Keepers.
                             </span>
                           </div>
                         ) : isPending ? (
-                          allAvailable ? (
-                            <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-2 font-medium">
-                              <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          canAssign ? (
+                            <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-3 py-2 rounded-xl flex items-center gap-2 font-medium">
+                              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>
                                 {req.availabilityMessage ||
                                   req.availability_message ||
-                                  "All materials available in inventory — Ready for Store assignment"}
+                                  "All materials available/reserved in inventory — Ready for Store assignment"}
                               </span>
                             </div>
                           ) : (
-                            <div className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 px-3 py-1.5 rounded-xl flex items-center gap-2 font-medium">
-                              <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                              <span>
-                                {req.availabilityMessage ||
-                                  req.availability_message ||
-                                  "Material shortage — Store assignment unavailable"}
-                              </span>
+                            <div className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 px-3 py-2 rounded-xl flex items-center justify-between gap-3 font-medium">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                                <span>
+                                  {req.availabilityMessage ||
+                                    req.availability_message ||
+                                    `Material shortage (${totalShortage} remaining) — Store assignment unavailable.`}
+                                </span>
+                              </div>
                             </div>
                           )
                         ) : (
@@ -426,24 +491,58 @@ function WarehouseAssemblyRequisitionsPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      {/* Action buttons */}
+                      <div className="flex flex-wrap sm:flex-col lg:flex-row items-center gap-2 shrink-0 justify-end">
                         <Button
                           variant="outline"
                           size="sm"
                           className="rounded-xl h-9 text-xs"
                           onClick={() => setViewingReq(req)}
                         >
-                          <Eye className="size-3.5 mr-1" /> View Items
+                          <Eye className="size-3.5 mr-1" /> View Details
                         </Button>
 
-                        {isPending && allAvailable && (
+                        {isPending && hasUnreservedAvailable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl h-9 text-xs border-indigo-500/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 font-bold"
+                            disabled={reservingId === req.id}
+                            onClick={() => handleReserveStock(req)}
+                          >
+                            {reservingId === req.id ? (
+                              <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                            ) : (
+                              <Sparkles className="size-3.5 mr-1.5 text-indigo-500" />
+                            )}
+                            Reserve Available Stock
+                          </Button>
+                        )}
+
+                        {isPending && totalShortage > 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl h-9 text-xs border-red-500/40 text-red-700 dark:text-red-300 hover:bg-red-500/10 font-bold"
+                            onClick={() => handleCreateShortageMR(req)}
+                          >
+                            <Plus className="size-3.5 mr-1.5 text-red-500" />
+                            Create Material Request ({totalShortage})
+                          </Button>
+                        )}
+
+                        {isPending && canAssign && (
                           <Button
                             size="sm"
                             className="rounded-xl h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold"
                             onClick={() => {
                               setAssigningReq(req);
                               setSelectedStoreId(
-                                req.assignedStoreId || req.assigned_store_id || "",
+                                req.suggestedStoreId ||
+                                req.suggested_store_id ||
+                                req.assignedStoreId ||
+                                req.assigned_store_id ||
+                                (stores[0]?.id || ""),
                               );
                             }}
                           >
@@ -466,7 +565,7 @@ function WarehouseAssemblyRequisitionsPage() {
           <DialogHeader>
             <DialogTitle className="text-lg font-bold flex items-center gap-2">
               <Warehouse className="size-5 text-blue-600" />
-              Assign Fulfilling Store
+              Automatic Store Assignment
             </DialogTitle>
           </DialogHeader>
 
@@ -483,11 +582,31 @@ function WarehouseAssemblyRequisitionsPage() {
                 </p>
               </div>
 
+              {/* Auto-determined Store Banner */}
+              <div className="p-3.5 bg-blue-500/10 border border-blue-500/25 rounded-2xl space-y-1.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-blue-800 dark:text-blue-300">
+                  <CheckCircle2 className="size-4 text-blue-600 shrink-0" />
+                  <span>Auto-Determined Store from Inventory</span>
+                </div>
+                <p className="text-xs font-medium text-foreground">
+                  {assigningReq.suggestedStoreName ||
+                    assigningReq.suggested_store_name ||
+                    stores.find((s) => s.id === selectedStoreId)?.store_name ||
+                    "Auto-selected Store"}
+                </p>
+                {(assigningReq.storeAvailabilitySummary || assigningReq.store_availability_summary) && (
+                  <p className="text-[11px] text-muted-foreground">
+                    <strong>Availability:</strong>{" "}
+                    {assigningReq.storeAvailabilitySummary || assigningReq.store_availability_summary}
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-2">
-                <Label className="text-xs font-bold">Select Fulfilling Store</Label>
+                <Label className="text-xs font-bold">Fulfilling Store</Label>
                 <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
                   <SelectTrigger className="rounded-xl text-xs h-10 border-border/40">
-                    <SelectValue placeholder="Choose a Store (e.g. Mechanical Store, Electrical Store)..." />
+                    <SelectValue placeholder="System auto-selected store..." />
                   </SelectTrigger>
                   <SelectContent>
                     {stores.map((s) => (
@@ -504,8 +623,7 @@ function WarehouseAssemblyRequisitionsPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
-                  Assigning a Store will automatically create Pickup Tasks for that store's Store
-                  Keepers and send them targeted notifications.
+                  Assigning this Store will create Pickup Tasks for Store Keepers and send them targeted notifications.
                 </p>
               </div>
             </div>
@@ -517,7 +635,7 @@ function WarehouseAssemblyRequisitionsPage() {
             </Button>
             <Button
               className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold"
-              disabled={assigning || !selectedStoreId}
+              disabled={assigning || (!selectedStoreId && !assigningReq?.suggested_store_id && !assigningReq?.suggestedStoreId)}
               onClick={handleAssignStore}
             >
               {assigning ? (
@@ -525,7 +643,7 @@ function WarehouseAssemblyRequisitionsPage() {
               ) : (
                 <CheckCircle2 className="size-4 mr-2" />
               )}
-              Confirm & Dispatch Tasks
+              Confirm Store Assignment
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -533,29 +651,63 @@ function WarehouseAssemblyRequisitionsPage() {
 
       {/* View Details Modal */}
       <Dialog open={Boolean(viewingReq)} onOpenChange={(open) => !open && setViewingReq(null)}>
-        <DialogContent className="max-w-xl rounded-3xl p-6 bg-card border-none shadow-2xl">
+        <DialogContent className="max-w-3xl rounded-3xl p-6 bg-card border-none shadow-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold flex items-center gap-2">
               <ClipboardCheck className="size-5 text-blue-600" />
-              Requisition Details
+              Requisition Details & Stock Availability
             </DialogTitle>
           </DialogHeader>
 
           {viewingReq && (
             <div className="space-y-4 py-2 text-xs">
-              <div className="flex justify-between items-center bg-muted/40 p-3 rounded-2xl">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-muted/40 p-3.5 rounded-2xl">
                 <div>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground">
                     Requisition Number
                   </p>
-                  <p className="font-mono font-bold text-sm text-foreground">
+                  <p className="font-mono font-bold text-base text-foreground">
                     {viewingReq.requisitionNumber || viewingReq.requisition_number}
                   </p>
                 </div>
-                <StatusBadge status={viewingReq.status} />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <StatusBadge status={viewingReq.status} />
+                  {viewingReq.priority && (
+                    <Badge variant="outline" className="text-[10px] font-bold uppercase">
+                      {viewingReq.priority}
+                    </Badge>
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-muted/20 rounded-2xl border border-border/30">
+                  <span className="text-muted-foreground block text-[11px]">Total Required</span>
+                  <strong className="text-sm font-mono text-foreground">
+                    {Number(viewingReq.total_required ?? viewingReq.totalRequired ?? 0)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-muted/20 rounded-2xl border border-border/30">
+                  <span className="text-muted-foreground block text-[11px]">Total Available</span>
+                  <strong className="text-sm font-mono text-emerald-600">
+                    {Number(viewingReq.total_available ?? viewingReq.totalAvailable ?? 0)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-indigo-500/10 rounded-2xl border border-indigo-500/20">
+                  <span className="text-indigo-700 dark:text-indigo-300 block text-[11px] font-medium">Already Reserved</span>
+                  <strong className="text-sm font-mono text-indigo-700 dark:text-indigo-300">
+                    {Number(viewingReq.total_reserved ?? viewingReq.totalReserved ?? 0)}
+                  </strong>
+                </div>
+                <div className="p-3 bg-red-500/10 rounded-2xl border border-red-500/20">
+                  <span className="text-red-700 dark:text-red-300 block text-[11px] font-medium">Remaining Shortage</span>
+                  <strong className="text-sm font-mono text-red-700 dark:text-red-300">
+                    {Number(viewingReq.total_shortage ?? viewingReq.totalShortage ?? 0)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs bg-muted/20 p-3 rounded-2xl">
                 <div>
                   <span className="text-muted-foreground">Department:</span>{" "}
                   <strong className="text-foreground">{viewingReq.department}</strong>
@@ -575,12 +727,14 @@ function WarehouseAssemblyRequisitionsPage() {
                   </strong>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Priority:</span>{" "}
-                  <strong className="text-foreground">{viewingReq.priority}</strong>
+                  <span className="text-muted-foreground">Store Assignment:</span>{" "}
+                  <strong className="text-foreground">
+                    {viewingReq.assignedStoreName || viewingReq.assigned_store_name || "Unassigned"}
+                  </strong>
                 </div>
               </div>
 
-              {/* Availability Alert in Modal */}
+              {/* Status Alert in Modal */}
               {viewingReq.status === "PENDING" && (
                 (viewingReq.allItemsAvailable ??
                 viewingReq.all_items_available ??
@@ -593,7 +747,7 @@ function WarehouseAssemblyRequisitionsPage() {
                       <p className="text-[11px] opacity-90">
                         {viewingReq.availabilityMessage ||
                           viewingReq.availability_message ||
-                          "All requested materials are available in inventory — Ready for Store assignment."}
+                          "All requested materials are available/reserved in inventory — Ready for Store assignment."}
                       </p>
                     </div>
                   </div>
@@ -612,132 +766,133 @@ function WarehouseAssemblyRequisitionsPage() {
                 )
               )}
 
+              {/* Material Lines Table */}
               <div className="space-y-2">
-                <p className="font-bold text-muted-foreground uppercase text-[11px]">
-                  Requested Materials & Inventory Status
-                </p>
-                <div className="divide-y divide-border/30 border border-border/40 rounded-2xl overflow-hidden bg-card">
-                  {(viewingReq.items || []).map((it: any, idx: number) => {
-                    const isCustom =
-                      it.isCustom ||
-                      it.is_custom ||
-                      it.materialCode === "CUSTOM" ||
-                      it.material_code === "CUSTOM";
-                    const isPendingCreation =
-                      isCustom && (!it.materialId && !it.material_id);
-                    const reqQty = Number(
-                      it.requestedQuantity || it.requested_quantity || it.quantity || 0,
-                    );
-                    const availQty = Number(it.availableQuantity ?? it.available_quantity ?? 0);
-                    const hasSufficient = Boolean(
-                      it.hasSufficientStock ?? it.has_sufficient_stock ?? (availQty >= reqQty),
-                    );
-                    const shortageQty = Number(
-                      it.shortageQuantity ?? it.shortage_quantity ?? Math.max(0, reqQty - availQty),
-                    );
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-muted-foreground uppercase text-[11px]">
+                    Requested Materials & Stock Availability Breakdown
+                  </p>
+                </div>
+                <div className="border border-border/40 rounded-2xl overflow-hidden bg-card">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border/40 bg-muted/40 text-muted-foreground text-[11px] font-semibold">
+                          <th className="p-3">Material</th>
+                          <th className="p-3 text-right">Required</th>
+                          <th className="p-3 text-right">Available</th>
+                          <th className="p-3 text-right">Reserved</th>
+                          <th className="p-3 text-right">Shortage</th>
+                          <th className="p-3">Location / Hint</th>
+                          <th className="p-3 text-center">Status</th>
+                          <th className="p-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {(viewingReq.items || []).map((it: any, idx: number) => {
+                          const isCustom =
+                            it.isCustom ||
+                            it.is_custom ||
+                            it.materialCode === "CUSTOM" ||
+                            it.material_code === "CUSTOM";
+                          const isPendingCreation =
+                            isCustom && (!it.materialId && !it.material_id);
+                          const reqQty = Number(
+                            it.required_quantity ?? it.requiredQuantity ?? it.requested_quantity ?? it.requestedQuantity ?? it.quantity ?? 0,
+                          );
+                          const availQty = Number(it.available_quantity ?? it.availableQuantity ?? 0);
+                          const resQty = Number(it.reserved_quantity ?? it.reservedQuantity ?? 0);
+                          const shortageQty = Number(
+                            it.shortage_quantity ?? it.shortageQuantity ?? Math.max(0, reqQty - resQty - availQty),
+                          );
+                          const locHint = it.location_hint || it.locationHint;
 
-                    return (
-                      <div
-                        key={idx}
-                        className={cn(
-                          "p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors",
-                          isCustom
-                            ? "bg-amber-500/5 hover:bg-amber-500/10"
-                            : !hasSufficient
-                              ? "bg-red-500/5 hover:bg-red-500/10"
-                              : "hover:bg-muted/30",
-                        )}
-                      >
-                        <div className="space-y-1 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-foreground text-sm">
-                              {it.custom_material_name ||
-                                it.customMaterialName ||
-                                it.materialName ||
-                                it.material_name}
-                            </p>
-                            {isCustom ? (
-                              <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[10px] font-bold">
-                                ✨ NEW MATERIAL
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[10px] font-mono">
-                                {it.materialCode || it.material_code}
-                              </Badge>
-                            )}
-
-                            {/* Inventory Stock Badge */}
-                            {!isPendingCreation && (
-                              hasSufficient ? (
-                                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px] font-bold">
-                                  ✓ Stock Available ({availQty} in stock)
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30 text-[10px] font-bold">
-                                  ⚠ Shortage: {shortageQty} {it.uom} (Avail: {availQty})
-                                </Badge>
-                              )
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
-                            {isCustom ? (
-                              <span>
-                                Status:{" "}
-                                <strong
-                                  className={
-                                    isPendingCreation
-                                      ? "text-amber-600 font-bold"
-                                      : "text-emerald-600 font-bold"
-                                  }
-                                >
-                                  {isPendingCreation
-                                    ? "Pending Material Master Record"
-                                    : `Linked (${it.materialCode || it.material_code})`}
-                                </strong>
-                              </span>
-                            ) : (
-                              <span>
-                                Code:{" "}
-                                <strong className="text-foreground">
-                                  {it.materialCode || it.material_code}
-                                </strong>
-                                {it.variantCode || it.variant_code
-                                  ? ` · Spec: ${it.variantCode || it.variant_code}`
-                                  : ""}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end">
-                          <div className="text-right">
-                            <span className="font-mono font-bold text-primary text-sm">
-                              {reqQty} {it.uom}
-                            </span>
-                            {(it.issuedQuantity || it.issued_quantity) > 0 && (
-                              <p className="text-[10px] text-emerald-600 font-bold">
-                                Issued: {it.issuedQuantity || it.issued_quantity}
-                              </p>
-                            )}
-                            <p className="text-[10px] text-muted-foreground">
-                              Avail: <strong className={hasSufficient ? "text-emerald-600" : "text-red-600"}>{availQty}</strong> {it.uom}
-                            </p>
-                          </div>
-
-                          {isPendingCreation && (
-                            <Button
-                              size="sm"
-                              className="h-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm ml-2"
-                              onClick={() => handleOpenCreateMaterial(viewingReq, it)}
+                          return (
+                            <tr
+                              key={idx}
+                              className={cn(
+                                "transition-colors hover:bg-muted/20",
+                                isCustom ? "bg-amber-500/5" : shortageQty > 0 ? "bg-red-500/5" : "",
+                              )}
                             >
-                              <Sparkles className="size-3.5 mr-1" /> Create Material
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                              <td className="p-3">
+                                <div>
+                                  <p className="font-semibold text-foreground">
+                                    {it.custom_material_name ||
+                                      it.customMaterialName ||
+                                      it.material_name ||
+                                      it.materialName}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    {isCustom ? (
+                                      <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[9px] font-bold">
+                                        ✨ CUSTOM
+                                      </Badge>
+                                    ) : (
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        {it.material_code || it.materialCode}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="p-3 text-right font-mono font-bold text-foreground">
+                                {reqQty} <span className="text-[10px] text-muted-foreground font-normal">{it.uom}</span>
+                              </td>
+                              <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                                {availQty} <span className="text-[10px] text-muted-foreground font-normal">{it.uom}</span>
+                              </td>
+                              <td className="p-3 text-right font-mono font-bold text-indigo-600">
+                                {resQty} <span className="text-[10px] text-muted-foreground font-normal">{it.uom}</span>
+                              </td>
+                              <td className="p-3 text-right font-mono font-bold text-red-600">
+                                {shortageQty} <span className="text-[10px] text-muted-foreground font-normal">{it.uom}</span>
+                              </td>
+                              <td className="p-3 text-[11px] text-muted-foreground max-w-[150px] truncate">
+                                {locHint ? (
+                                  <span title={locHint} className="font-medium text-foreground">
+                                    📍 {locHint}
+                                  </span>
+                                ) : (
+                                  <span className="italic opacity-60">None / Warehouse</span>
+                                )}
+                              </td>
+                              <td className="p-3 text-center">
+                                {isPendingCreation ? (
+                                  <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[10px]">
+                                    Unregistered
+                                  </Badge>
+                                ) : resQty >= reqQty ? (
+                                  <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 text-[10px]">
+                                    Reserved
+                                  </Badge>
+                                ) : shortageQty === 0 ? (
+                                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px]">
+                                    Available
+                                  </Badge>
+                                ) : (
+                                  <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30 text-[10px]">
+                                    Shortage
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="p-3 text-right">
+                                {isPendingCreation && (
+                                  <Button
+                                    size="sm"
+                                    className="h-7 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] px-2"
+                                    onClick={() => handleOpenCreateMaterial(viewingReq, it)}
+                                  >
+                                    <Sparkles className="size-3 mr-1" /> Register
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 
@@ -749,8 +904,76 @@ function WarehouseAssemblyRequisitionsPage() {
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setViewingReq(null)}>
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between items-center pt-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {viewingReq &&
+                (viewingReq.status === "PENDING" || viewingReq.status === "RESERVED") && (
+                  <>
+                    {(viewingReq.items || []).some((it: any) => {
+                      const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
+                      const resQ = Number(it.reserved_quantity ?? 0);
+                      const avQ = Number(it.available_quantity ?? 0);
+                      return avQ > 0 && resQ < reqQ;
+                    }) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl h-9 text-xs border-indigo-500/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 font-bold"
+                        disabled={reservingId === viewingReq.id}
+                        onClick={() => handleReserveStock(viewingReq)}
+                      >
+                        {reservingId === viewingReq.id ? (
+                          <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                        ) : (
+                          <Sparkles className="size-3.5 mr-1.5 text-indigo-500" />
+                        )}
+                        Reserve Available Stock
+                      </Button>
+                    )}
+
+                    {Number(viewingReq.total_shortage ?? viewingReq.totalShortage ?? 0) > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl h-9 text-xs border-red-500/40 text-red-700 dark:text-red-300 hover:bg-red-500/10 font-bold"
+                        disabled={creatingMrId === viewingReq.id}
+                        onClick={() => handleCreateShortageMR(viewingReq)}
+                      >
+                        {creatingMrId === viewingReq.id ? (
+                          <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                        ) : (
+                          <Plus className="size-3.5 mr-1.5 text-red-500" />
+                        )}
+                        Create Material Request ({Number(viewingReq.total_shortage ?? viewingReq.totalShortage ?? 0)})
+                      </Button>
+                    )}
+
+                    {Boolean(
+                      viewingReq.canAssignStore ??
+                      viewingReq.can_assign_store ??
+                      viewingReq.allItemsAvailable ??
+                      viewingReq.all_items_available,
+                    ) && (
+                      <Button
+                        size="sm"
+                        className="rounded-xl h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                        onClick={() => {
+                          const reqToAssign = viewingReq;
+                          setViewingReq(null);
+                          setAssigningReq(reqToAssign);
+                          setSelectedStoreId(
+                            reqToAssign.assignedStoreId || reqToAssign.assigned_store_id || "",
+                          );
+                        }}
+                      >
+                        <Send className="size-3.5 mr-1.5" /> Assign Store
+                      </Button>
+                    )}
+                  </>
+                )}
+            </div>
+
+            <Button variant="outline" className="rounded-xl text-xs h-9" onClick={() => setViewingReq(null)}>
               Close
             </Button>
           </DialogFooter>

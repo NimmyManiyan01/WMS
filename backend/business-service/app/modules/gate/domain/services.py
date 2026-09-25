@@ -112,13 +112,16 @@ class GateVerificationService:
         Active Duplicate Prevention: Detect active/open Gate Entry attempts for the same PO Number.
         Vehicle number duplicates are explicitly allowed.
         """
-        non_terminal_statuses = {
-            GateEntryStatus.PO_VERIFIED,
-            GateEntryStatus.UNSCHEDULED_ARRIVAL,
+        terminal_statuses = {
+            GateEntryStatus.VEHICLE_EXITED,
+            GateEntryStatus.GATE_EXIT_COMPLETED,
+            GateEntryStatus.CHECKED_OUT,
+            GateEntryStatus.REJECTED,
+            GateEntryStatus.DENIED_ENTRY,
         }
 
         for entry in active_entries:
-            if entry.status in non_terminal_statuses:
+            if entry.status not in terminal_statuses:
                 if po_number and entry.po_number and entry.po_number.upper() == po_number.upper():
                     raise DomainRuleViolationException(
                         f"Active gate entry attempt ({entry.gate_entry_number}) already exists for PO number '{po_number}'"

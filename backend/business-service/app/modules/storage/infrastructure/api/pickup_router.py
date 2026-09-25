@@ -26,6 +26,7 @@ from app.modules.quarantine.infrastructure.persistence.models import QuarantineR
 from app.modules.storage.infrastructure.persistence.models import (
     AssemblyRequisitionItemModel,
     AssemblyRequisitionModel,
+    AssemblyStockReservationModel,
     HandlingUnitModel,
     InventoryIssueTransactionModel,
     InventoryLocationBalanceModel,
@@ -504,7 +505,11 @@ async def complete_pickup_task(
     quarantined_qty = quar_res.scalar() or Decimal("0.0")
 
     available_stock = stock.available if stock else Decimal("0.0")
-    effective_available = max(Decimal("0.0"), available_stock - quarantined_qty)
+    allocated_stock = stock.allocated if stock else Decimal("0.0")
+    on_hand_stock = stock.on_hand if stock else Decimal("0.0")
+    # For a pickup task, the usable stock includes both free available and allocated (reserved for AR) stock
+    usable_stock = max(available_stock, on_hand_stock, available_stock + allocated_stock)
+    effective_available = max(Decimal("0.0"), usable_stock - quarantined_qty)
 
     if not stock or effective_available < payload.quantity:
         avail = float(effective_available)
@@ -516,10 +521,16 @@ async def complete_pickup_task(
 
     # 6. Atomic Inventory Deduction
     now_utc = datetime.datetime.now(datetime.timezone.utc)
-    stock_before = stock.available
-    stock.available = stock.available - payload.quantity
+    stock_before = stock.available if stock.allocated == Decimal("0.0") else stock.on_hand
+    if stock.allocated >= payload.quantity:
+        stock.allocated = stock.allocated - payload.quantity
+    elif stock.allocated > Decimal("0.0"):
+        stock.allocated = Decimal("0.0")
+    else:
+        stock.available = max(Decimal("0.0"), stock.available - payload.quantity)
     stock.on_hand = max(Decimal("0.0"), stock.on_hand - payload.quantity)
-    stock_after = stock.available
+    stock.available = max(Decimal("0.0"), min(stock.available, stock.on_hand - stock.allocated))
+    stock_after = stock.available if stock.allocated == Decimal("0.0") and stock_before == (stock.available + payload.quantity) else stock.on_hand
     stock.updated_at = now_utc.replace(tzinfo=None)
 
     # Decrement location balance if existing
@@ -599,6 +610,16 @@ async def complete_pickup_task(
             else:
                 req.status = "PARTIALLY_ISSUED"
             req.updated_at = now_utc
+
+        # Update matching AssemblyStockReservationModel status
+        res_stmt = select(AssemblyStockReservationModel).where(
+            AssemblyStockReservationModel.requisition_id == req_id_val,
+            AssemblyStockReservationModel.material_code == task.material_code,
+        )
+        res_rows = (await uow.session.execute(res_stmt)).scalars().all()
+        for res_obj in res_rows:
+            if task.status.upper() == "COMPLETED":
+                res_obj.status = "FULFILLED"
 
     # 10. Notifications to Assembly and Warehouse
     notif_assembly = NotificationModel(
