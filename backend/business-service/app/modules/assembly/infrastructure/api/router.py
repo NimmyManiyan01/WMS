@@ -692,6 +692,20 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
                 uow.session.add(mi)
                 await uow.session.flush()
 
+            # Assembly orders also have unique links to the material request,
+            # pick task, and material issue. A legacy record may already use
+            # one of those links even when request_number does not match, so
+            # check all three before inserting the backfilled order.
+            existing_linked_order = await uow.session.scalar(select(AssemblyOrderModel.id).where(
+                or_(
+                    AssemblyOrderModel.material_request_id == mr_id,
+                    AssemblyOrderModel.pick_task_id == pt.id,
+                    AssemblyOrderModel.material_issue_id == mi.id,
+                )
+            ))
+            if existing_linked_order:
+                continue
+
             count = await uow.session.scalar(select(func.count(AssemblyOrderModel.id))) or 0
             order = AssemblyOrderModel(
                 id=uuid.uuid4(),
