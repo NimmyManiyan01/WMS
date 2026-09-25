@@ -278,9 +278,14 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
     warehouse = warehouse_id.strip().upper()
     location_value = location_code.strip().upper()
 
-    # Generate unique unit serial number & QR code
-    serial_number = f"SN-{order.order_number}-{uuid.uuid4().hex[:6].upper()}"
-    qr_code = f"FG-QR|{code}|{serial_number}|ORD:{order.order_number}|QTY:{passed_quantity}"
+    # Finished goods are unit-tracked. Generate one QR/serial per produced
+    # unit so the Finished Goods Store can put away each unit individually.
+    unit_count = max(1, int(passed_quantity))
+    unit_qrs = [
+        (f"SN-{order.order_number}-{uuid.uuid4().hex[:6].upper()}")
+        for _ in range(unit_count)
+    ]
+    qr_code = f"FG-QR|{code}|{unit_qrs[0]}|ORD:{order.order_number}|QTY:1"
 
     # Resolve Finished Goods Store dynamically
     fg_store_res = await uow.session.execute(
@@ -346,7 +351,8 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
             posting.store_id = fg_store.id
         posting.updated_at = now
 
-    # Create PutawayTaskModel for the Finished Goods Store
+    # Create one PutawayTaskModel per unit. Existing installations may already
+    # have a single aggregate task; leave it intact rather than duplicating it.
     existing_task = await uow.session.scalar(
         select(PutawayTaskModel).where(
             PutawayTaskModel.finished_goods_id == posting.id
@@ -354,22 +360,24 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
     )
     if not existing_task:
         task_number = f"PUT-FG-{now.year}-{uuid.uuid4().hex[:6].upper()}"
-        putaway_task = PutawayTaskModel(
-            id=uuid.uuid4(),
-            task_number=task_number,
-            finished_goods_id=posting.id,
-            item_code=code,
-            material_name=order.product_name,
-            quantity=passed_quantity,
-            uom="PCS",
-            warehouse_id=warehouse,
-            source_location="ASSEMBLY_LINE",
-            destination_store_id=fg_store.id if fg_store else None,
-            status="PUTAWAY_PENDING",
-            created_by=order.assigned_operator or order.created_by or "Assembly",
-            created_at=now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc),
-        )
-        uow.session.add(putaway_task)
+        for index, serial in enumerate(unit_qrs, start=1):
+            unit_qr = f"FG-QR|{code}|{serial}|ORD:{order.order_number}|QTY:1"
+            uow.session.add(PutawayTaskModel(
+                id=uuid.uuid4(),
+                task_number=f"{task_number}-{index:02d}",
+                finished_goods_id=posting.id,
+                item_code=code,
+                material_name=order.product_name,
+                quantity=Decimal("1"),
+                uom="PCS",
+                warehouse_id=warehouse,
+                source_location="ASSEMBLY_LINE",
+                destination_store_id=fg_store.id if fg_store else None,
+                status="PUTAWAY_PENDING",
+                placement_metadata={"unit_qr": unit_qr, "unit_serial": serial, "unit_index": index, "unit_count": unit_count},
+                created_by=order.assigned_operator or order.created_by or "Assembly",
+                created_at=now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc),
+            ))
 
         # Notify Finished Goods Store Manager
         if fg_store:
@@ -377,8 +385,8 @@ async def post_finished_goods(uow: UnitOfWork, order: AssemblyOrderModel, passed
                 NotificationModel(
                     id=uuid.uuid4(),
                     user_role=f"STR:{fg_store.store_code}"[:32],
-                    title=f"New FG Putaway: {task_number}",
-                    message=f"Assembly completed {passed_quantity:g} PCS of {order.product_name} ({code}). Putaway task {task_number} is ready for store putaway.",
+                    title=f"New FG Putaway: {unit_count} unit tasks",
+                    message=f"Assembly completed {passed_quantity:g} PCS of {order.product_name} ({code}). {unit_count} individual QR putaway tasks are ready for the Finished Goods Store.",
                     link="/my-store?tab=putaway",
                     is_read=False,
                     created_at=now,

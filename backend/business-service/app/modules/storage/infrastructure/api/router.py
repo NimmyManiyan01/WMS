@@ -1492,7 +1492,11 @@ async def complete_putaway(
             from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
             afg = await uow.session.get(AssemblyFinishedGoodsModel, task.finished_goods_id)
             if afg:
-                afg.status = "AVAILABLE"
+                remaining_fg_tasks = await uow.session.scalar(select(func.count(PutawayTaskModel.id)).where(
+                    PutawayTaskModel.finished_goods_id == afg.id,
+                    PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
+                )) or 0
+                afg.status = "AVAILABLE" if remaining_fg_tasks == 0 else "PUTAWAY_PENDING"
                 afg.location_code = dest_loc_str
                 afg.store_id = target_zone.store_id
                 afg.updated_at = completed_at.replace(tzinfo=None)
@@ -1532,6 +1536,19 @@ async def resolve_grn_qr(
     if raw_code.upper().startswith("FG-QR|") or raw_code.upper().startswith("FG-"):
         from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
 
+        # Prefer the individual unit task QR. Unit QRs are stored in task
+        # placement metadata so one Assembly posting can safely own many
+        # independently putaway-able units.
+        unit_task = None
+        active_fg_tasks = (await uow.session.execute(select(PutawayTaskModel).where(
+            PutawayTaskModel.finished_goods_id.is_not(None),
+            PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
+        ))).scalars().all()
+        for candidate in active_fg_tasks:
+            if (candidate.placement_metadata or {}).get("unit_qr", "").upper() == raw_code.upper():
+                unit_task = candidate
+                break
+
         fg_query = select(AssemblyFinishedGoodsModel).where(
             or_(
                 func.upper(AssemblyFinishedGoodsModel.qr_code) == raw_code.upper(),
@@ -1539,6 +1556,8 @@ async def resolve_grn_qr(
             )
         )
         fg = (await uow.session.execute(fg_query)).scalars().first()
+        if not fg and unit_task:
+            fg = await uow.session.get(AssemblyFinishedGoodsModel, unit_task.finished_goods_id)
         if not fg:
             parts = raw_code.split("|")
             product_code = parts[1].strip().upper() if len(parts) > 1 else ""
@@ -1555,7 +1574,7 @@ async def resolve_grn_qr(
         if not fg:
             raise HTTPException(status_code=404, detail="Finished Goods QR was not found in Assembly postings")
 
-        fg_task = (await uow.session.execute(select(PutawayTaskModel).where(
+        fg_task = unit_task or (await uow.session.execute(select(PutawayTaskModel).where(
             PutawayTaskModel.finished_goods_id == fg.id,
             PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
         ).order_by(PutawayTaskModel.created_at.desc()))).scalars().first()
