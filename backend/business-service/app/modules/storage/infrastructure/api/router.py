@@ -1529,7 +1529,7 @@ async def resolve_grn_qr(
     # Assembly finished goods are produced internally and therefore do not
     # have a supplier GRN. Resolve their Assembly QR directly to the FG
     # posting and its Finished Goods Store putaway task.
-    if raw_code.upper().startswith("FG-QR|"):
+    if raw_code.upper().startswith("FG-QR|") or raw_code.upper().startswith("FG-"):
         from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
 
         fg_query = select(AssemblyFinishedGoodsModel).where(
@@ -1542,10 +1542,14 @@ async def resolve_grn_qr(
         if not fg:
             parts = raw_code.split("|")
             product_code = parts[1].strip().upper() if len(parts) > 1 else ""
+            product_code = product_code or raw_code.upper()
+            product_codes = {product_code}
+            if product_code.startswith("FG-"):
+                product_codes.add(product_code[3:])
             serial = next((part[4:] for part in parts if part.upper().startswith("SN:")), "")
-            if product_code:
+            if product_codes:
                 fg = (await uow.session.execute(select(AssemblyFinishedGoodsModel).where(
-                    func.upper(AssemblyFinishedGoodsModel.product_code) == product_code,
+                    func.upper(AssemblyFinishedGoodsModel.product_code).in_(product_codes),
                     func.upper(AssemblyFinishedGoodsModel.serial_number) == serial.upper() if serial else True,
                 ).order_by(AssemblyFinishedGoodsModel.updated_at.desc()))).scalars().first()
         if not fg:
