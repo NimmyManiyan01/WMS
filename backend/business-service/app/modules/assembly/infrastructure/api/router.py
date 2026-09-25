@@ -579,8 +579,12 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
             changed = True
 
     # Backfill completed AssemblyRequisitionModel
+    # Current Store pickup flow marks a requisition PICKED_UP after every
+    # assigned pickup task is completed. Keep the older statuses for records
+    # created by previous workflow versions, but include PICKED_UP so the
+    # Assembly Orders page reflects completed backend handoffs.
     ar_stmt = select(AssemblyRequisitionModel).options(selectinload(AssemblyRequisitionModel.items)).where(
-        AssemblyRequisitionModel.status.in_(["COMPLETED", "ISSUED", "MATERIAL_ISSUED"])
+        AssemblyRequisitionModel.status.in_(["COMPLETED", "PICKED_UP", "ISSUED", "MATERIAL_ISSUED"])
     )
     ar_res = await uow.session.execute(ar_stmt)
     completed_ars = ar_res.scalars().all()
