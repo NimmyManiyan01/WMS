@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 
 export const Route = createFileRoute("/assembly-orders")({
-  beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ADMIN"]),
+  beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ASSEMBLY", "ASSEMBLY_OPERATOR", "ADMIN", "SUPERUSER"]),
   head: () => ({ meta: [{ title: "Assembly Orders · NexusWMS" }] }),
   component: AssemblyOrders,
 });
@@ -100,7 +100,11 @@ function AssemblyOrders() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
+  }, [load]);
   useEffect(() => {
     if (!workOrder?.id || !["IN_PROGRESS", "ON_HOLD"].includes(workOrder.status)) return;
     const refresh = async () => { try { const updated = await api.getAssemblyOrder(workOrder.id); setWorkOrder(updated); setProgressQuantity(updated.completed_quantity); } catch { /* next poll retries */ } };
