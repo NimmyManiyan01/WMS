@@ -648,35 +648,49 @@ async def backfill_issued_orders(uow: UnitOfWork) -> None:
                 for it in (ar.items or [])
             ]
 
-            pt = PickTaskModel(
-                id=uuid.uuid4(),
-                task_number=f"PT-{now.year}-{uuid.uuid4().hex[:6].upper()}",
-                request_id=mr_id,
-                request_number=ar.requisition_number,
-                warehouse_id=ar.warehouse_id,
-                department=ar.department,
-                items=items_list,
-                status="COMPLETED",
-                destination="Assembly Production Area",
-                created_by=ar.requested_by,
-                created_at=now,
-            )
-            uow.session.add(pt)
-            await uow.session.flush()
+            # This backfill runs whenever Assembly Orders are read. Reuse the
+            # existing legacy task/issue because pick_task.request_id is
+            # unique; inserting a new pair on every read causes a 500.
+            pt = await uow.session.scalar(select(PickTaskModel).where(
+                or_(
+                    PickTaskModel.request_id == mr_id,
+                    PickTaskModel.request_number == ar.requisition_number,
+                )
+            ).order_by(PickTaskModel.created_at.asc()))
+            if not pt:
+                pt = PickTaskModel(
+                    id=uuid.uuid4(),
+                    task_number=f"PT-{now.year}-{uuid.uuid4().hex[:6].upper()}",
+                    request_id=mr_id,
+                    request_number=ar.requisition_number,
+                    warehouse_id=ar.warehouse_id,
+                    department=ar.department,
+                    items=items_list,
+                    status="COMPLETED",
+                    destination="Assembly Production Area",
+                    created_by=ar.requested_by,
+                    created_at=now,
+                )
+                uow.session.add(pt)
+                await uow.session.flush()
 
-            mi = MaterialIssueModel(
-                id=uuid.uuid4(),
-                issue_number=f"MI-{now.year}-{uuid.uuid4().hex[:6].upper()}",
-                pick_task_id=pt.id,
-                request_id=mr_id,
-                department=ar.department,
-                items=items_list,
-                issued_by="Store Keeper",
-                received_by=ar.requested_by,
-                issued_at=now,
-            )
-            uow.session.add(mi)
-            await uow.session.flush()
+            mi = await uow.session.scalar(select(MaterialIssueModel).where(
+                MaterialIssueModel.pick_task_id == pt.id
+            ))
+            if not mi:
+                mi = MaterialIssueModel(
+                    id=uuid.uuid4(),
+                    issue_number=f"MI-{now.year}-{uuid.uuid4().hex[:6].upper()}",
+                    pick_task_id=pt.id,
+                    request_id=mr_id,
+                    department=ar.department,
+                    items=items_list,
+                    issued_by="Store Keeper",
+                    received_by=ar.requested_by,
+                    issued_at=now,
+                )
+                uow.session.add(mi)
+                await uow.session.flush()
 
             count = await uow.session.scalar(select(func.count(AssemblyOrderModel.id))) or 0
             order = AssemblyOrderModel(
