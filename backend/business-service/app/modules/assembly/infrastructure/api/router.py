@@ -2208,8 +2208,11 @@ async def assembly_dashboard(uow: UnitOfWork = Depends(get_uow)):
     status_keys = ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY", "IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED", "ON_HOLD", "MATERIAL_SHORTAGE"]
     return {
         "stats": {
-            "total": len(orders) + pending_fg_count,
-            "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]) + pending_fg_count,
+            # Keep Assembly Order KPIs sourced from AssemblyOrderModel only.
+            # Finished-goods requests are a separate intake workflow and must
+            # not make the Orders card point to an empty order list.
+            "total": len(orders),
+            "pending": sum(statuses[key] for key in ["DRAFT", "RELEASED", "MATERIAL_CHECK", "READY"]),
             "in_progress": statuses["IN_PROGRESS"],
             "completed": sum(statuses[key] for key in ["COMPLETED", "QUALITY_CHECK", "CLOSED"]),
             "on_hold": statuses["ON_HOLD"],
