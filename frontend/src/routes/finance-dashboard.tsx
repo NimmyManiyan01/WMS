@@ -29,6 +29,9 @@ export const Route = createFileRoute("/finance-dashboard")({
 });
 
 function FinanceDashboard() {
+  const formatCurrency = (value: number) =>
+    `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const getOrderTotal = (po: any) => Number(po.quotation?.totalAmount ?? po.quotation?.total_amount ?? po.totalAmount ?? po.total_amount ?? 0);
   const [stats, setStats] = useState({
     pending: 0,
     approved: 0,
@@ -47,7 +50,7 @@ function FinanceDashboard() {
       const approved = allPos.filter((p: any) => p.status === "APPROVED" || p.status === "SENT");
       const rejected = allPos.filter((p: any) => p.status === "REJECTED");
       const totalValue = approved.reduce(
-        (sum: number, p: any) => sum + parseFloat(p.totalAmount || 0),
+        (sum: number, p: any) => sum + getOrderTotal(p),
         0,
       );
 
@@ -176,10 +179,10 @@ function FinanceDashboard() {
                             ₹
                             {rfqApprovals
                               .reduce(
-                                (sum: number, po: any) => sum + parseFloat(po.totalAmount || 0),
+                                (sum: number, po: any) => sum + getOrderTotal(po),
                                 0,
                               )
-                              .toLocaleString()}
+                              .toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
                           <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
                             Total Value

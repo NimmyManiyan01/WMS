@@ -18,14 +18,6 @@ function DispatchLoadingPage() {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
 
-  // Scanned packages matching user specification
-  const [scannedPackages, setScannedPackages] = useState([
-    { id: "PKG-001", scanned: true, weight: "250 KG" },
-    { id: "PKG-002", scanned: true, weight: "180 KG" },
-    { id: "PKG-003", scanned: true, weight: "90 KG" },
-    { id: "PKG-004", scanned: true, weight: "70 KG" }
-  ]);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -94,13 +86,13 @@ function DispatchLoadingPage() {
                 {orders.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No orders pending loading. Complete packing tasks first.</td></tr>
                 ) : (
-                  orders.map((order, idx) => {
-                    const bayNo = `Bay-0${(idx % 4) + 1}`;
-                    const vehNo = order.vehicle_number || "KA01AB1234";
-                    const drvName = order.driver_name || "Rajesh";
+                  orders.map((order) => {
+                    const bayNo = order.loading_bay || order.loadingBay || order.bay_number || "Not assigned";
+                    const vehNo = order.vehicle_number || order.vehicleNumber || order.vehicle_id || "Not assigned";
+                    const drvName = order.driver_name || order.driverName || order.driver_id || "Not assigned";
                     return (
                       <tr key={order.id} className="border-t hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold text-primary">{order.dispatch_number || "DO-2026-91FF"}</td>
+                        <td className="px-4 py-3 font-mono font-bold text-primary">{order.dispatch_number || "Not available"}</td>
                         <td className="px-4 py-3 font-bold font-mono text-amber-600">{bayNo}</td>
                         <td className="px-4 py-3 font-mono font-semibold">{vehNo}</td>
                         <td className="px-4 py-3 font-semibold flex items-center gap-1.5"><User className="size-3.5 text-muted-foreground" /> {drvName}</td>
@@ -135,7 +127,7 @@ function DispatchLoadingPage() {
               </div>
               {selectedOrder && (
                 <div className="text-right font-mono text-sm font-bold text-primary">
-                  {selectedOrder.dispatch_number || "DO-2026-91FF"}
+                  {selectedOrder.dispatch_number || "Not available"}
                 </div>
               )}
             </div>
@@ -146,28 +138,28 @@ function DispatchLoadingPage() {
               <div className="p-4 rounded-xl bg-muted/40 border grid grid-cols-3 gap-3 text-center">
                 <div>
                   <span className="text-[10px] uppercase text-muted-foreground font-bold block">Expected Items</span>
-                  <span className="font-mono font-bold text-base">150 Units</span>
+                  <span className="font-mono font-bold text-base">{(selectedOrder.items || []).reduce((total: number, item: any) => total + Number(item.quantity_ordered || 0), 0)} Units</span>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase text-muted-foreground font-bold block">Picked Items</span>
-                  <span className="font-mono font-bold text-base text-amber-600">150 Units</span>
+                  <span className="font-mono font-bold text-base text-amber-600">{(selectedOrder.items || []).reduce((total: number, item: any) => total + Number(item.quantity_picked || 0), 0)} Units</span>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase text-muted-foreground font-bold block">Packed Items</span>
-                  <span className="font-mono font-bold text-base text-emerald-600">150 Units</span>
+                  <span className="font-mono font-bold text-base text-emerald-600">{(selectedOrder.items || []).reduce((total: number, item: any) => total + Number(item.quantity_packed || 0), 0)} Units</span>
                 </div>
               </div>
 
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Package Scanning Checklist</h4>
                 <div className="grid grid-cols-2 gap-2">
-                  {scannedPackages.map((pkg, idx) => (
-                    <div key={idx} className="p-3 rounded-xl border bg-card/50 flex items-center justify-between">
+                  {(selectedOrder.items || []).map((item: any, idx: number) => (
+                    <div key={item.id || idx} className="p-3 rounded-xl border bg-card/50 flex items-center justify-between">
                       <div className="font-mono font-bold text-primary text-xs flex items-center gap-1.5">
-                        <Box className="size-3.5" /> {pkg.id} ({pkg.weight})
+                        <Box className="size-3.5" /> {item.material_code || item.material_name || `Package ${idx + 1}`} ({item.quantity_packed || 0} {item.uom || "Units"})
                       </div>
-                      <span className="inline-flex items-center rounded-lg bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-600">
-                        ✓ Scanned
+                      <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-bold ${Number(item.quantity_loaded || 0) > 0 ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>
+                        {Number(item.quantity_loaded || 0) > 0 ? "Scanned" : "Pending"}
                       </span>
                     </div>
                   ))}
@@ -178,11 +170,11 @@ function DispatchLoadingPage() {
               <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
                 <div className="text-xs font-bold uppercase tracking-wider text-primary">Quantity Comparison Verification</div>
                 <div className="grid grid-cols-2 gap-4 text-sm font-mono font-bold">
-                  <div>Packed Quantity = 150</div>
-                  <div className="text-emerald-600">Loaded Quantity = 150</div>
+                  <div>Packed Quantity = {(selectedOrder.items || []).reduce((total: number, item: any) => total + Number(item.quantity_packed || 0), 0)}</div>
+                  <div className="text-emerald-600">Loaded Quantity = {(selectedOrder.items || []).reduce((total: number, item: any) => total + Number(item.quantity_loaded || 0), 0)}</div>
                 </div>
                 <p className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 mt-1">
-                  <CheckCircle2 className="size-4" /> Quantities match perfectly! Loading Complete.
+                  <CheckCircle2 className="size-4" /> Backend quantities loaded for verification.
                 </p>
               </div>
             </div>

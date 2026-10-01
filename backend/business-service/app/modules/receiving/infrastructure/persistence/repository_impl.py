@@ -1458,14 +1458,20 @@ class SqlAlchemyGrnRepository(GrnRepository):
                 )
                 stock_row = stock_res.fetchone()
                 on_hand_before = Decimal(str(stock_row[1])) if stock_row else Decimal("0")
-                on_hand_after = on_hand_before + post_qty
+                # Receiving only creates the receipt record and putaway task.
+                # Authoritative stock is posted by the physical putaway
+                # transaction, so do not update material_stock here.
+                on_hand_after = on_hand_before
 
                 if stock_row:
                     await self._session.execute(
                         text("""
                             UPDATE material_stock
-                            SET on_hand = on_hand + :qty,
-                                available = available + :qty,
+                            -- Receipt quantities remain pending put-away. The
+                            -- storage put-away transaction posts authoritative
+                            -- on-hand and available stock.
+                            SET on_hand = on_hand,
+                                available = available,
                                 updated_at = :now
                             WHERE material_code = :code
                         """),
@@ -1475,7 +1481,7 @@ class SqlAlchemyGrnRepository(GrnRepository):
                     await self._session.execute(
                         text("""
                             INSERT INTO material_stock (id, material_code, material_name, category, on_hand, allocated, available, uom, warehouse_id, reorder_point, updated_at)
-                            VALUES (:id, :code, :name, :cat, :qty, 0, :qty, :uom, :wh, 10, :now)
+                            VALUES (:id, :code, :name, :cat, 0, 0, 0, :uom, :wh, 10, :now)
                         """),
                         {
                             "id": uuid.uuid4(),
@@ -1509,7 +1515,7 @@ class SqlAlchemyGrnRepository(GrnRepository):
                         "name": line.material_name or line.item_code,
                         "uom": line.uom or "PCS",
                         "wh": grn.warehouse_id or "WH-MAIN",
-                        "qty": post_qty,
+                        "qty": 0,
                         "before": on_hand_before,
                         "after": on_hand_after,
                         "user": posted_by,

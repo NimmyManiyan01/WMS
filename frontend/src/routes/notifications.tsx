@@ -227,6 +227,7 @@ function Notifications() {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [userRole, setUserRole] = useState("WAREHOUSE");
+  const [markingAllRead, setMarkingAllRead] = useState(false);
 
   // Modal State for Damaged Goods Details
   const [showDamageModal, setShowDamageModal] = useState(false);
@@ -365,6 +366,29 @@ function Notifications() {
     }
   };
 
+  const handleMarkAllRead = async () => {
+    if (markingAllRead || !notifications.some((notification) => !notification.is_read)) return;
+    setMarkingAllRead(true);
+    try {
+      if (userRole === "WAREHOUSE") {
+        await Promise.all([
+          api.markAllNotificationsRead(userRole),
+          api.markAllArrivalNotificationsRead(),
+        ]);
+      } else {
+        await api.markAllNotificationsRead(userRole);
+      }
+      setNotifications((current) => current.map((notification) => ({ ...notification, is_read: true })));
+      toast.success("All notifications marked as read");
+    } catch (error) {
+      toast.error("Unable to mark all notifications as read", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
   const handleOpenNotificationDetails = (n: any) => {
     // Some older notification records contain the shared warehouse dashboard
     // as their target. Keep procurement users in their own dashboard context.
@@ -499,6 +523,17 @@ function Notifications() {
     <AppShell
       title="Notification centre"
       subtitle="Stay updated with procurement and supply chain alerts"
+      actions={
+        <Button
+          variant="outline"
+          className="rounded-xl"
+          onClick={() => void handleMarkAllRead()}
+          disabled={markingAllRead || !notifications.some((notification) => !notification.is_read)}
+        >
+          <CheckCircle2 className="mr-2 size-4" />
+          {markingAllRead ? "Marking…" : "Mark all as read"}
+        </Button>
+      }
     >
       {loading ? (
         <div className="flex h-64 items-center justify-center">

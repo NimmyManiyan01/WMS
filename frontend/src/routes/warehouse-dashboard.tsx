@@ -234,6 +234,14 @@ function WarehouseDashboard() {
       tone: "purple",
     },
     {
+      label: "Finished Goods Store",
+      to: "/warehouse/finished-goods-store",
+      icon: PackageCheck,
+      value: null,
+      detail: "Assembly putaway & dispatch operations",
+      tone: "primary",
+    },
+    {
       label: "Reports",
       to: "/reports",
       icon: BarChart3,
@@ -1004,6 +1012,55 @@ function WarehouseDashboard() {
             </div>
           </Card>
         </div>
+
+        {/* ============================================================ */}
+        {/* SECTION 3: ASSEMBLY PICKUP QUEUE                            */}
+        {/* ============================================================ */}
+        <Card className="rounded-2xl border border-purple-500/20 bg-purple-500/5 shadow-subtle p-5">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                <ClipboardCheck className="size-4 text-purple-600" /> Assembly Pickup Requests
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Store pickup tasks created from assembly material requisitions
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="rounded-xl text-xs" asChild>
+              <Link to="/warehouse/assembly-requisitions">
+                Open requisitions <ArrowRight className="size-3.5 ml-1.5" />
+              </Link>
+            </Button>
+          </div>
+          {actionReq.pending_pickups?.length ? (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {actionReq.pending_pickups.map((task: any) => (
+                <div key={task.id} className="rounded-xl border bg-background/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs font-bold text-primary">
+                        {task.requisition_number || task.task_number}
+                      </p>
+                      <p className="truncate text-sm font-semibold">
+                        {task.material_name || task.material_code}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {task.requested_quantity ?? task.quantity} {task.uom} · {task.store_name || "Store pending"}
+                      </p>
+                    </div>
+                    <Badge className="shrink-0 bg-purple-500/15 text-purple-700 dark:text-purple-300">
+                      {(task.status || "PENDING").replaceAll("_", " ")}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
+              No active assembly pickup requests.
+            </div>
+          )}
+        </Card>
 
         {/* ============================================================ */}
         {/* SECTION 4: LIVE WAREHOUSE ACTIVITY FEED                     */}

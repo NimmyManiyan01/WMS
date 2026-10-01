@@ -307,6 +307,8 @@ function WarehouseMaterialRequests() {
     "Consumables",
   ]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
   const [isCreating, setIsCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -395,6 +397,45 @@ function WarehouseMaterialRequests() {
             try {
               parsedItems = JSON.parse(searchParams.items_json);
             } catch {}
+          }
+
+          // Auto-fetch from the API if items_json is missing or failed to parse
+          if (parsedItems.length === 0 && searchParams.source_requisition_id) {
+            try {
+              // Fetch the specific requisition which is guaranteed to include its detailed items
+              const req = await (api as any).getAssemblyRequisition?.(searchParams.source_requisition_id).catch(() => null);
+              if (req && req.items) {
+                parsedItems = req.items
+                  .map((it: any) => {
+                    const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
+                    const resQ = Number(it.reserved_quantity ?? 0);
+                    const shortageQ = Number(it.shortage_quantity ?? Math.max(0, reqQ - resQ));
+                    if (shortageQ > 0) {
+                      return {
+                        material_id: it.material_id || it.materialId || "",
+                        material_variant_id: it.material_variant_id || it.materialVariantId || "",
+                        material_code: it.material_code || it.materialCode || "CUSTOM",
+                        variant_code: it.variant_code || it.variantCode || "",
+                        material_name:
+                          it.material_name ||
+                          it.materialName ||
+                          it.custom_material_name ||
+                          it.customMaterialName ||
+                          "Material",
+                        quantity: shortageQ,
+                        uom: it.uom || "PCS",
+                        category: it.category || "Raw Materials",
+                        is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
+                        custom_material_name: it.custom_material_name || it.customMaterialName || null,
+                      };
+                    }
+                    return null;
+                  })
+                  .filter(Boolean);
+              }
+            } catch (err) {
+              console.error("Failed to auto-fetch assembly requisition items", err);
+            }
           }
 
           if (parsedItems && parsedItems.length > 0) {
@@ -846,6 +887,26 @@ function WarehouseMaterialRequests() {
     }
   };
 
+  const filteredRequests = useMemo(() => {
+    return requests.filter((r) => {
+      const matchesStatus =
+        statusFilter === "ALL" || (r.status || "").toUpperCase() === statusFilter.toUpperCase();
+      const q = search.trim().toLowerCase();
+      const reqNum = (r.requestNumber || r.request_number || "").toLowerCase();
+      const matchesSearch =
+        !q ||
+        reqNum.includes(q) ||
+        (r.department || "").toLowerCase().includes(q) ||
+        (r.remarks || "").toLowerCase().includes(q) ||
+        (r.items || []).some((it: any) =>
+          (it.materialName || it.material_name || it.materialCode || it.material_code || "")
+            .toLowerCase()
+            .includes(q),
+        );
+      return matchesStatus && matchesSearch;
+    });
+  }, [requests, search, statusFilter]);
+
   return (
     <AppShell
       title={
@@ -967,180 +1028,151 @@ function WarehouseMaterialRequests() {
                   </Button>
                 </div>
 
-                <div className="space-y-3">
-                  {items.map((item, idx) => {
-                    const selectedMat = masterMaterials.find((m) => m.id === item.material_id);
-                    return (
-                      <div
-                        key={idx}
-                        className="grid gap-3 rounded-2xl border border-border/70 bg-muted/10 p-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-12 items-end transition-all shadow-xs"
-                      >
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
-                          <Label className="text-xs font-semibold text-foreground">Material Master</Label>
-                          <MaterialMasterSearchCombobox
-                            value={item.material_id || "CUSTOM"}
-                            onSelect={(val) => {
-                              if (val === "CUSTOM") {
-                                setItems(
-                                  items.map((it, i) =>
-                                    i === idx
-                                      ? {
-                                          ...it,
-                                          material_id: "",
-                                          material_variant_id: "",
-                                          variant_code: "",
-                                        }
-                                      : it,
-                                  ),
-                                );
-                              } else {
-                                handleSelectMasterMaterial(idx, val);
-                              }
-                            }}
-                            masterMaterials={masterMaterials}
-                            className="h-10"
-                          />
-                        </div>
-
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
-                          <Label className="text-xs font-semibold text-foreground">Specification</Label>
-                          <Select
-                            value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
-                            onValueChange={(val) => handleSelectVariant(idx, val)}
-                            disabled={!selectedMat?.variants?.length}
-                          >
-                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                              <SelectValue placeholder="No specification" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl">
-                              {selectedMat?.variants?.map((v: any) => {
-                                const spec = [v.size, v.color, v.grade]
-                                  .filter(Boolean)
-                                  .join(" · ");
-                                return (
-                                  <SelectItem key={v.id} value={v.id} className="text-xs">
-                                    <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
-                                    {spec && `(${spec})`}
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-3">
-                          <Label className="text-xs font-semibold text-foreground">Material Description</Label>
-                          <Input
-                            placeholder="e.g. Wire 1.5mm Red PVC..."
-                            className={cn(
-                              "h-10 rounded-xl text-sm transition-colors",
-                              Boolean(item.material_id)
-                                ? "bg-muted/50 font-medium cursor-not-allowed text-foreground border-border/60"
-                                : "bg-background"
-                            )}
-                            value={item.material_name}
-                            readOnly={Boolean(item.material_id)}
-                            onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
-                          />
-                        </div>
-
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-2">
-                          <Label className="text-xs font-semibold text-foreground">Category</Label>
-                          <Select
-                            value={item.category || selectedMat?.category || "Raw Materials"}
-                            onValueChange={(val) => handleItemChange(idx, "category", val)}
-                          >
-                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                              <SelectValue placeholder="Select Category..." />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl">
-                              {categoriesList.map((cat) => (
-                                <SelectItem key={cat} value={cat} className="text-xs">
-                                  {cat}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {(() => {
-                            const curCat = item.category || selectedMat?.category || "Raw Materials";
-                            const matchSups = activeSuppliers.filter((s: any) =>
-                              Array.isArray(s.category)
-                                ? s.category.some((c: string) => c.toLowerCase() === curCat.toLowerCase())
-                                : (s.category || "").toLowerCase() === curCat.toLowerCase(),
-                            );
-                            return (
-                              <p
-                                className={cn(
-                                  "text-[10px] font-medium flex items-center gap-1 mt-0.5",
-                                  matchSups.length > 0
-                                    ? "text-emerald-700 dark:text-emerald-400"
-                                    : "text-amber-700 dark:text-amber-400",
-                                )}
-                              >
-                                {matchSups.length > 0 ? (
-                                  <>
-                                    <CheckCircle2 className="size-3 shrink-0 text-emerald-600" />
-                                    <span>
-                                      {matchSups.length} active supplier{matchSups.length > 1 ? "s" : ""} available for this category
-                                    </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <AlertCircle className="size-3 shrink-0 text-amber-600" />
-                                    <span>No active suppliers found for this category</span>
-                                  </>
-                                )}
-                              </p>
-                            );
-                          })()}
-                        </div>
-
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
-                          <Label className="text-xs font-semibold text-foreground">Quantity</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            className="h-10 rounded-xl bg-background text-center text-sm tabular-nums"
-                            value={item.quantity}
-                            onChange={(e) => handleItemChange(idx, "quantity", e.target.value)}
-                          />
-                        </div>
-
-                        <div className="flex min-w-0 flex-col gap-1.5 xl:col-span-1">
-                          <Label className="text-xs font-semibold text-foreground">UOM</Label>
-                          <Select
-                            value={item.uom}
-                            onValueChange={(value) => handleItemChange(idx, "uom", value)}
-                          >
-                            <SelectTrigger className="h-10 w-full rounded-xl bg-background text-xs">
-                              <SelectValue placeholder="UOM" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl">
-                              {uoms.map((uom) => (
-                                <SelectItem key={uom} value={uom} className="text-xs rounded-lg">
-                                  {uom}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="flex items-center justify-center h-10 xl:col-span-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-10 rounded-xl text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-30"
-                            onClick={() => removeItem(idx)}
-                            disabled={items.length === 1}
-                            aria-label={`Remove material item ${idx + 1}`}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="rounded-2xl border border-border/60 overflow-hidden bg-card shadow-inner">
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed text-left text-sm border-collapse min-w-[800px]">
+                      <colgroup>
+                        <col className="w-[20%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[24%]" />
+                        <col className="w-[15%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[8%]" />
+                        <col className="w-[5%]" />
+                      </colgroup>
+                      <thead>
+                        <tr className="bg-muted/40 border-b border-border/60">
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Material Master</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Specification</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Material Description</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Category</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">Qty</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">UOM</th>
+                          <th className="p-3 text-right"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {items.map((item, idx) => {
+                          const selectedMat = masterMaterials.find((m) => m.id === item.material_id);
+                          return (
+                            <tr key={idx} className="hover:bg-muted/10 transition-colors">
+                              <td className="p-2 min-w-0">
+                                <MaterialMasterSearchCombobox
+                                  value={item.material_id || "CUSTOM"}
+                                  onSelect={(val) => {
+                                    if (val === "CUSTOM") {
+                                      setItems(
+                                        items.map((it, i) =>
+                                          i === idx
+                                            ? { ...it, material_id: "", material_variant_id: "", variant_code: "" }
+                                            : it
+                                        )
+                                      );
+                                    } else {
+                                      handleSelectMasterMaterial(idx, val);
+                                    }
+                                  }}
+                                  masterMaterials={masterMaterials}
+                                  size="sm"
+                                />
+                              </td>
+                              <td className="p-2 min-w-0">
+                                <Select
+                                  value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
+                                  onValueChange={(val) => handleSelectVariant(idx, val)}
+                                  disabled={!selectedMat?.variants?.length}
+                                >
+                                  <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
+                                    <SelectValue placeholder="No spec" />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-xl max-h-60">
+                                    {selectedMat?.variants?.map((v: any) => {
+                                      const spec = [v.size, v.color, v.grade].filter(Boolean).join(" · ");
+                                      return (
+                                        <SelectItem key={v.id} value={v.id} className="text-xs">
+                                          <span className="font-mono font-bold">{formatSpecCode(v.variant_code)}</span>{" "}
+                                          {spec && `(${spec})`}
+                                        </SelectItem>
+                                      );
+                                    })}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="p-2 min-w-0">
+                                <Input
+                                  placeholder="e.g. Wire 1.5mm Red PVC..."
+                                  className={cn(
+                                    "h-9 rounded-xl text-xs transition-colors",
+                                    Boolean(item.material_id)
+                                      ? "bg-muted/50 font-medium cursor-not-allowed text-foreground border-border/60"
+                                      : "bg-background"
+                                  )}
+                                  value={item.material_name}
+                                  readOnly={Boolean(item.material_id)}
+                                  onChange={(e) => handleItemChange(idx, "material_name", e.target.value)}
+                                />
+                              </td>
+                              <td className="p-2 min-w-0">
+                                <Select
+                                  value={item.category || selectedMat?.category || "Raw Materials"}
+                                  onValueChange={(val) => handleItemChange(idx, "category", val)}
+                                >
+                                  <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
+                                    <SelectValue placeholder="Category..." />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-xl">
+                                    {categoriesList.map((cat) => (
+                                      <SelectItem key={cat} value={cat} className="text-xs">
+                                        {cat}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="p-2 min-w-0">
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  className="h-9 rounded-xl bg-background text-center text-xs tabular-nums"
+                                  value={item.quantity}
+                                  onChange={(e) => handleItemChange(idx, "quantity", e.target.value)}
+                                />
+                              </td>
+                              <td className="p-2 min-w-0">
+                                <Select
+                                  value={item.uom}
+                                  onValueChange={(value) => handleItemChange(idx, "uom", value)}
+                                >
+                                  <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
+                                    <SelectValue placeholder="UOM" />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-xl">
+                                    {uoms.map((uom) => (
+                                      <SelectItem key={uom} value={uom} className="text-xs rounded-lg">
+                                        {uom}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="p-2 text-center">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-30"
+                                  onClick={() => removeItem(idx)}
+                                  disabled={items.length === 1}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Informational Alert for Selected Categories */}
@@ -1223,65 +1255,107 @@ function WarehouseMaterialRequests() {
         </Card>
       ) : null}
 
-      <div className="mb-6 flex flex-wrap items-center gap-4">
-        <div className="relative max-w-sm flex-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            placeholder="Search request number..."
-            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="relative w-72">
+          <Search className="size-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+          <Input
+            placeholder="Search request or item..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-9 text-xs rounded-xl bg-background/60 border-border/40"
           />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44 h-9 text-xs rounded-xl border-border/40">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Status</SelectItem>
+              <SelectItem value="DRAFT">Draft</SelectItem>
+              <SelectItem value="SUBMITTED">Submitted</SelectItem>
+              <SelectItem value="PENDING APPROVAL">Pending Approval</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+              <SelectItem value="ORDERED">Ordered</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchData}
+            className="h-9 rounded-xl text-xs"
+          >
+            Refresh
+          </Button>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex h-64 items-center justify-center">
+        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
           <Loader2 className="size-8 animate-spin text-primary" />
+          <p className="text-sm">Loading material requests...</p>
         </div>
-      ) : requests.length === 0 ? (
-        <Card className="flex h-64 flex-col items-center justify-center p-6 text-center border-dashed border-border/50 bg-muted/20">
-          <ClipboardList className="size-12 text-muted-foreground/30 mb-4" />
-          <h3 className="text-lg font-semibold text-muted-foreground">No active requests</h3>
-          <p className="text-sm text-muted-foreground/70">
-            Create a new request to notify the procurement team.
+      ) : filteredRequests.length === 0 ? (
+        <Card className="border-dashed border-border/60 p-12 text-center bg-card/40">
+          <ClipboardList className="size-10 mx-auto text-muted-foreground opacity-40 mb-3" />
+          <h3 className="text-sm font-bold text-foreground">No Requests Found</h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+            {search ? "No requests match your filters." : "Create a new request to notify the procurement team."}
           </p>
         </Card>
       ) : (
         <div className="grid gap-4">
-          {requests.map((req) => (
+          {filteredRequests.map((req) => (
             <Card
               key={req.id}
-              className="overflow-hidden border-border/50 transition-all hover:border-primary/30 hover:shadow-soft cursor-pointer group"
+              className="border-border/40 hover:border-primary/40 transition-colors shadow-soft cursor-pointer group"
               onClick={() => handleRequestClick(req)}
             >
-              <div className="flex flex-col p-5 md:flex-row md:items-center">
-                <div className="mb-4 flex flex-1 items-start gap-4 md:mb-0">
-                  <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-orange-soft/30 text-orange-600">
-                    <ClipboardList className="size-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-foreground tracking-tight">
-                        {req.requestNumber}
-                      </h3>
+              <CardContent className="p-5">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div className="space-y-3 flex-1">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="font-mono text-sm font-bold text-foreground">
+                        {req.requestNumber || req.request_number}
+                      </span>
                       <StatusBadge status={req.status} />
-                      <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
-                        {req.priority || "MEDIUM"}
+                      {req.priority && (
+                        <span
+                          className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
+                            req.priority === "URGENT"
+                              ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                              : req.priority === "HIGH"
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+                          )}
+                        >
+                          {req.priority}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Building2 className="size-3.5" /> Department:{" "}
+                        <strong className="text-foreground">{req.department}</strong>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="size-3.5" /> Required:{" "}
+                        <strong className="text-foreground">
+                          {new Date(req.requiredDate || req.required_date).toLocaleDateString()}
+                        </strong>
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground font-medium">
-                      <span className="flex items-center gap-1">
-                        <Building2 className="size-3.5" /> {req.department}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="size-3.5" /> Required by{" "}
-                        {new Date(req.requiredDate || req.required_date).toLocaleDateString()}
-                      </span>
-                    </div>
+
                     <div className="mt-3 flex flex-wrap gap-2">
                       {req.items?.map((item: any, idx: number) => (
                         <span
                           key={idx}
-                          className="text-[10px] text-orange-700 bg-orange-soft/20 px-2 py-0.5 rounded-md border border-orange-200 uppercase font-bold"
+                          className="text-[10px] text-primary/80 bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 font-bold"
                         >
                           {item.materialCode || item.material_code}: {Math.floor(item.quantity)}{" "}
                           {item.uom}
@@ -1289,18 +1363,30 @@ function WarehouseMaterialRequests() {
                       ))}
                     </div>
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-2 text-right">
-                  <div>
-                    <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">
-                      Created At
-                    </p>
-                    <p className="text-sm font-bold tabular-nums">
-                      {new Date(req.createdAt || req.created_at).toLocaleDateString()}
-                    </p>
+
+                  <div className="flex flex-col items-end gap-2 text-right shrink-0">
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground mb-0.5">
+                        Created At
+                      </p>
+                      <p className="text-xs font-bold tabular-nums">
+                        {new Date(req.createdAt || req.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl h-8 text-xs mt-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRequestClick(req);
+                      }}
+                    >
+                      View Details
+                    </Button>
                   </div>
                 </div>
-              </div>
+              </CardContent>
             </Card>
           ))}
         </div>

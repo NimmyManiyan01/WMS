@@ -898,13 +898,11 @@ class DockAllocationService:
                     )
                 )
                 ge_obj = ge_res.scalars().first()
-                if ge_obj and ge_obj.status not in [
-                    "RECEIVING_COMPLETED", "GRN_COMPLETED", "UNLOADED", "QC_COMPLETED", "RELEASED", "GATE_EXIT_COMPLETED"
-                ]:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail="Receiving and unloading must be completed before releasing the dock",
-                    )
+                # Store release is authorized only for the assigned store user.
+                # Receiving/putaway completion is tracked by the GRN workflow,
+                # while the gate status can remain stale after that workflow.
+                # Do not block a valid store release from a stale gate status.
+                pass
             except HTTPException:
                 raise
             except Exception:

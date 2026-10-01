@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   Truck,
@@ -196,6 +196,8 @@ function WarehouseDispatchTrackingPage() {
           <Button variant="outline" className="rounded-xl gap-2" onClick={() => void loadData()}>
             <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
+          <Link to="/warehouse/finished-goods-store" className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted">Finished Goods Store</Link>
+          <Link to="/inventory" className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-muted">Inventory</Link>
         </div>
       }
     >
@@ -393,7 +395,7 @@ function WarehouseDispatchTrackingPage() {
                               {d.dispatch_number || "-"}
                             </span>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <span>Ref: {d.order_number || "SO-Direct"}</span>
+                              <span>Ref: {d.order_number || "-"}</span>
                               {d.priority && (
                                 <Badge
                                   variant="outline"
@@ -416,10 +418,10 @@ function WarehouseDispatchTrackingPage() {
                         {/* Customer & Destination */}
                         <TableCell>
                           <div className="space-y-0.5 max-w-[200px]">
-                            <p className="font-medium text-foreground text-sm truncate">{d.customer_name || "Direct Client"}</p>
+                            <p className="font-medium text-foreground text-sm truncate">{d.customer_name || "-"}</p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
                               <MapPin className="size-3 shrink-0 text-muted-foreground" />
-                              {d.destination || d.delivery_address || "Standard Hub"}
+                              {d.destination || d.delivery_address || "-"}
                             </p>
                           </div>
                         </TableCell>
@@ -438,9 +440,7 @@ function WarehouseDispatchTrackingPage() {
                                 + {items.length - 2} more item(s)
                               </p>
                             )}
-                            {items.length === 0 && (
-                              <span className="text-xs text-muted-foreground italic">No items listed</span>
-                            )}
+                            {items.length === 0 && <span className="text-xs text-muted-foreground italic">-</span>}
                           </div>
                         </TableCell>
 
@@ -448,7 +448,7 @@ function WarehouseDispatchTrackingPage() {
                         <TableCell className="text-center font-mono">
                           <span className="font-semibold text-foreground">{totOrdered}</span>
                           <span className="text-xs text-muted-foreground ml-1">
-                            {items[0]?.uom || "PCS"}
+                            {items[0]?.uom || "-"}
                           </span>
                         </TableCell>
 
@@ -514,7 +514,7 @@ function WarehouseDispatchTrackingPage() {
 
                         {/* Dispatch Status */}
                         <TableCell className="text-center">
-                          <StatusBadge status={d.status || "PLANNED"} />
+                          <StatusBadge status={d.status || "-"} />
                         </TableCell>
 
                         {/* Action */}
@@ -558,7 +558,7 @@ function WarehouseDispatchTrackingPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Sales Order: <span className="font-semibold text-foreground">{selectedDispatch.order_number || "Direct"}</span> · Created: {formatDateTime(selectedDispatch.created_at)}
+                    Sales Order: <span className="font-semibold text-foreground">{selectedDispatch.order_number || "-"}</span> · Created: {formatDateTime(selectedDispatch.created_at)}
                   </p>
                 </div>
               </div>
@@ -636,7 +636,7 @@ function WarehouseDispatchTrackingPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Warehouse:</span>
-                      <span className="font-medium text-foreground">{selectedDispatch.warehouse_id || "Main Warehouse"}</span>
+                      <span className="font-medium text-foreground">{selectedDispatch.warehouse_id || "-"}</span>
                     </div>
                   </div>
                 </Card>
@@ -648,7 +648,7 @@ function WarehouseDispatchTrackingPage() {
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Route Code:</span>
-                      <span className="font-mono font-medium text-foreground">{selectedDispatch.route_code || "Standard Route"}</span>
+                      <span className="font-mono font-medium text-foreground">{selectedDispatch.route_code || "-"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Scheduled Date:</span>
@@ -661,7 +661,7 @@ function WarehouseDispatchTrackingPage() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Special Instructions:</span>
                       <span className="text-foreground italic max-w-[200px] truncate">
-                        {selectedDispatch.notes || "None"}
+                        {selectedDispatch.notes || "-"}
                       </span>
                     </div>
                   </div>
@@ -698,7 +698,7 @@ function WarehouseDispatchTrackingPage() {
                           <TableCell className="text-xs text-center font-mono text-muted-foreground">{it.quantity_picked ?? "-"}</TableCell>
                           <TableCell className="text-xs text-center font-mono text-muted-foreground">{it.quantity_packed ?? "-"}</TableCell>
                           <TableCell className="text-xs text-center font-mono text-muted-foreground">{it.quantity_loaded ?? "-"}</TableCell>
-                          <TableCell className="text-xs text-center text-muted-foreground">{it.uom || "PCS"}</TableCell>
+                          <TableCell className="text-xs text-center text-muted-foreground">{it.uom || "-"}</TableCell>
                           <TableCell className="text-xs text-right">
                             <StatusBadge status={it.status || selectedDispatch.status} />
                           </TableCell>

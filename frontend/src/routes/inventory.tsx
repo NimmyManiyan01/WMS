@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, lazy, Suspense } from "react";
 import {
   Boxes,
   Search,
@@ -56,13 +56,18 @@ export const Route = createFileRoute("/inventory")({
   component: InventoryPage,
 });
 
+const InventoryScene = lazy(() => import("@/components/wms/inventory-scene"));
+
 function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<"matrix" | "ledger">("matrix");
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const [activeTab, setActiveTab] = useState<"scene" | "matrix" | "ledger">("scene");
   const [summaryList, setSummaryList] = useState<any[]>([]);
   const [ledgerList, setLedgerList] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -101,6 +106,7 @@ function InventoryPage() {
         setLedgerList(ledgerData || []);
         setStats(statsData);
         setStores(storesData || []);
+        setLastUpdatedAt(new Date());
       } catch (error: any) {
         toast.error(error.message || "Failed to load authoritative inventory");
       } finally {
@@ -112,6 +118,17 @@ function InventoryPage() {
 
   useEffect(() => {
     void fetchInventoryData();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void fetchInventoryData(true);
+    };
+    const timer = window.setInterval(refreshWhenVisible, 5000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [fetchInventoryData]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -166,19 +183,29 @@ function InventoryPage() {
     });
   }, [ledgerList, search]);
 
-  // Aggregate metrics
-  const totalSkus = stats?.total_skus ?? summaryList.length;
-  const totalAvailable =
-    stats?.total_available_units ??
-    summaryList.reduce((acc, s) => acc + (s.available_quantity || 0), 0);
-  const totalQuarantined =
-    stats?.total_quarantined_units ??
-    summaryList.reduce((acc, s) => acc + (s.quarantined_quantity || 0), 0);
-  const totalOnHand =
-    stats?.total_units ?? summaryList.reduce((acc, s) => acc + (s.total_quantity || 0), 0);
-  const totalAllocated = summaryList.reduce((acc, s) => acc + (s.allocated_quantity || 0), 0);
-  const lowStockCount =
-    stats?.low_stock_skus ?? summaryList.filter((s) => s.status === "LOW_STOCK").length;
+  // The matrix is the source of truth for this page. The stats endpoint totals
+  // material_stock (warehouse-wide), while this view is based on location
+  // balances, so using stats here can show values that do not add up to the
+  // rows visible below.
+  const numeric = (value: unknown) => Number(value ?? 0);
+  const totalSkus = new Set(summaryList.map((s) => s.material_code)).size;
+  const totalAvailable = summaryList.reduce(
+    (acc, s) => acc + numeric(s.available_quantity),
+    0,
+  );
+  const totalQuarantined = summaryList.reduce(
+    (acc, s) => acc + numeric(s.quarantined_quantity),
+    0,
+  );
+  const totalOnHand = summaryList.reduce(
+    (acc, s) => acc + numeric(s.total_quantity),
+    0,
+  );
+  const totalAllocated = summaryList.reduce(
+    (acc, s) => acc + numeric(s.allocated_quantity),
+    0,
+  );
+  const lowStockCount = summaryList.filter((s) => s.status === "LOW_STOCK").length;
 
   return (
     <AppShell
@@ -262,6 +289,7 @@ function InventoryPage() {
       <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border/40 pb-3">
           <TabsList className="bg-muted/40 p-1 rounded-xl">
+            <TabsTrigger value="scene" className="rounded-lg text-xs font-semibold"><Boxes className="size-3.5 mr-1.5" />3D Warehouse</TabsTrigger>
             <TabsTrigger value="matrix" className="rounded-lg text-xs font-semibold">
               <Building2 className="size-3.5 mr-1.5" />
               Stock by Location Matrix (Store → Zone → Bin)
@@ -298,7 +326,7 @@ function InventoryPage() {
               </SelectContent>
             </Select>
 
-            {activeTab === "matrix" ? (
+            {activeTab !== "ledger" ? (
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-32 h-8 text-xs rounded-xl border-border/60">
                   <SelectValue placeholder="Status" />
@@ -329,6 +357,9 @@ function InventoryPage() {
           </form>
         </div>
 
+        <TabsContent value="scene">
+          {loading || !mounted ? <div className="grid h-96 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div> : <Suspense fallback={<div className="grid h-96 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div>}><InventoryScene items={filteredSummary} onInspect={handleOpenItemTraceability} lastUpdatedAt={lastUpdatedAt} /></Suspense>}
+        </TabsContent>
         {/* TAB 1: STOCK BY STORE & ZONE & BIN MATRIX */}
         <TabsContent value="matrix" className="space-y-4">
           {loading ? (

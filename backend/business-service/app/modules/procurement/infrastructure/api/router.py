@@ -91,6 +91,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     QuotationDocumentSchema,
     CreateAsnRequest,
     AsnResponse,
+    ReplacementRequestResponse,
     AsnLineSchema,
     AsnDocumentSchema,
     ArrivalNotificationResponse,
@@ -142,6 +143,7 @@ from app.modules.procurement.infrastructure.persistence.models import (
     MaterialStockModel,
     POApprovalHistoryModel,
     NotificationModel,
+    ReplacementRequestModel,
     rfq_supplier_link,
 )
 from app.modules.procurement.infrastructure.persistence.repository_impl import (
@@ -2660,7 +2662,8 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             select(PurchaseOrderModel)
             .options(
                 selectinload(PurchaseOrderModel.items),
-                selectinload(PurchaseOrderModel.history)
+                selectinload(PurchaseOrderModel.history),
+                selectinload(PurchaseOrderModel.quotation)
             )
             .where(PurchaseOrderModel.id == po_id)
         )
@@ -2721,7 +2724,13 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
         asn_link = f"http://localhost:8080/supplier/asns/new?poId={po.id}"
         view_link = f"http://localhost:8080/purchase-order?poId={po.id}"
 
-        total_val = float(po.total_amount) if po.total_amount else 0.0
+        # The supplier email must use the same persisted grand total as the
+        # submitted quotation whenever the PO is linked to one.
+        total_val = float(
+            getattr(po.quotation, "total_amount", None)
+            if getattr(po, "quotation", None) and getattr(po.quotation, "total_amount", None) is not None
+            else (po.total_amount or 0)
+        )
 
         body = (
             f"Dear {po.supplier_name},\n\n"
@@ -3628,8 +3637,8 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
 
 
         scalar_fields = {
-            "status", "discount", "tax", "freight_charges", "total_amount",
-            "delivery_time", "expected_delivery_date", "payment_terms", "mode_of_payment", "remarks"
+            "status", "discount", "tax", "freight_charges", "additional_charges", "total_amount",
+            "delivery_time", "expected_delivery_date", "payment_terms", "mode_of_payment", "warranty", "remarks"
         }
         for field in scalar_fields:
             if field in request:
@@ -3671,11 +3680,13 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
         disc = Decimal(str(q.discount or 0))
         tx = Decimal(str(q.tax or 0))
         fr = Decimal(str(q.freight_charges or 0))
+        additional = Decimal(str(q.additional_charges or 0))
 
 
-        base_amount = line_total - disc
+        discount_amount = line_total * (disc / Decimal("100")) if disc > 0 else Decimal("0")
+        base_amount = max(line_total - discount_amount, Decimal("0"))
         calculated_tax = base_amount * (tx / Decimal("100")) if tx > 0 else Decimal("0")
-        q.total_amount = base_amount + calculated_tax + fr
+        q.total_amount = base_amount + calculated_tax + fr + additional
 
         await uow.commit()
         return _to_quotation_response(q)
@@ -3786,6 +3797,102 @@ def _to_quotation_response(q, supplier_info=None) -> QuotationResponse:
 
 
 
+def _replacement_response(entity: ReplacementRequestModel) -> ReplacementRequestResponse:
+    return ReplacementRequestResponse(
+        id=str(entity.id), request_number=entity.request_number, supplier_id=str(entity.supplier_id),
+        purchase_order_id=str(entity.purchase_order_id) if entity.purchase_order_id else None,
+        original_asn_id=str(entity.original_asn_id) if entity.original_asn_id else None,
+        item_code=entity.item_code, item_name=entity.item_name,
+        replacement_quantity=entity.replacement_quantity, uom=entity.uom,
+        reason=entity.reason, remarks=entity.remarks, request_date=entity.request_date,
+        supplier_response_due_at=entity.supplier_response_due_at,
+        replacement_dispatch_due_at=entity.replacement_dispatch_due_at,
+        status=entity.status, supplier_response_at=entity.supplier_response_at,
+        accepted_at=entity.accepted_at, extension_requested_at=entity.extension_requested_at,
+        disputed_at=entity.disputed_at, created_at=entity.created_at,
+    )
+
+
+def _authenticated_supplier_id(user: CurrentUser) -> uuid.UUID:
+    raw = user.raw_claims.get("supplier_id")
+    if not raw:
+        raise HTTPException(status_code=403, detail="Authenticated supplier context is required")
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid authenticated supplier") from exc
+
+
+@router.get("/supplier/replacement-requests", response_model=List[ReplacementRequestResponse])
+async def list_supplier_replacement_requests(
+    uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)
+):
+    supplier_id = _authenticated_supplier_id(user)
+    result = await uow.session.execute(select(ReplacementRequestModel).where(ReplacementRequestModel.supplier_id == supplier_id).order_by(ReplacementRequestModel.created_at.desc()))
+    return [_replacement_response(item) for item in result.scalars().all()]
+
+
+@router.get("/supplier/replacement-requests/{request_id}", response_model=ReplacementRequestResponse)
+async def get_supplier_replacement_request(request_id: str, uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)):
+    supplier_id = _authenticated_supplier_id(user)
+    try:
+        request_uuid = uuid.UUID(request_id)
+    except ValueError:
+        request_uuid = None
+    stmt = select(ReplacementRequestModel).where(ReplacementRequestModel.supplier_id == supplier_id)
+    stmt = stmt.where(ReplacementRequestModel.id == request_uuid if request_uuid else ReplacementRequestModel.request_number == request_id)
+    entity = (await uow.session.execute(stmt)).scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Replacement request not found")
+    return _replacement_response(entity)
+
+
+async def _supplier_replacement_action(request_id: str, action: str, uow: UnitOfWork, user: CurrentUser, remarks: Optional[str] = None):
+    supplier_id = _authenticated_supplier_id(user)
+    try:
+        request_uuid = uuid.UUID(request_id)
+    except ValueError:
+        request_uuid = None
+    stmt = select(ReplacementRequestModel).where(ReplacementRequestModel.supplier_id == supplier_id)
+    stmt = stmt.where(ReplacementRequestModel.id == request_uuid if request_uuid else ReplacementRequestModel.request_number == request_id)
+    entity = (await uow.session.execute(stmt)).scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Replacement request not found")
+    now = datetime.now()
+    if action == "accept":
+        if entity.status not in {"SENT_TO_SUPPLIER", "AWAITING_SUPPLIER"}:
+            raise HTTPException(status_code=409, detail="Replacement request is not awaiting supplier acceptance")
+        entity.status, entity.accepted_at, entity.supplier_response_at = "SUPPLIER_ACCEPTED", now, now
+    elif action == "extension":
+        if entity.status not in {"SENT_TO_SUPPLIER", "AWAITING_SUPPLIER", "SUPPLIER_ACCEPTED"}:
+            raise HTTPException(status_code=409, detail="Extension cannot be requested in the current status")
+        entity.status, entity.extension_requested_at, entity.supplier_response_at = "EXTENSION_REQUESTED", now, now
+        entity.remarks = remarks or entity.remarks
+    else:
+        if entity.status not in {"SENT_TO_SUPPLIER", "AWAITING_SUPPLIER"}:
+            raise HTTPException(status_code=409, detail="Request cannot be disputed in the current status")
+        entity.status, entity.disputed_at, entity.supplier_response_at = "SUPPLIER_DISPUTED", now, now
+        entity.remarks = remarks or entity.remarks
+    uow.session.add(NotificationModel(id=uuid.uuid4(), user_role="PROCUREMENT", title="Replacement request updated", message=f"Supplier updated {entity.request_number}: {entity.status}"))
+    await uow.commit()
+    return _replacement_response(entity)
+
+
+@router.post("/supplier/replacement-requests/{request_id}/accept", response_model=ReplacementRequestResponse)
+async def accept_supplier_replacement_request(request_id: str, uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)):
+    return await _supplier_replacement_action(request_id, "accept", uow, user)
+
+
+@router.post("/supplier/replacement-requests/{request_id}/extension-request", response_model=ReplacementRequestResponse)
+async def request_supplier_replacement_extension(request_id: str, request: dict, uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)):
+    return await _supplier_replacement_action(request_id, "extension", uow, user, request.get("remarks"))
+
+
+@router.post("/supplier/replacement-requests/{request_id}/dispute", response_model=ReplacementRequestResponse)
+async def dispute_supplier_replacement_request(request_id: str, request: dict, uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)):
+    return await _supplier_replacement_action(request_id, "dispute", uow, user, request.get("remarks"))
+
+
 @router.post("/asns", response_model=AsnResponse, status_code=status.HTTP_201_CREATED)
 async def create_asn(
     request: CreateAsnRequest,
@@ -3801,6 +3908,23 @@ async def create_asn(
         supplier_id = _user.raw_claims.get("supplier_id") if "SUPPLIER" in _user.roles else None
         if supplier_id:
             supplier_id = str(supplier_id)
+
+        if request.shipment_type == "REPLACEMENT":
+            if not request.replacement_request_id:
+                raise HTTPException(status_code=400, detail="Replacement request is required")
+            try:
+                replacement_uuid = uuid.UUID(request.replacement_request_id)
+                supplier_uuid = uuid.UUID(str(supplier_id)) if supplier_id else None
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid replacement request") from exc
+            replacement = await uow.session.scalar(select(ReplacementRequestModel).where(ReplacementRequestModel.id == replacement_uuid, ReplacementRequestModel.supplier_id == supplier_uuid))
+            if not replacement:
+                raise HTTPException(status_code=404, detail="Replacement request not found")
+            if replacement.status != "SUPPLIER_ACCEPTED":
+                raise HTTPException(status_code=409, detail="Replacement request must be accepted before ASN creation")
+            submitted_quantity = sum((line.shipped_quantity for line in request.lines), Decimal("0"))
+            if submitted_quantity <= 0 or submitted_quantity > replacement.replacement_quantity:
+                raise HTTPException(status_code=422, detail="Replacement quantity exceeds the approved quantity")
 
 
 
@@ -3862,6 +3986,17 @@ async def create_asn(
         )
         asn_id = await use_case.handle(command)
 
+        if request.shipment_type or request.replacement_request_id:
+            created_asn = await uow.session.scalar(select(AsnModel).where(AsnModel.id == asn_id.value))
+            if created_asn:
+                created_asn.shipment_type = request.shipment_type or "STANDARD"
+                if request.replacement_request_id:
+                    created_asn.replacement_request_id = uuid.UUID(request.replacement_request_id)
+                    replacement = await uow.session.scalar(select(ReplacementRequestModel).where(ReplacementRequestModel.id == created_asn.replacement_request_id))
+                    if replacement:
+                        created_asn.original_asn_id = replacement.original_asn_id
+                        replacement.status = "ASN_CREATED"
+
 
         if request.po_id:
             try:
@@ -3888,7 +4023,12 @@ async def create_asn(
                         id=uuid.uuid4(),
                         user_role="PROCUREMENT",
                         title="Shipment Dispatched",
-                        message=f"Supplier has dispatched goods for PO {po_obj.po_number}. ASN: {request.asn_number}",
+                        message=(
+                            f"Supplier has dispatched a {request.shipment_type or 'STANDARD'} shipment for PO {po_obj.po_number}. "
+                            f"ASN: {request.asn_number}. "
+                            + (f"Return reason: {request.return_reason}; return method: {request.return_method}; refund within {request.refund_days} days; original ASN: {request.original_asn_number}. " if request.shipment_type == "RETURN" else "")
+                            + (f"Replacement reason: {request.replacement_reason}; replacement for ASN: {request.replacement_for_asn}; expected dispatch: {request.replacement_dispatch_date}. " if request.shipment_type == "REPLACEMENT" else "")
+                        ),
                         link=f"/procurement/asns/{asn_id.value}"
                     ))
             except Exception as po_err:
@@ -4908,20 +5048,18 @@ async def get_user_navigation(
 
 
 async def _serialize_finished_goods_request(req: FinishedGoodsRequestModel, uow: UnitOfWork) -> dict:
-    from app.modules.assembly.infrastructure.persistence.models import AssemblyFinishedGoodsModel
-
     fg_available = Decimal("0")
     try:
+        from app.modules.storage.infrastructure.persistence.models import InventoryLocationBalanceModel
         fg_conditions = []
         if req.finished_goods_code:
-            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_code) == req.finished_goods_code.strip().upper())
+            fg_conditions.append(func.upper(InventoryLocationBalanceModel.material_code) == req.finished_goods_code.strip().upper())
         if req.finished_goods_name:
-            fg_conditions.append(func.upper(AssemblyFinishedGoodsModel.product_name) == req.finished_goods_name.strip().upper())
+            fg_conditions.append(func.upper(InventoryLocationBalanceModel.material_name) == req.finished_goods_name.strip().upper())
 
         if fg_conditions:
-            fg_query = select(func.coalesce(func.sum(AssemblyFinishedGoodsModel.quantity), Decimal("0"))).where(
+            fg_query = select(func.coalesce(func.sum(InventoryLocationBalanceModel.available_quantity), Decimal("0"))).where(
                 or_(*fg_conditions),
-                AssemblyFinishedGoodsModel.status.in_(["AVAILABLE", "PUTAWAY_COMPLETED", "IN_STORE", "COMPLETED", "STORED"])
             )
             fg_res = await uow.session.execute(fg_query)
             fg_available = Decimal(str(fg_res.scalar() or 0))

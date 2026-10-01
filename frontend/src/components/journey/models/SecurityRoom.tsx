@@ -78,20 +78,17 @@ export function SecurityRoom({
           <meshStandardMaterial color="#e2e8f0" metalness={0.9} roughness={0.2} />
         </mesh>
 
-        {/* ─── TRIANGULAR SLOPED ROOF (MATCHING WAREHOUSE ARCHITECTURE) ─── */}
+        {/* ─── TRIANGULAR SLOPED ROOF ─── */}
         <group position={[0, 2.5, 0]}>
-          {/* Front Triangular Gable Pediment */}
           <mesh position={[0, 0, 1.46]} castShadow receiveShadow>
             <extrudeGeometry args={[gableShape, { depth: 0.12, bevelEnabled: false }]} />
             <meshStandardMaterial color="#cbd5e1" roughness={0.7} metalness={0.15} />
           </mesh>
-          {/* Rear Triangular Gable Pediment */}
           <mesh position={[0, 0, -1.46]} castShadow receiveShadow>
             <extrudeGeometry args={[gableShape, { depth: 0.12, bevelEnabled: false }]} />
             <meshStandardMaterial color="#cbd5e1" roughness={0.7} metalness={0.15} />
           </mesh>
 
-          {/* Front Sloped Bargeboards / Fascia (Teal) */}
           <mesh position={[-0.75, 0.45, 1.52]} rotation={[0, 0, slopeAngle]} castShadow>
             <boxGeometry args={[slopeLength + 0.2, 0.14, 0.08]} />
             <meshStandardMaterial color="#187d86" roughness={0.45} metalness={0.3} />
@@ -101,7 +98,6 @@ export function SecurityRoom({
             <meshStandardMaterial color="#187d86" roughness={0.45} metalness={0.3} />
           </mesh>
 
-          {/* Illuminated Cyan Neon Edge Strips */}
           <mesh position={[-0.75, 0.45, 1.57]} rotation={[0, 0, slopeAngle]}>
             <boxGeometry args={[slopeLength + 0.15, 0.03, 0.03]} />
             <meshStandardMaterial color="#ffffff" emissive="#22d3ee" emissiveIntensity={2.0} />
@@ -111,35 +107,19 @@ export function SecurityRoom({
             <meshStandardMaterial color="#ffffff" emissive="#22d3ee" emissiveIntensity={2.0} />
           </mesh>
 
-          {/* Left Pitch Roof Slope */}
-          <mesh
-            position={[-0.75, 0.45, 0]}
-            rotation={[0, 0, slopeAngle]}
-            castShadow
-            receiveShadow
-          >
+          <mesh position={[-0.75, 0.45, 0]} rotation={[0, 0, slopeAngle]} castShadow receiveShadow>
+            <boxGeometry args={[slopeLength + 0.2, 0.08, 3.1]} />
+            <meshStandardMaterial color="#374151" roughness={0.65} metalness={0.35} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0.75, 0.45, 0]} rotation={[0, 0, -slopeAngle]} castShadow receiveShadow>
             <boxGeometry args={[slopeLength + 0.2, 0.08, 3.1]} />
             <meshStandardMaterial color="#374151" roughness={0.65} metalness={0.35} side={THREE.DoubleSide} />
           </mesh>
 
-          {/* Right Pitch Roof Slope */}
-          <mesh
-            position={[0.75, 0.45, 0]}
-            rotation={[0, 0, -slopeAngle]}
-            castShadow
-            receiveShadow
-          >
-            <boxGeometry args={[slopeLength + 0.2, 0.08, 3.1]} />
-            <meshStandardMaterial color="#374151" roughness={0.65} metalness={0.35} side={THREE.DoubleSide} />
-          </mesh>
-
-          {/* Center Ridge Cap */}
           <mesh position={[0, 0.94, 0]} castShadow>
             <boxGeometry args={[0.3, 0.12, 3.14]} />
             <meshStandardMaterial color="#1e293b" roughness={0.5} metalness={0.6} />
           </mesh>
-
-          {/* Mini Apex Aviation Warning Beacon */}
           <mesh position={[0, 1.05, 1.4]}>
             <cylinderGeometry args={[0.04, 0.04, 0.12, 12]} />
             <meshStandardMaterial color="#ffffff" emissive="#ef4444" emissiveIntensity={2.5} />
@@ -147,7 +127,16 @@ export function SecurityRoom({
         </group>
       </group>
 
-      {/* ─── STANDING SECURITY GUARD OUTSIDE ROAD (BESIDE SECURITY ROOM) ─── */}
+      {/* ─── "GATE ENTRY" OVERHEAD SIGN ─── */}
+      <group position={[direction * 4.35, 3.8, 1.2]}>
+        <Html center distanceFactor={16}>
+          <div className="pointer-events-none whitespace-nowrap rounded-lg bg-blue-700 px-5 py-2 border-2 border-blue-400 shadow-[0_4px_25px_rgba(30,58,138,0.7)] flex items-center gap-2">
+            <span className="text-white text-xs font-black tracking-[0.2em] uppercase">GATE ENTRY</span>
+          </div>
+        </Html>
+      </group>
+
+      {/* ─── STANDING SECURITY GUARD WITH CLIPBOARD & HIGH-VIS "SECURITY" VEST ─── */}
       <group position={[direction * 1.6, 0, -0.9]} rotation={[0, direction * 0.8, 0]}>
         {/* Shoes */}
         <mesh position={[-0.12, 0.08, 0]} castShadow>
@@ -179,6 +168,11 @@ export function SecurityRoom({
         <mesh position={[0, 1.12, 0.14]}>
           <boxGeometry args={[0.2, 0.5, 0.04]} />
           <meshStandardMaterial color="#f97316" roughness={0.4} />
+        </mesh>
+        {/* Clipboard */}
+        <mesh position={[0.28, 1.05, 0.1]} rotation={[0, -0.4, 0]}>
+          <boxGeometry args={[0.18, 0.24, 0.03]} />
+          <meshStandardMaterial color="#475569" roughness={0.4} />
         </mesh>
         {/* Head & Security Cap */}
         <mesh position={[0, 1.62, 0]} castShadow>

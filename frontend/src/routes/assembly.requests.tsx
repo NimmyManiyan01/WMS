@@ -264,8 +264,15 @@ function AssemblyRequestsPage() {
         })),
       };
 
-      await api.createAssemblyRequisition(payload);
-      toast.success("Assembly Material Requisition submitted to Warehouse!");
+      const created = await api.createAssemblyRequisition(payload);
+      const shortage = Number(created?.totalShortage ?? created?.total_shortage ?? 0);
+      if (shortage > 0 || created?.availabilityStatus === "SHORTAGE" || created?.availability_status === "SHORTAGE") {
+        toast.warning("Request submitted with an inventory shortage", {
+          description: created?.availabilityMessage || created?.availability_message || `${shortage} unit${shortage === 1 ? "" : "s"} are not currently available. Warehouse must replenish stock before the full request can be issued.`,
+        });
+      } else {
+        toast.success("Assembly Material Requisition submitted to Warehouse!");
+      }
       setIsCreating(false);
       setItems([
         {
@@ -507,6 +514,12 @@ function AssemblyRequestsPage() {
                           );
                         })}
                       </div>
+                      {Number(req.totalShortage ?? req.total_shortage ?? 0) > 0 && (
+                        <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
+                          <AlertCircle className="size-3.5 shrink-0" />
+                          Inventory shortage: {Number(req.totalShortage ?? req.total_shortage).toLocaleString()} {req.items?.[0]?.uom || "units"} still required. Inventory low-stock alerts have been updated.
+                        </div>
+                      )}
                       {req.pickup_progress && req.pickup_progress.task_count > 0 && (
                         <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs dark:border-blue-900 dark:bg-blue-950/30">
                           <div className="flex flex-wrap items-center gap-2 font-bold text-blue-800 dark:text-blue-200">

@@ -1141,7 +1141,7 @@ function Quotations() {
 
             return (
               <>
-                <div className="bg-success px-6 py-4 text-white">
+                <div className="bg-blue-600 px-6 py-4 text-white">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
                       <span className="grid size-8 place-items-center rounded-lg bg-white/15">
@@ -1253,7 +1253,7 @@ function Quotations() {
                 <DialogFooter className="border-t border-border/70 bg-muted/10 p-4">
                   <Button
                     onClick={() => setInspectQuotation(null)}
-                    className="h-11 rounded-xl bg-success px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-success/90 w-full"
+                    className="h-11 rounded-xl bg-blue-600 px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-blue-700 w-full"
                   >
                     Close Review
                   </Button>

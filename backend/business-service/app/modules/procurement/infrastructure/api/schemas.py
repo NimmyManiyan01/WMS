@@ -325,6 +325,15 @@ class CreateAsnRequest(ApiModel):
     invoice_date: Optional[date] = None
     challan_number: Optional[str] = None
     challan_date: Optional[date] = None
+    shipment_type: Optional[str] = "STANDARD"
+    return_reason: Optional[str] = None
+    refund_days: Optional[int] = None
+    return_method: Optional[str] = None
+    original_asn_number: Optional[str] = None
+    replacement_reason: Optional[str] = None
+    replacement_for_asn: Optional[str] = None
+    replacement_dispatch_date: Optional[date] = None
+    replacement_request_id: Optional[str] = None
     status: Optional[str] = "SUBMITTED"
     documents: List[AsnDocumentSchema] = []
 
@@ -355,6 +364,29 @@ class AsnResponse(ApiModel):
     warehouse_status: Optional[str] = None
     warehouse_status_updated_at: Optional[datetime] = None
     assigned_dock_id: Optional[str] = None
+    created_at: datetime
+
+
+class ReplacementRequestResponse(ApiModel):
+    id: str
+    request_number: str
+    supplier_id: str
+    purchase_order_id: Optional[str] = None
+    original_asn_id: Optional[str] = None
+    item_code: str
+    item_name: Optional[str] = None
+    replacement_quantity: Decimal
+    uom: str
+    reason: str
+    remarks: Optional[str] = None
+    request_date: date
+    supplier_response_due_at: Optional[datetime] = None
+    replacement_dispatch_due_at: Optional[datetime] = None
+    status: str
+    supplier_response_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    extension_requested_at: Optional[datetime] = None
+    disputed_at: Optional[datetime] = None
     created_at: datetime
 
 

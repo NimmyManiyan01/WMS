@@ -125,11 +125,17 @@ const grnNav = [
 const dispatchNav = [
   { label: "Dashboard", to: "/dispatch", icon: LayoutDashboard },
   { label: "Dispatch Orders", to: "/dispatch-orders", icon: ClipboardList },
+  { label: "Finished Goods Store", to: "/warehouse/finished-goods-store", icon: PackageCheck },
+  { label: "Warehouse Inventory", to: "/inventory", icon: Boxes },
+  { label: "Finished Goods Requests", to: "/procurement/finished-goods", icon: FileText },
+  { label: "Procurement Dashboard", to: "/procurement-dashboard", icon: Building2 },
   { label: "Picking & Packing", to: "/dispatch-picking-packing", icon: PackageCheck },
   { label: "Transport Allocation", to: "/dispatch-transport-allocation", icon: Truck },
   { label: "Driver Master", to: "/dispatch-drivers", icon: Users },
   { label: "Vehicle Master", to: "/dispatch-vehicles", icon: Warehouse },
   { label: "Loading", to: "/dispatch-loading", icon: Navigation },
+  { label: "Gate Out", to: "/dispatch-gate-out", icon: DoorOpen },
+  { label: "Gate Exit", to: "/dispatch-gate-exit", icon: LogOut },
   { label: "In Transit", to: "/dispatch-transit", icon: MapPin },
   { label: "Delivery / POD", to: "/dispatch-pod", icon: CheckCircle2 },
   { label: "Exceptions", to: "/dispatch-exceptions", icon: AlertTriangle },
@@ -141,7 +147,6 @@ const storeManagerNav = [
   { label: "Inventory", to: "/inventory", icon: Boxes },
   { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
-  { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
 ];
 
 const assemblyNav = [
@@ -159,6 +164,7 @@ const warehouseNav = [
   { label: "Dashboard", to: "/warehouse-dashboard", icon: LayoutDashboard },
   { label: "Store Master", to: "/warehouse/stores", icon: Building2 },
   { label: "Material Master", to: "/warehouse/materials", icon: Database },
+  { label: "Finished Goods Store", to: "/warehouse/finished-goods-store", icon: PackageCheck },
   { label: "Finished Goods Requests", to: "/warehouse/finished-goods-requests", icon: Boxes },
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
@@ -172,9 +178,9 @@ const warehouseNav = [
 
 const procurementNav = [
   { label: "Dashboard", to: "/procurement-dashboard", icon: LayoutDashboard },
-  { label: "Suppliers", to: "/master-data", icon: Building2 },
   { label: "Finished Goods Requests", to: "/procurement/finished-goods", icon: Boxes },
   { label: "Material Requests", to: "/procurement/material-requests", icon: ClipboardList },
+  { label: "Suppliers", to: "/master-data", icon: Building2 },
   { label: "RFQs", to: "/procurement/rfqs", icon: FileQuestion },
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
@@ -211,7 +217,9 @@ const managerNav = [
 const gateSecurityNav = [
   { label: "Dashboard", to: "/gate-dashboard", icon: LayoutDashboard },
   { label: "Gate Entry", to: "/gate-entry", icon: ShieldCheck },
-  { label: "Vehicle Exit", to: "/vehicle-exit", icon: LogOut },
+  { label: "Inbound Arrivals", to: "/vehicle-queue", icon: Truck },
+  { label: "Outbound Arrivals", to: "/vehicle-exit", icon: Truck },
+  { label: "Gate Exit", to: "/dispatch-gate-exit", icon: LogOut },
 ];
 
 const adminNav = [
@@ -478,16 +486,17 @@ export function AppShell({
     path === "/finance-dashboard" ||
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
-  const isGateSecurityUser = mounted && user?.roles?.includes("GATE_SECURITY");
+  const isGateSecurityUser =
+    mounted &&
+    (user?.roles?.includes("GATE_SECURITY") || user?.roles?.includes("GATE_OPERATOR"));
   const isDispatchUser =
     mounted &&
     (user?.roles?.includes("DISPATCH") ||
       user?.roles?.includes("DISPATCH_MANAGER") ||
       user?.username?.toLowerCase() === "dispatch");
   const isDispatchRoute =
-    path === "/dispatch" ||
-    path.startsWith("/dispatch-") ||
-    path.startsWith("/dispatch/");
+    !isGateSecurityUser &&
+    (path === "/dispatch" || path.startsWith("/dispatch-") || path.startsWith("/dispatch/"));
   const isAdminUser =
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
   const isNotificationsRoute = path.startsWith("/notifications");
@@ -508,6 +517,9 @@ export function AppShell({
   const isGateSecurityRoute =
     [
       "/gate-entry",
+      "/vehicle-queue",
+      "/dispatch-gate-exit",
+      "/vehicle-exit",
       "/gate-dashboard",
       "/accept-arrival",
       "/driver-verification",

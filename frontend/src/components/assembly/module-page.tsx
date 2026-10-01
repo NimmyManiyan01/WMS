@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ClipboardList, GitFork, Loader2, QrCode, RefreshCw, Search } from "lucide-react";
+import { Clipboard, ClipboardList, Download, GitFork, Loader2, QrCode, RefreshCw, Search } from "lucide-react";
+import QRCode from "qrcode";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/wms/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { GenealogyModal } from "@/components/assembly/genealogy-modal";
 import { api } from "@/lib/api-client";
@@ -39,6 +41,7 @@ export function AssemblyModulePage({ section }: { section: string }) {
   const [query, setQuery] = useState("");
   const [selectedGenealogyId, setSelectedGenealogyId] = useState<string | null>(null);
   const [genealogyOpen, setGenealogyOpen] = useState(false);
+  const [qrPreview, setQrPreview] = useState<{ value: string; image: string } | null>(null);
 
   const load = useCallback(async () => {
     try { setData(await api.getAssemblyModuleOverview(section)); }
@@ -60,6 +63,32 @@ export function AssemblyModulePage({ section }: { section: string }) {
       setSelectedGenealogyId(target);
       setGenealogyOpen(true);
     }
+  };
+
+  const getFinishedGoodsQr = (row: any) => row.qr_code || row.qr || row.serial_number;
+
+  const previewFinishedGoodsQr = async (row: any) => {
+    const value = getFinishedGoodsQr(row);
+    if (!value) return toast.error("No QR code is available for this finished good.");
+    const image = await QRCode.toDataURL(value, { width: 320, margin: 2, errorCorrectionLevel: "H" });
+    setQrPreview({ value, image });
+  };
+
+  const copyFinishedGoodsQr = async (row: any) => {
+    const value = getFinishedGoodsQr(row);
+    if (!value) return toast.error("No QR code is available for this finished good.");
+    await navigator.clipboard.writeText(value);
+    toast.success("Finished-goods QR copied");
+  };
+
+  const downloadFinishedGoodsQr = async (row: any) => {
+    const value = getFinishedGoodsQr(row);
+    if (!value) return toast.error("No QR code is available for this finished good.");
+    const image = await QRCode.toDataURL(value, { width: 640, margin: 3, errorCorrectionLevel: "H" });
+    const link = document.createElement("a");
+    link.href = image;
+    link.download = `${row.product_code || row.code || "finished-good"}-${row.serial_number || "qr"}.png`;
+    link.click();
   };
 
   return (
@@ -150,15 +179,20 @@ export function AssemblyModulePage({ section }: { section: string }) {
                         })}
                         <td className="px-4 py-3.5 text-right space-x-2 whitespace-nowrap">
                           {section === "finished-goods" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="rounded-xl h-8 text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-200"
-                              onClick={() => openGenealogy(row)}
-                            >
-                              <GitFork className="size-3.5 mr-1" />
-                              Genealogy
-                            </Button>
+                            <div className="inline-flex items-center gap-1">
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold text-indigo-600 border-indigo-200" onClick={() => void previewFinishedGoodsQr(row)}>
+                                <QrCode className="size-3.5 mr-1" /> View QR
+                              </Button>
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 px-2" title="Copy QR" onClick={() => void copyFinishedGoodsQr(row)}>
+                                <Clipboard className="size-3.5" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 px-2" title="Download QR" onClick={() => void downloadFinishedGoodsQr(row)}>
+                                <Download className="size-3.5" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold" onClick={() => openGenealogy(row)}>
+                                <GitFork className="size-3.5 mr-1" /> Genealogy
+                              </Button>
+                            </div>
                           )}
                           {row.order_id && (
                             <Link
@@ -193,6 +227,23 @@ export function AssemblyModulePage({ section }: { section: string }) {
             open={genealogyOpen}
             onOpenChange={setGenealogyOpen}
           />
+          <Dialog open={!!qrPreview} onOpenChange={(open) => !open && setQrPreview(null)}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Finished Goods QR</DialogTitle>
+                <DialogDescription>Scan this QR in Finished Goods Store putaway.</DialogDescription>
+              </DialogHeader>
+              {qrPreview && (
+                <div className="space-y-4 text-center">
+                  <img src={qrPreview.image} alt="Finished goods QR code" className="mx-auto size-64 rounded-lg border p-2" />
+                  <code className="block break-all rounded-lg bg-muted p-3 text-left text-xs">{qrPreview.value}</code>
+                  <Button className="rounded-xl" onClick={() => void navigator.clipboard.writeText(qrPreview.value).then(() => toast.success("Finished-goods QR copied"))}>
+                    <Clipboard className="mr-2 size-4" /> Copy Full QR
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </AppShell>

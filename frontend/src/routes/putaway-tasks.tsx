@@ -246,7 +246,11 @@ function QrScanWidget({
         throw new Error("Camera API is not supported in this browser environment.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -292,7 +296,9 @@ function QrScanWidget({
             toast.success("QR Code detected from image!");
             onResolvedCode(code.data.trim());
           } else {
-            toast.error("No valid QR code found in uploaded image. Please try another image or use manual entry.");
+            toast.error(
+              "No valid QR code found in uploaded image. Please try another image or use manual entry.",
+            );
           }
         }
       };
@@ -311,7 +317,9 @@ function QrScanWidget({
           </div>
           <div>
             <h4 className="text-xs font-bold text-foreground">{title}</h4>
-            <p className="text-[11px] text-muted-foreground">Scan with camera, upload image, or paste QR</p>
+            <p className="text-[11px] text-muted-foreground">
+              Scan with camera, upload image, or paste QR
+            </p>
           </div>
         </div>
 
@@ -322,7 +330,9 @@ function QrScanWidget({
             onClick={() => setScanMode("camera")}
             className={cn(
               "flex items-center gap-1 px-2.5 py-1 rounded-md transition-all",
-              scanMode === "camera" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              scanMode === "camera"
+                ? "bg-background text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <Camera className="size-3" /> Camera
@@ -332,7 +342,9 @@ function QrScanWidget({
             onClick={() => setScanMode("upload")}
             className={cn(
               "flex items-center gap-1 px-2.5 py-1 rounded-md transition-all",
-              scanMode === "upload" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              scanMode === "upload"
+                ? "bg-background text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <Upload className="size-3" /> Upload
@@ -342,7 +354,9 @@ function QrScanWidget({
             onClick={() => setScanMode("manual")}
             className={cn(
               "flex items-center gap-1 px-2.5 py-1 rounded-md transition-all",
-              scanMode === "manual" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              scanMode === "manual"
+                ? "bg-background text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <QrCode className="size-3" /> Text / Code
@@ -368,9 +382,16 @@ function QrScanWidget({
           {cameraError && (
             <div className="absolute inset-0 bg-background/95 p-4 flex flex-col items-center justify-center text-center space-y-2">
               <Camera className="size-8 text-amber-500" />
-              <p className="text-xs font-semibold text-foreground">Camera Access Restricted or Unavailable</p>
+              <p className="text-xs font-semibold text-foreground">
+                Camera Access Restricted or Unavailable
+              </p>
               <p className="text-[11px] text-muted-foreground max-w-xs">{cameraError}</p>
-              <Button size="sm" variant="outline" className="text-xs h-7 rounded-lg" onClick={() => setScanMode("upload")}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7 rounded-lg"
+                onClick={() => setScanMode("upload")}
+              >
                 <Upload className="size-3 mr-1" /> Use Upload or Manual Entry
               </Button>
             </div>
@@ -394,7 +415,9 @@ function QrScanWidget({
             </div>
             <div>
               <p className="text-xs font-semibold text-foreground">Click to upload QR code image</p>
-              <p className="text-[10px] text-muted-foreground">Supports PNG, JPG, JPEG, WebP screenshots & photos</p>
+              <p className="text-[10px] text-muted-foreground">
+                Supports PNG, JPG, JPEG, WebP screenshots & photos
+              </p>
             </div>
             <input
               type="file"
@@ -442,7 +465,8 @@ function WarehousePutawayTasksPage() {
   const userInfo = getUserInfo();
   const userRoles = useMemo(() => (userInfo?.roles || []).map((r) => r.toUpperCase()), [userInfo]);
   const isStoreUser = userRoles.includes("STORE_MANAGER") || userRoles.includes("STORE_KEEPER");
-  const isWarehouseManager = userRoles.includes("WAREHOUSE_MANAGER") || userRoles.includes("WAREHOUSE");
+  const isWarehouseManager =
+    userRoles.includes("WAREHOUSE_MANAGER") || userRoles.includes("WAREHOUSE");
   const isTrackingOnly = isWarehouseManager && !isStoreUser;
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -504,7 +528,9 @@ function WarehousePutawayTasksPage() {
 
   const handleOpenPutawayForTask = (task: Task) => {
     if (isTrackingOnly) {
-      toast.info("Warehouse Managers track putaway tasks. Physical putaway is performed by assigned Store Managers.");
+      toast.info(
+        "Warehouse Managers track putaway tasks. Physical putaway is performed by assigned Store Managers.",
+      );
       return;
     }
     setIsPutawayModalOpen(true);
@@ -514,14 +540,22 @@ function WarehousePutawayTasksPage() {
     setPutawayQuantity("");
     setExecutionResult(null);
 
-    // If task has a material QR, automatically trigger lookup
-    const qrCode = task.material_qr || task.barcode_value || `QR-MAT-${task.item_code}`;
+    // Inbound GRN tasks may not have a persisted QR value yet. The GRN
+    // resolver also accepts the material/item code, so use it as the
+    // task-specific fallback when Put Away is clicked.
+    const qrCode = task.material_qr || task.barcode_value || task.item_code;
+    if (!qrCode) {
+      toast.error("This task has no material code or recorded QR code.");
+      return;
+    }
     void handleResolveGrnQr(qrCode);
   };
 
   const handleOpenPutawayModal = () => {
     if (isTrackingOnly) {
-      toast.info("Warehouse Managers track putaway tasks. Physical putaway is performed by assigned Store Managers.");
+      toast.info(
+        "Warehouse Managers track putaway tasks. Physical putaway is performed by assigned Store Managers.",
+      );
       return;
     }
     setIsPutawayModalOpen(true);
@@ -548,7 +582,8 @@ function WarehousePutawayTasksPage() {
       }
     } catch (err: any) {
       toast.error("GRN Material QR Validation Failed", {
-        description: err?.message || "Could not find a valid GRN material corresponding to this QR code.",
+        description:
+          err?.message || "Could not find a valid GRN material corresponding to this QR code.",
       });
     } finally {
       setIsResolvingGrn(false);
@@ -570,7 +605,9 @@ function WarehousePutawayTasksPage() {
       }
     } catch (err: any) {
       toast.error("Destination Bin QR Validation Failed", {
-        description: err?.message || "Could not resolve destination Bin. Ensure it is active and belongs to the correct store.",
+        description:
+          err?.message ||
+          "Could not resolve destination Bin. Ensure it is active and belongs to the correct store.",
       });
     } finally {
       setIsResolvingBin(false);
@@ -590,12 +627,16 @@ function WarehousePutawayTasksPage() {
     }
 
     if (qty > grnData.available_quantity) {
-      toast.error(`Quantity exceeds available putaway balance (${grnData.available_quantity} ${grnData.uom})`);
+      toast.error(
+        `Quantity exceeds available putaway balance (${grnData.available_quantity} ${grnData.uom})`,
+      );
       return;
     }
 
     if (qty > binData.available_capacity) {
-      toast.error(`Target Bin '${binData.bin_code}' has insufficient capacity (Available: ${binData.available_capacity})`);
+      toast.error(
+        `Target Bin '${binData.bin_code}' has insufficient capacity (Available: ${binData.available_capacity})`,
+      );
       return;
     }
 
@@ -631,7 +672,8 @@ function WarehousePutawayTasksPage() {
         if (statusFilter === "PENDING") {
           matchesStatus = s === "OPEN" || s === "PENDING";
         } else if (statusFilter === "READY_FOR_PUTAWAY") {
-          matchesStatus = s === "PUTAWAY_PENDING" || s === "ASSIGNED_TO_STORE" || s === "READY_FOR_PUTAWAY";
+          matchesStatus =
+            s === "PUTAWAY_PENDING" || s === "ASSIGNED_TO_STORE" || s === "READY_FOR_PUTAWAY";
         } else if (statusFilter === "IN_PROGRESS") {
           matchesStatus = s === "PUTAWAY_IN_PROGRESS" || s === "IN_PROGRESS";
         } else if (statusFilter === "COMPLETED") {
@@ -644,7 +686,8 @@ function WarehousePutawayTasksPage() {
       // Store filtering
       let matchesStore = true;
       if (storeFilter !== "ALL") {
-        matchesStore = task.destination_store_id === storeFilter || task.assigned_store_id === storeFilter;
+        matchesStore =
+          task.destination_store_id === storeFilter || task.assigned_store_id === storeFilter;
       }
 
       // Search query
@@ -661,8 +704,10 @@ function WarehousePutawayTasksPage() {
         (task.asn_number && task.asn_number.toLowerCase().includes(q)) ||
         (task.po_number && task.po_number.toLowerCase().includes(q)) ||
         (task.assigned_dock && task.assigned_dock.toLowerCase().includes(q)) ||
-        (task.assigned_store_manager_name && task.assigned_store_manager_name.toLowerCase().includes(q)) ||
-        (task.assigned_store_manager_username && task.assigned_store_manager_username.toLowerCase().includes(q)) ||
+        (task.assigned_store_manager_name &&
+          task.assigned_store_manager_name.toLowerCase().includes(q)) ||
+        (task.assigned_store_manager_username &&
+          task.assigned_store_manager_username.toLowerCase().includes(q)) ||
         (task.assigned_to && task.assigned_to.toLowerCase().includes(q)) ||
         (task.material_qr && task.material_qr.toLowerCase().includes(q));
 
@@ -674,17 +719,30 @@ function WarehousePutawayTasksPage() {
     const total = tasks.length;
     const pending = tasks.filter((t) => t.status === "OPEN" || t.status === "PENDING").length;
     const ready = tasks.filter(
-      (t) => t.status === "PUTAWAY_PENDING" || t.status === "ASSIGNED_TO_STORE" || t.status === "READY_FOR_PUTAWAY"
+      (t) =>
+        t.status === "PUTAWAY_PENDING" ||
+        t.status === "ASSIGNED_TO_STORE" ||
+        t.status === "READY_FOR_PUTAWAY",
     ).length;
-    const inProgress = tasks.filter((t) => t.status === "PUTAWAY_IN_PROGRESS" || t.status === "IN_PROGRESS").length;
-    const completed = tasks.filter((t) => t.status === "PUTAWAY_COMPLETED" || t.status === "COMPLETED").length;
-    const failedCancelled = tasks.filter((t) => t.status === "CANCELLED" || t.status === "FAILED").length;
+    const inProgress = tasks.filter(
+      (t) => t.status === "PUTAWAY_IN_PROGRESS" || t.status === "IN_PROGRESS",
+    ).length;
+    const completed = tasks.filter(
+      (t) => t.status === "PUTAWAY_COMPLETED" || t.status === "COMPLETED",
+    ).length;
+    const failedCancelled = tasks.filter(
+      (t) => t.status === "CANCELLED" || t.status === "FAILED",
+    ).length;
     return { total, pending, ready, inProgress, completed, failedCancelled };
   }, [tasks]);
 
   return (
     <AppShell
-      title={isTrackingOnly ? "Putaway Tasks Tracking & Monitoring" : "Putaway Execution & Live Monitoring"}
+      title={
+        isTrackingOnly
+          ? "Putaway Tasks Tracking & Monitoring"
+          : "Putaway Execution & Live Monitoring"
+      }
       subtitle={
         isTrackingOnly
           ? "Live task monitoring and progress tracking across all stores and docks. Physical putaway is performed by assigned Store Managers."
@@ -702,14 +760,14 @@ function WarehousePutawayTasksPage() {
             </Button>
           )}
 
-          <div className="flex items-center rounded-xl border bg-muted/30 p-0.5">
+          <div className="flex items-center rounded-xl border bg-muted/30 matep-0.5">
             <button
               onClick={() => setViewMode("table")}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
                 viewMode === "table"
                   ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               <LayoutList className="size-3.5" /> Table
@@ -720,7 +778,7 @@ function WarehousePutawayTasksPage() {
                 "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
                 viewMode === "cards"
                   ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Grid3X3 className="size-3.5" /> Cards
@@ -732,8 +790,6 @@ function WarehousePutawayTasksPage() {
         </div>
       }
     >
-
-
       {/* KPI Metrics Banner */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Card className="rounded-xl p-3.5 shadow-sm border bg-card">
@@ -794,7 +850,9 @@ function WarehousePutawayTasksPage() {
               <option value="IN_PROGRESS">In Progress</option>
               <option value="COMPLETED">Completed</option>
               <option value="PENDING">Pending</option>
-              {metrics.failedCancelled > 0 && <option value="FAILED_CANCELLED">Failed / Cancelled</option>}
+              {metrics.failedCancelled > 0 && (
+                <option value="FAILED_CANCELLED">Failed / Cancelled</option>
+              )}
             </select>
           </div>
 
@@ -870,17 +928,13 @@ function WarehousePutawayTasksPage() {
                   const assignedSm =
                     task.assigned_store_manager_name ||
                     task.assigned_store_manager_username ||
-                    task.assigned_to ||
-                    "Assigned at Dock Allocation";
+                    task.assigned_to;
 
-                  const truckDisplay =
-                    task.truck_number || task.vehicle_number || "Truck pending";
-                  const gateEntryDisplay =
-                    task.gate_entry_number || "GE-Pending";
+                  const truckDisplay = task.truck_number || task.vehicle_number;
+                  const gateEntryDisplay = task.gate_entry_number;
                   const dockDisplay =
-                    task.assigned_dock || task.assigned_dock_code || task.source_location || "Dock N/A";
-                  const qrDisplay =
-                    task.material_qr || task.barcode_value || `QR-MAT-${task.item_code}`;
+                    task.assigned_dock || task.assigned_dock_code || task.source_location;
+                  const qrDisplay = task.material_qr || task.barcode_value;
 
                   const isCompleted = (task.status || "").toUpperCase() === "PUTAWAY_COMPLETED";
 
@@ -913,10 +967,10 @@ function WarehousePutawayTasksPage() {
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-1 text-foreground font-semibold">
                             <Truck className="size-3 text-blue-500" />
-                            <span>{truckDisplay}</span>
+                            <span>{truckDisplay || "—"}</span>
                           </div>
                           <div className="text-[10px] font-mono text-muted-foreground">
-                            {gateEntryDisplay}
+                            {gateEntryDisplay || "—"}
                           </div>
                         </div>
                       </td>
@@ -924,9 +978,15 @@ function WarehousePutawayTasksPage() {
                       {/* ASN / PO / GRN */}
                       <td className="py-3.5 px-4 whitespace-nowrap font-mono text-[11px]">
                         <div className="space-y-0.5">
-                          <div className="font-bold text-foreground">{task.grn_number}</div>
+                          <div className="font-bold text-foreground">
+                            {task.is_finished_goods
+                              ? "Assembly Finished Goods"
+                              : task.grn_number || "—"}
+                          </div>
                           <div className="text-[10px] text-muted-foreground">
-                            PO: {task.po_number || "—"} · ASN: {task.asn_number || "—"}
+                            {task.is_finished_goods
+                              ? `Source: ${task.source_location || "—"}`
+                              : `PO: ${task.po_number || "—"} · ASN: ${task.asn_number || "—"}`}
                           </div>
                         </div>
                       </td>
@@ -958,16 +1018,19 @@ function WarehousePutawayTasksPage() {
                         >
                           <QrCode className="size-3 text-primary" />
                           <span className="truncate max-w-[110px]" title={qrDisplay}>
-                            {qrDisplay}
+                            {qrDisplay || "QR not recorded"}
                           </span>
                         </Badge>
                       </td>
 
                       {/* Assigned Dock */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <Badge variant="outline" className="font-mono text-[11px] gap-1 bg-background">
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-[11px] gap-1 bg-background"
+                        >
                           <MapPin className="size-3 text-blue-500" />
-                          {dockDisplay}
+                          {dockDisplay || "—"}
                         </Badge>
                       </td>
 
@@ -975,12 +1038,16 @@ function WarehousePutawayTasksPage() {
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">
-                            {assignedSm.charAt(0).toUpperCase()}
+                            {(assignedSm || "—").charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-semibold text-foreground text-xs">{assignedSm}</p>
+                            <p className="font-semibold text-foreground text-xs">
+                              {assignedSm || "—"}
+                            </p>
                             <p className="text-[10px] text-muted-foreground">
-                              {task.assigned_store_name || getStoreName(task.destination_store_id) || "Store Allocation"}
+                              {task.assigned_store_name ||
+                                getStoreName(task.destination_store_id) ||
+                                "—"}
                             </p>
                           </div>
                         </div>
@@ -993,7 +1060,10 @@ function WarehousePutawayTasksPage() {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div
+                          className="flex items-center justify-end gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {!isTrackingOnly && !isCompleted && (
                             <Button
                               size="sm"
@@ -1028,14 +1098,11 @@ function WarehousePutawayTasksPage() {
             const assignedSm =
               task.assigned_store_manager_name ||
               task.assigned_store_manager_username ||
-              task.assigned_to ||
-              "Assigned at Dock Allocation";
+              task.assigned_to;
             const dockDisplay =
-              task.assigned_dock || task.assigned_dock_code || task.source_location || "Dock N/A";
-            const qrDisplay =
-              task.material_qr || task.barcode_value || `QR-MAT-${task.item_code}`;
-            const truckDisplay =
-              task.truck_number || task.vehicle_number || "Truck pending";
+              task.assigned_dock || task.assigned_dock_code || task.source_location;
+            const qrDisplay = task.material_qr || task.barcode_value;
+            const truckDisplay = task.truck_number || task.vehicle_number;
             const isCompleted = (task.status || "").toUpperCase() === "PUTAWAY_COMPLETED";
 
             return (
@@ -1052,7 +1119,7 @@ function WarehousePutawayTasksPage() {
                         Putaway Task
                       </p>
                       <Badge variant="outline" className="font-mono text-[10px] py-0 px-1.5">
-                        {dockDisplay}
+                        {dockDisplay || "—"}
                       </Badge>
                     </div>
                     <h2 className="font-mono text-base font-bold text-primary mt-0.5">
@@ -1083,11 +1150,17 @@ function WarehousePutawayTasksPage() {
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-mono text-muted-foreground">{task.item_code}</span>
                       <span className="text-muted-foreground">·</span>
-                      <span className="font-mono text-primary font-semibold">GRN: {task.grn_number}</span>
+                      <span className="font-mono text-primary font-semibold">
+                        {task.is_finished_goods
+                          ? "Assembly Finished Goods"
+                          : `GRN: ${task.grn_number || "—"}`}
+                      </span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-xs text-muted-foreground uppercase font-semibold">Qty Remaining</span>
+                    <span className="text-xs text-muted-foreground uppercase font-semibold">
+                      Qty Remaining
+                    </span>
                     <p className="text-lg font-black text-primary font-mono">
                       {task.quantity.toLocaleString()} {task.uom}
                     </p>
@@ -1100,18 +1173,18 @@ function WarehousePutawayTasksPage() {
                     <p className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
                       <Truck className="size-3 text-blue-500" /> Vehicle / Gate Entry
                     </p>
-                    <p className="font-semibold text-foreground truncate">{truckDisplay}</p>
+                    <p className="font-semibold text-foreground truncate">{truckDisplay || "—"}</p>
                     <p className="text-[10px] font-mono text-muted-foreground">
-                      {task.gate_entry_number || "GE-Pending"}
+                      {task.gate_entry_number || "—"}
                     </p>
                   </div>
                   <div className="rounded-lg border p-2 space-y-1">
                     <p className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
                       <UserCheck className="size-3 text-emerald-600" /> Store Manager
                     </p>
-                    <p className="font-semibold text-foreground truncate">{assignedSm}</p>
+                    <p className="font-semibold text-foreground truncate">{assignedSm || "—"}</p>
                     <p className="text-[10px] text-muted-foreground truncate">
-                      {task.assigned_store_name || getStoreName(task.destination_store_id) || "Store Allocation"}
+                      {task.assigned_store_name || getStoreName(task.destination_store_id) || "—"}
                     </p>
                   </div>
                 </div>
@@ -1121,7 +1194,7 @@ function WarehousePutawayTasksPage() {
                   <div className="flex items-center gap-1.5">
                     <QrCode className="size-3.5 text-primary" />
                     <code className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded text-foreground truncate max-w-[180px]">
-                      {qrDisplay}
+                      {qrDisplay || "QR not recorded"}
                     </code>
                   </div>
                   <span className="text-[10px]">
@@ -1137,7 +1210,10 @@ function WarehousePutawayTasksPage() {
       {/* ========================================================================= */}
       {/* 3-STEP QR PUTAWAY EXECUTION MODAL (PRIMARY REQUIREMENT)                  */}
       {/* ========================================================================= */}
-      <Dialog open={isPutawayModalOpen} onOpenChange={(open) => !isExecuting && setIsPutawayModalOpen(open)}>
+      <Dialog
+        open={isPutawayModalOpen}
+        onOpenChange={(open) => !isExecuting && setIsPutawayModalOpen(open)}
+      >
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl p-6">
           <DialogHeader>
             <div className="flex items-center justify-between">
@@ -1164,7 +1240,7 @@ function WarehousePutawayTasksPage() {
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : grnData
                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                    : "bg-muted/40 text-muted-foreground"
+                    : "bg-muted/40 text-muted-foreground",
               )}
               onClick={() => !isExecuting && setPutawayStep(1)}
             >
@@ -1182,7 +1258,7 @@ function WarehousePutawayTasksPage() {
                   : binData
                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                     : "bg-muted/40 text-muted-foreground",
-                !grnData && "opacity-50 pointer-events-none"
+                !grnData && "opacity-50 pointer-events-none",
               )}
               onClick={() => grnData && !isExecuting && setPutawayStep(2)}
             >
@@ -1200,7 +1276,7 @@ function WarehousePutawayTasksPage() {
                   : executionResult
                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                     : "bg-muted/40 text-muted-foreground",
-                (!grnData || !binData) && "opacity-50 pointer-events-none"
+                (!grnData || !binData) && "opacity-50 pointer-events-none",
               )}
               onClick={() => grnData && binData && !isExecuting && setPutawayStep(3)}
             >
@@ -1218,30 +1294,51 @@ function WarehousePutawayTasksPage() {
                 <CheckCircle2 className="size-8" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-base font-black text-foreground">Putaway Transaction Confirmed</h3>
+                <h3 className="text-base font-black text-foreground">
+                  Putaway Transaction Confirmed
+                </h3>
                 <p className="text-xs text-muted-foreground">{executionResult.message}</p>
               </div>
 
               <div className="rounded-2xl border bg-muted/20 p-4 max-w-md mx-auto grid grid-cols-2 gap-3 text-xs text-left">
                 <div>
-                  <span className="text-muted-foreground text-[10px] uppercase font-bold">Material</span>
-                  <p className="font-bold text-foreground">{executionResult.material_name} ({executionResult.material_code})</p>
+                  <span className="text-muted-foreground text-[10px] uppercase font-bold">
+                    Material
+                  </span>
+                  <p className="font-bold text-foreground">
+                    {executionResult.material_name} ({executionResult.material_code})
+                  </p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-[10px] uppercase font-bold">Destination Bin</span>
+                  <span className="text-muted-foreground text-[10px] uppercase font-bold">
+                    Destination Bin
+                  </span>
                   <p className="font-bold font-mono text-primary">{executionResult.bin_code}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-[10px] uppercase font-bold">Putaway Quantity</span>
-                  <p className="font-bold text-foreground">{executionResult.putaway_quantity} {grnData?.uom}</p>
+                  <span className="text-muted-foreground text-[10px] uppercase font-bold">
+                    Putaway Quantity
+                  </span>
+                  <p className="font-bold text-foreground">
+                    {executionResult.putaway_quantity} {grnData?.uom}
+                  </p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-[10px] uppercase font-bold">Remaining Available</span>
-                  <p className="font-bold text-foreground">{executionResult.remaining_available_quantity} {grnData?.uom}</p>
+                  <span className="text-muted-foreground text-[10px] uppercase font-bold">
+                    Remaining Available
+                  </span>
+                  <p className="font-bold text-foreground">
+                    {executionResult.remaining_available_quantity} {grnData?.uom}
+                  </p>
                 </div>
                 <div className="col-span-2 pt-2 border-t flex items-center justify-between">
                   <span className="text-muted-foreground font-semibold">Putaway Status:</span>
-                  <Badge variant={executionResult.putaway_status === "COMPLETED" ? "default" : "secondary"} className="font-bold">
+                  <Badge
+                    variant={
+                      executionResult.putaway_status === "COMPLETED" ? "default" : "secondary"
+                    }
+                    className="font-bold"
+                  >
                     {executionResult.putaway_status}
                   </Badge>
                 </div>
@@ -1298,56 +1395,98 @@ function WarehousePutawayTasksPage() {
                       {/* Autofilled Fields Grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Material Code</span>
-                          <p className="font-mono font-bold text-foreground">{grnData.material_code}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Material Code
+                          </span>
+                          <p className="font-mono font-bold text-foreground">
+                            {grnData.material_code}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Material Name</span>
-                          <p className="font-bold text-foreground truncate">{grnData.material_name}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Material Name
+                          </span>
+                          <p className="font-bold text-foreground truncate">
+                            {grnData.material_name}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Category & Variant</span>
-                          <p className="text-foreground truncate">{grnData.material_category} · {grnData.material_variant}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Category & Variant
+                          </span>
+                          <p className="text-foreground truncate">
+                            {grnData.material_category} · {grnData.material_variant}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">PO / ASN Number</span>
-                          <p className="font-mono text-foreground">{grnData.po_number} / {grnData.asn_number}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            PO / ASN Number
+                          </span>
+                          <p className="font-mono text-foreground">
+                            {grnData.po_number} / {grnData.asn_number}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Batch / Lot #</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Batch / Lot #
+                          </span>
                           <p className="font-mono text-foreground">{grnData.batch_lot_number}</p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Supplier</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Supplier
+                          </span>
                           <p className="text-foreground truncate">{grnData.supplier_name}</p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Gate Entry & Truck</span>
-                          <p className="text-foreground">{grnData.gate_entry_number} ({grnData.truck_number})</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Gate Entry & Truck
+                          </span>
+                          <p className="text-foreground">
+                            {grnData.gate_entry_number} ({grnData.truck_number})
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Assigned Dock</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Assigned Dock
+                          </span>
                           <p className="font-mono text-foreground">{grnData.dock_code}</p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Assigned Store Manager</span>
-                          <p className="font-bold text-foreground">{grnData.assigned_store_manager}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Assigned Store Manager
+                          </span>
+                          <p className="font-bold text-foreground">
+                            {grnData.assigned_store_manager}
+                          </p>
                         </div>
                       </div>
 
                       {/* Quantity Summary Card */}
                       <div className="rounded-xl border bg-background p-3 grid grid-cols-3 gap-2 text-center font-mono">
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-sans">Received Qty</span>
-                          <p className="font-bold text-foreground text-sm mt-0.5">{grnData.received_quantity} {grnData.uom}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-sans">
+                            Received Qty
+                          </span>
+                          <p className="font-bold text-foreground text-sm mt-0.5">
+                            {grnData.received_quantity} {grnData.uom}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-sans">Already Put Away</span>
-                          <p className="font-bold text-muted-foreground text-sm mt-0.5">{grnData.already_put_away_quantity} {grnData.uom}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-sans">
+                            Already Put Away
+                          </span>
+                          <p className="font-bold text-muted-foreground text-sm mt-0.5">
+                            {grnData.already_put_away_quantity} {grnData.uom}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-primary uppercase font-sans font-bold">Available for Putaway</span>
-                          <p className="font-black text-primary text-base mt-0.5">{grnData.available_quantity} {grnData.uom}</p>
+                          <span className="text-[10px] text-primary uppercase font-sans font-bold">
+                            Available for Putaway
+                          </span>
+                          <p className="font-black text-primary text-base mt-0.5">
+                            {grnData.available_quantity} {grnData.uom}
+                          </p>
                         </div>
                       </div>
 
@@ -1372,11 +1511,25 @@ function WarehousePutawayTasksPage() {
                   {grnData && (
                     <div className="rounded-xl border bg-muted/20 p-3 flex items-center justify-between text-xs">
                       <div>
-                        <span className="text-[10px] text-muted-foreground uppercase font-bold">Received Stock</span>
-                        <p className="font-bold text-foreground">{grnData.material_name} ({grnData.material_code})</p>
-                        <p className="text-[10px] text-muted-foreground">GRN: {grnData.grn_number} · Available: <b className="text-primary">{grnData.available_quantity} {grnData.uom}</b></p>
+                        <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                          Received Stock
+                        </span>
+                        <p className="font-bold text-foreground">
+                          {grnData.material_name} ({grnData.material_code})
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          GRN: {grnData.grn_number} · Available:{" "}
+                          <b className="text-primary">
+                            {grnData.available_quantity} {grnData.uom}
+                          </b>
+                        </p>
                       </div>
-                      <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => setPutawayStep(1)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7"
+                        onClick={() => setPutawayStep(1)}
+                      >
                         Change Material QR
                       </Button>
                     </div>
@@ -1406,20 +1559,34 @@ function WarehousePutawayTasksPage() {
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Bin Code</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Bin Code
+                          </span>
                           <p className="font-mono font-bold text-foreground">{binData.bin_code}</p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Zone / Rack</span>
-                          <p className="font-semibold text-foreground">{binData.zone_code} · {binData.rack}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Zone / Rack
+                          </span>
+                          <p className="font-semibold text-foreground">
+                            {binData.zone_code} · {binData.rack}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Store</span>
-                          <p className="text-foreground">{binData.store_name} ({binData.store_code})</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Store
+                          </span>
+                          <p className="text-foreground">
+                            {binData.store_name} ({binData.store_code})
+                          </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Bin Status</span>
-                          <p className="font-bold text-emerald-600 dark:text-emerald-400">{binData.status}</p>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                            Bin Status
+                          </span>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400">
+                            {binData.status}
+                          </p>
                         </div>
                       </div>
 
@@ -1428,29 +1595,45 @@ function WarehousePutawayTasksPage() {
                         <div className="flex justify-between text-xs font-semibold">
                           <span className="text-muted-foreground">Bin Occupancy</span>
                           <span className="font-mono text-primary font-bold">
-                            {binData.occupied_quantity} / {binData.capacity} ({binData.occupancy_percentage}%)
+                            {binData.occupied_quantity} / {binData.capacity} (
+                            {binData.occupancy_percentage}%)
                           </span>
                         </div>
                         <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                           <div
                             className={cn(
                               "h-full transition-all",
-                              binData.occupancy_percentage > 90 ? "bg-red-500" : binData.occupancy_percentage > 70 ? "bg-amber-500" : "bg-emerald-500"
+                              binData.occupancy_percentage > 90
+                                ? "bg-red-500"
+                                : binData.occupancy_percentage > 70
+                                  ? "bg-amber-500"
+                                  : "bg-emerald-500",
                             )}
                             style={{ width: `${Math.min(100, binData.occupancy_percentage)}%` }}
                           />
                         </div>
                         <div className="flex justify-between text-[10px] text-muted-foreground">
-                          <span>Available Capacity: <b>{binData.available_capacity} units</b></span>
+                          <span>
+                            Available Capacity: <b>{binData.available_capacity} units</b>
+                          </span>
                           <span>Max Capacity: {binData.capacity} units</span>
                         </div>
                       </div>
 
                       <div className="flex justify-between pt-1">
-                        <Button variant="outline" size="sm" className="rounded-xl text-xs" onClick={() => setPutawayStep(1)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl text-xs"
+                          onClick={() => setPutawayStep(1)}
+                        >
                           Back to Step 1
                         </Button>
-                        <Button size="sm" className="rounded-xl text-xs font-bold gap-1" onClick={() => setPutawayStep(3)}>
+                        <Button
+                          size="sm"
+                          className="rounded-xl text-xs font-bold gap-1"
+                          onClick={() => setPutawayStep(3)}
+                        >
                           Proceed to Quantity Confirmation <ChevronRight className="size-3.5" />
                         </Button>
                       </div>
@@ -1469,8 +1652,15 @@ function WarehousePutawayTasksPage() {
                         <Package className="size-3 text-primary" /> Material Source
                       </span>
                       <p className="font-bold text-foreground">{grnData.material_name}</p>
-                      <p className="font-mono text-muted-foreground text-[11px]">{grnData.material_code} · GRN: {grnData.grn_number}</p>
-                      <p className="text-[11px]">Available: <b className="text-primary">{grnData.available_quantity} {grnData.uom}</b></p>
+                      <p className="font-mono text-muted-foreground text-[11px]">
+                        {grnData.material_code} · GRN: {grnData.grn_number}
+                      </p>
+                      <p className="text-[11px]">
+                        Available:{" "}
+                        <b className="text-primary">
+                          {grnData.available_quantity} {grnData.uom}
+                        </b>
+                      </p>
                     </div>
 
                     <div className="rounded-xl border bg-muted/20 p-3 text-xs space-y-1">
@@ -1478,8 +1668,13 @@ function WarehousePutawayTasksPage() {
                         <MapPin className="size-3 text-blue-500" /> Target Location
                       </span>
                       <p className="font-bold font-mono text-foreground">Bin: {binData.bin_code}</p>
-                      <p className="text-muted-foreground text-[11px]">Zone: {binData.zone_code} · Rack: {binData.rack}</p>
-                      <p className="text-[11px]">Bin Available Cap: <b className="text-blue-600">{binData.available_capacity} units</b></p>
+                      <p className="text-muted-foreground text-[11px]">
+                        Zone: {binData.zone_code} · Rack: {binData.rack}
+                      </p>
+                      <p className="text-[11px]">
+                        Bin Available Cap:{" "}
+                        <b className="text-blue-600">{binData.available_capacity} units</b>
+                      </p>
                     </div>
                   </div>
 
@@ -1523,20 +1718,33 @@ function WarehousePutawayTasksPage() {
                         <div className="rounded-xl border bg-muted/15 p-3 space-y-2 text-xs">
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Received Total:</span>
-                            <span className="font-mono font-semibold">{grnData.received_quantity} {grnData.uom}</span>
+                            <span className="font-mono font-semibold">
+                              {grnData.received_quantity} {grnData.uom}
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Already Put Away:</span>
-                            <span className="font-mono font-semibold">{grnData.already_put_away_quantity} {grnData.uom}</span>
+                            <span className="font-mono font-semibold">
+                              {grnData.already_put_away_quantity} {grnData.uom}
+                            </span>
                           </div>
                           <div className="flex justify-between text-primary font-bold">
                             <span>This Putaway Transaction:</span>
-                            <span className="font-mono">+{qty} {grnData.uom}</span>
+                            <span className="font-mono">
+                              +{qty} {grnData.uom}
+                            </span>
                           </div>
                           <div className="pt-2 border-t flex justify-between items-center">
-                            <span className="font-semibold text-foreground">Post-Transaction Outcome:</span>
-                            <Badge variant={isComplete ? "default" : "secondary"} className="font-bold">
-                              {isComplete ? "Status: Completed (0 Remaining)" : `Status: Partially Completed (${rem} ${grnData.uom} Remaining)`}
+                            <span className="font-semibold text-foreground">
+                              Post-Transaction Outcome:
+                            </span>
+                            <Badge
+                              variant={isComplete ? "default" : "secondary"}
+                              className="font-bold"
+                            >
+                              {isComplete
+                                ? "Status: Completed (0 Remaining)"
+                                : `Status: Partially Completed (${rem} ${grnData.uom} Remaining)`}
                             </Badge>
                           </div>
                         </div>
@@ -1616,24 +1824,39 @@ function WarehousePutawayTasksPage() {
                     </h3>
                   </div>
                   <div className="text-right font-mono">
-                    <span className="text-[10px] text-muted-foreground uppercase font-sans">Remaining Qty</span>
+                    <span className="text-[10px] text-muted-foreground uppercase font-sans">
+                      Remaining Qty
+                    </span>
                     <p className="text-lg font-black text-primary">
-                      {(selectedTaskDetails.putaway_quantity ?? selectedTaskDetails.quantity).toLocaleString()} {selectedTaskDetails.uom}
+                      {(
+                        selectedTaskDetails.putaway_quantity ?? selectedTaskDetails.quantity
+                      ).toLocaleString()}{" "}
+                      {selectedTaskDetails.uom}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
                   <div>
-                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Item Code</span>
-                    <p className="font-mono font-bold text-foreground">{selectedTaskDetails.item_code}</p>
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                      Item Code
+                    </span>
+                    <p className="font-mono font-bold text-foreground">
+                      {selectedTaskDetails.item_code}
+                    </p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Warehouse</span>
-                    <p className="font-semibold text-foreground">{selectedTaskDetails.warehouse_id}</p>
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                      Warehouse
+                    </span>
+                    <p className="font-semibold text-foreground">
+                      {selectedTaskDetails.warehouse_id}
+                    </p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Unit of Measure</span>
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold">
+                      Unit of Measure
+                    </span>
                     <p className="text-foreground">{selectedTaskDetails.uom}</p>
                   </div>
                 </div>
@@ -1644,7 +1867,9 @@ function WarehousePutawayTasksPage() {
                   </span>
                   <div className="flex items-center gap-1.5">
                     <code className="font-mono text-xs px-2 py-0.5 rounded bg-muted">
-                      {selectedTaskDetails.material_qr || selectedTaskDetails.barcode_value || `QR-MAT-${selectedTaskDetails.item_code}`}
+                      {selectedTaskDetails.material_qr ||
+                        selectedTaskDetails.barcode_value ||
+                        "QR not recorded"}
                     </code>
                     <Button
                       variant="ghost"
@@ -1653,9 +1878,9 @@ function WarehousePutawayTasksPage() {
                       onClick={() =>
                         copyToClipboard(
                           selectedTaskDetails.material_qr ||
-                          selectedTaskDetails.barcode_value ||
-                          `QR-MAT-${selectedTaskDetails.item_code}`,
-                          "QR Code"
+                            selectedTaskDetails.barcode_value ||
+                            "QR not recorded",
+                          "QR Code",
                         )
                       }
                     >
@@ -1676,19 +1901,23 @@ function WarehousePutawayTasksPage() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Assigned Dock:</span>
                       <span className="font-mono font-bold text-foreground">
-                        {selectedTaskDetails.assigned_dock || selectedTaskDetails.source_location || "N/A"}
+                        {selectedTaskDetails.assigned_dock ||
+                          selectedTaskDetails.source_location ||
+                          "—"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Truck Number:</span>
                       <span className="font-semibold text-foreground">
-                        {selectedTaskDetails.truck_number || selectedTaskDetails.vehicle_number || "N/A"}
+                        {selectedTaskDetails.truck_number ||
+                          selectedTaskDetails.vehicle_number ||
+                          "—"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Gate Entry #:</span>
                       <span className="font-mono text-foreground">
-                        {selectedTaskDetails.gate_entry_number || "N/A"}
+                        {selectedTaskDetails.gate_entry_number || "—"}
                       </span>
                     </div>
                   </div>
@@ -1733,16 +1962,26 @@ function WarehousePutawayTasksPage() {
               {/* Document References */}
               <div className="rounded-xl border bg-muted/10 p-3 text-xs grid grid-cols-3 gap-2 text-center font-mono">
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-sans">GRN Number</p>
-                  <p className="font-bold text-foreground mt-0.5">{selectedTaskDetails.grn_number}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-sans">
+                    GRN Number
+                  </p>
+                  <p className="font-bold text-foreground mt-0.5">
+                    {selectedTaskDetails.grn_number}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-sans">ASN Number</p>
-                  <p className="font-bold text-foreground mt-0.5">{selectedTaskDetails.asn_number || "—"}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-sans">
+                    ASN Number
+                  </p>
+                  <p className="font-bold text-foreground mt-0.5">
+                    {selectedTaskDetails.asn_number || "—"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase font-sans">PO Number</p>
-                  <p className="font-bold text-foreground mt-0.5">{selectedTaskDetails.po_number || "—"}</p>
+                  <p className="font-bold text-foreground mt-0.5">
+                    {selectedTaskDetails.po_number || "—"}
+                  </p>
                 </div>
               </div>
 
@@ -1795,7 +2034,8 @@ function WarehousePutawayTasksPage() {
               </div>
 
               <div className="flex justify-between pt-1">
-                {!isTrackingOnly && (selectedTaskDetails.status || "").toUpperCase() !== "PUTAWAY_COMPLETED" ? (
+                {!isTrackingOnly &&
+                (selectedTaskDetails.status || "").toUpperCase() !== "PUTAWAY_COMPLETED" ? (
                   <Button
                     className="rounded-xl text-xs font-bold gap-1"
                     onClick={() => {
@@ -1806,7 +2046,9 @@ function WarehousePutawayTasksPage() {
                   >
                     <QrCode className="size-3.5" /> Execute Putaway
                   </Button>
-                ) : <div />}
+                ) : (
+                  <div />
+                )}
                 <Button
                   variant="outline"
                   className="rounded-xl text-xs"

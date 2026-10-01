@@ -21,11 +21,25 @@ export function GateBarrier({
         <SecurityRoom clearance={opening} side={securitySide} />
       </group>
 
-      {/* Barrier Stanchion Post */}
+      {/* ─── BLACK & YELLOW STRIPED SPEED BUMP ─── */}
+      <group position={[0, 0.05, 0]}>
+        <mesh position={[0, 0, 0]} castShadow receiveShadow>
+          <boxGeometry args={[5.2, 0.1, 0.7]} />
+          <meshStandardMaterial color="#1e293b" roughness={0.7} />
+        </mesh>
+        {[-2.0, -1.0, 0.0, 1.0, 2.0].map((bx, i) => (
+          <mesh key={i} position={[bx, 0.06, 0]}>
+            <boxGeometry args={[0.45, 0.04, 0.72]} />
+            <meshStandardMaterial color="#eab308" roughness={0.4} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Barrier Stanchion Post (Vibrant Industrial Yellow matching reference photo) */}
       <group position={[2.4, 0.75, 0]}>
         <mesh position={[0, 0, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.5, 1.5, 0.6]} />
-          <meshStandardMaterial color="#0284c7" metalness={0.7} roughness={0.3} />
+          <meshStandardMaterial color="#f59e0b" metalness={0.7} roughness={0.3} />
         </mesh>
 
         {/* Warning Indicator Light */}

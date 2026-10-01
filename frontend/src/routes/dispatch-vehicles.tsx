@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api-client";
+import { DeleteConfirmationDialog } from "@/components/wms/delete-confirmation-dialog";
 
 export const Route = createFileRoute("/dispatch-vehicles")({
   component: DispatchVehiclesPage,
@@ -19,6 +20,7 @@ function DispatchVehiclesPage() {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [newVehicle, setNewVehicle] = useState({
     vehicle_number: "",
@@ -106,12 +108,13 @@ function DispatchVehiclesPage() {
     setIsOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this vehicle?")) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await api.deleteVehicle(id);
+      await api.deleteVehicle(deleteId);
+      setDeleteId(null);
       toast.success("Vehicle deleted successfully");
-      void loadData();
+      window.location.reload();
     } catch (err) {
       toast.error("Failed to delete vehicle", { description: err instanceof Error ? err.message : undefined });
     }
@@ -322,14 +325,13 @@ function DispatchVehiclesPage() {
                   <th className="px-4 py-3">Type & Ownership</th>
                   <th className="px-4 py-3">Capacity</th>
                   <th className="px-4 py-3">RC / Chassis</th>
-                  <th className="px-4 py-3">Compliance Uploads</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {vehicles.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">No vehicles registered yet. Click "Register Vehicle" above.</td></tr>
+                  <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No vehicles registered yet. Click "Register Vehicle" above.</td></tr>
                 ) : (
                   vehicles.map((v, idx) => {
                     const status = v.status || "AVAILABLE";
@@ -342,15 +344,8 @@ function DispatchVehiclesPage() {
                         </td>
                         <td className="px-4 py-3 font-mono font-bold text-amber-600">{v.capacity_tons} Ton</td>
                         <td className="px-4 py-3 font-mono text-xs">
-                          <div>RC: {v.rc_number || "N/A"}</div>
+                          <div>RC: {v.rc_number || v.rc_book_number || "N/A"}</div>
                           <div className="text-[11px] text-muted-foreground truncate max-w-[140px]">Chassis: {v.chassis_number || "N/A"}</div>
-                        </td>
-                        <td className="px-4 py-3 text-xs space-y-0.5">
-                          <div className="flex gap-1.5">
-                            <span className={`inline-flex rounded px-1.5 py-0.2 text-[9px] font-bold ${v.insurance_valid !== false ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"}`}>INS</span>
-                            <span className={`inline-flex rounded px-1.5 py-0.2 text-[9px] font-bold ${v.fitness_valid !== false ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"}`}>FIT</span>
-                            <span className={`inline-flex rounded px-1.5 py-0.2 text-[9px] font-bold ${v.permit_valid !== false ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"}`}>PER</span>
-                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${status === "ASSIGNED" ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>
@@ -361,7 +356,7 @@ function DispatchVehiclesPage() {
                           <Button size="sm" variant="outline" className="rounded-lg text-xs h-8" onClick={() => handleOpenEdit(v)}>
                             <Pencil className="size-3.5 mr-1" /> Edit
                           </Button>
-                          <Button size="sm" variant="ghost" className="rounded-lg text-xs h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10" onClick={() => handleDelete(v.id)}>
+                          <Button size="sm" variant="ghost" className="rounded-lg text-xs h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10" onClick={() => setDeleteId(v.id)}>
                             <Trash2 className="size-3.5 mr-1" /> Delete
                           </Button>
                         </td>
@@ -374,6 +369,7 @@ function DispatchVehiclesPage() {
           </div>
         </Card>
       )}
+      <DeleteConfirmationDialog open={Boolean(deleteId)} onOpenChange={(open) => !open && setDeleteId(null)} onConfirm={() => void handleDelete()} itemLabel="this vehicle" />
     </AppShell>
   );
 }

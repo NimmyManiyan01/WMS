@@ -189,6 +189,9 @@ async def lifespan(app: FastAPI):
             ("invoice_date", "DATE"),
             ("challan_number", "VARCHAR(128)"),
             ("challan_date", "DATE"),
+            ("shipment_type", "VARCHAR(32) DEFAULT 'STANDARD'"),
+            ("replacement_request_id", "UUID"),
+            ("original_asn_id", "UUID"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE asn ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")

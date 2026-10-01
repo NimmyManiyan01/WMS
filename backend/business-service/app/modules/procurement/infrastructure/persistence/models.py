@@ -327,6 +327,8 @@ class AsnModel(Base):
     number_of_packages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     package_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     shipping_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    shipment_type: Mapped[str] = mapped_column(String(32), nullable=False, default="STANDARD")
+    replacement_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("replacement_request.id"), nullable=True)
     invoice_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     challan_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -335,6 +337,32 @@ class AsnModel(Base):
 
     lines: Mapped[List[AsnLineModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
     documents: Mapped[List[AsnDocumentModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
+
+
+class ReplacementRequestModel(Base):
+    __tablename__ = "replacement_request"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    request_number: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    supplier_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("supplier.id"), nullable=False, index=True)
+    purchase_order_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("purchase_order.id"), nullable=True)
+    original_asn_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("asn.id"), nullable=True)
+    item_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    item_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    replacement_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    reason: Mapped[str] = mapped_column(String(256), nullable=False)
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    request_date: Mapped[date] = mapped_column(Date, default=date.today, nullable=False)
+    supplier_response_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    replacement_dispatch_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="SENT_TO_SUPPLIER")
+    supplier_response_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    extension_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    disputed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
 
 class AsnDocumentModel(Base):

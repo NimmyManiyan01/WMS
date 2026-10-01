@@ -292,12 +292,23 @@ class DispatchUseCases:
         vehicle = Vehicle.create(
             vehicle_number=cmd.vehicle_number,
             vehicle_type=cmd.vehicle_type,
+            ownership_type=cmd.ownership_type,
             capacity_tons=cmd.capacity_tons,
             is_active=cmd.is_active,
             insurance_valid=cmd.insurance_valid,
             fitness_valid=cmd.fitness_valid,
             permit_valid=cmd.permit_valid,
+            puc_valid=cmd.puc_valid,
             gps_available=cmd.gps_available,
+            rc_number=cmd.rc_number,
+            chassis_number=cmd.chassis_number,
+            registration_date=cmd.registration_date,
+            registration_expiry_date=cmd.registration_expiry_date,
+            insurance_expiry=cmd.insurance_expiry,
+            fitness_expiry=cmd.fitness_expiry,
+            permit_expiry=cmd.permit_expiry,
+            puc_expiry=cmd.puc_expiry,
+            rc_book_number=cmd.rc_book_number,
         )
         return await self.vehicle_repo.save(vehicle)
 
@@ -307,12 +318,23 @@ class DispatchUseCases:
             raise ValueError(f"Vehicle not found: {vehicle_id}")
         vehicle.vehicle_number = cmd.vehicle_number
         vehicle.vehicle_type = cmd.vehicle_type
+        vehicle.ownership_type = cmd.ownership_type
         vehicle.capacity_tons = cmd.capacity_tons
         vehicle.is_active = cmd.is_active
         vehicle.insurance_valid = cmd.insurance_valid
         vehicle.fitness_valid = cmd.fitness_valid
         vehicle.permit_valid = cmd.permit_valid
+        vehicle.puc_valid = cmd.puc_valid
         vehicle.gps_available = cmd.gps_available
+        vehicle.rc_number = cmd.rc_number
+        vehicle.chassis_number = cmd.chassis_number
+        vehicle.registration_date = cmd.registration_date
+        vehicle.registration_expiry_date = cmd.registration_expiry_date
+        vehicle.insurance_expiry = cmd.insurance_expiry
+        vehicle.fitness_expiry = cmd.fitness_expiry
+        vehicle.permit_expiry = cmd.permit_expiry
+        vehicle.puc_expiry = cmd.puc_expiry
+        vehicle.rc_book_number = cmd.rc_book_number
         return await self.vehicle_repo.save(vehicle)
 
     async def delete_vehicle(self, vehicle_id: str) -> bool:

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api-client";
+import { DeleteConfirmationDialog } from "@/components/wms/delete-confirmation-dialog";
 
 export const Route = createFileRoute("/dispatch-drivers")({
   component: DispatchDriversPage,
@@ -19,6 +20,7 @@ function DispatchDriversPage() {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [newDriver, setNewDriver] = useState({
     driver_name: "",
@@ -91,12 +93,13 @@ function DispatchDriversPage() {
     setIsOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this driver?")) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await api.deleteDriver(id);
+      await api.deleteDriver(deleteId);
+      setDeleteId(null);
       toast.success("Driver deleted successfully");
-      void loadData();
+      window.location.reload();
     } catch (err) {
       toast.error("Failed to delete driver", { description: err instanceof Error ? err.message : undefined });
     }
@@ -293,7 +296,7 @@ function DispatchDriversPage() {
                           <Button size="sm" variant="outline" className="rounded-lg text-xs h-8" onClick={() => handleOpenEdit(driver)}>
                             <Pencil className="size-3.5 mr-1" /> Edit
                           </Button>
-                          <Button size="sm" variant="ghost" className="rounded-lg text-xs h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10" onClick={() => handleDelete(driver.id)}>
+                          <Button size="sm" variant="ghost" className="rounded-lg text-xs h-8 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10" onClick={() => setDeleteId(driver.id)}>
                             <Trash2 className="size-3.5 mr-1" /> Delete
                           </Button>
                         </td>
@@ -306,6 +309,7 @@ function DispatchDriversPage() {
           </div>
         </Card>
       )}
+      <DeleteConfirmationDialog open={Boolean(deleteId)} onOpenChange={(open) => !open && setDeleteId(null)} onConfirm={() => void handleDelete()} itemLabel="this driver" />
     </AppShell>
   );
 }

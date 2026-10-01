@@ -97,6 +97,11 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
     return ["SUPPLIER", "PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/assembly"))
     return ["ASSEMBLY", "ASSEMBLY_MANAGER", "ADMIN", "SUPERUSER"];
+  // These outbound gate screens use a dispatch-prefixed URL, but are operated
+  // from the gate-security sidebar. Keep them ahead of the broader dispatch
+  // route match so gate users are not redirected back to their dashboard.
+  if (pathname === "/dispatch-gate-exit" || pathname === "/dispatch-gate-out")
+    return ["GATE_SECURITY", "GATE_OPERATOR", "WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/dispatch") || pathname.startsWith("/dispatch-"))
     return ["DISPATCH", "DISPATCH_MANAGER", "ADMIN", "SUPERUSER"];
   if (
@@ -109,6 +114,8 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname === "/grn" || pathname === "/receiving")
     return ["GRN", "GRN_MANAGER", "RECEIVING", "WAREHOUSE", "ADMIN", "SUPERUSER"];
   if (pathname === "/warehouse/stores")
+    return ["WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
+  if (pathname === "/warehouse/quarantine")
     return ["WAREHOUSE", "WAREHOUSE_MANAGER", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/warehouse") ||

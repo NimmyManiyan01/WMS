@@ -909,6 +909,40 @@ function SubmitQuotation() {
           </div>
         </SectionCard>
 
+        {/* Quotation summary follows the supporting documents */}
+        <SectionCard
+          title="Quotation Summary"
+          description="Review the values entered above before submitting"
+          icon={FileCheck}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
+              <p className="text-xs text-muted-foreground">Subtotal</p>
+              <p className="mt-1 font-bold tabular-nums">{formatCurrency(quotationSummary.subtotal)}</p>
+            </div>
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
+              <p className="text-xs text-muted-foreground">Discount ({quotationSummary.discountPercentage}%)</p>
+              <p className="mt-1 font-bold tabular-nums">− {formatCurrency(quotationSummary.discount)}</p>
+            </div>
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
+              <p className="text-xs text-muted-foreground">GST / Tax ({quotationSummary.taxRate}%)</p>
+              <p className="mt-1 font-bold tabular-nums">{formatCurrency(quotationSummary.taxAmount)}</p>
+            </div>
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
+              <p className="text-xs text-muted-foreground">Freight & other charges</p>
+              <p className="mt-1 font-bold tabular-nums">
+                {formatCurrency(quotationSummary.freight + quotationSummary.otherCharges)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 sm:col-span-2 lg:col-span-2">
+              <p className="text-xs font-semibold text-primary">Grand Total</p>
+              <p className="mt-1 text-lg font-extrabold tabular-nums text-primary">
+                {formatCurrency(quotationSummary.total)}
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+
         {/* Action Panel */}
         {!isLocked && (
           <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-card/60 p-6 shadow-soft">
@@ -940,7 +974,7 @@ function SubmitQuotation() {
         {/* Quotation Summary Modal */}
         <Dialog open={showSummaryModal} onOpenChange={setShowSummaryModal}>
           <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-2xl border-none p-0 shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75 [&>button]:hover:text-white">
-            <div className="bg-success px-6 py-4 text-white">
+            <div className="bg-blue-600 px-6 py-4 text-white">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
                   <span className="grid size-8 place-items-center rounded-lg bg-white/15">
@@ -957,10 +991,6 @@ function SubmitQuotation() {
             <div className="space-y-4 p-5 max-h-[70vh] overflow-y-auto">
               {/* Financial Breakdown with Taxable Values */}
               <div className="rounded-xl border border-border/70 bg-muted/10 p-4">
-                <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center justify-between">
-                  <span>Taxable-Value Breakdown</span>
-                  <span className="text-[10px] text-success">Backend calculation synced</span>
-                </h4>
                 <div className="space-y-2.5">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-6 text-sm">
                     <span className="font-medium text-muted-foreground">Subtotal (Gross Items)</span>
@@ -1066,7 +1096,7 @@ function SubmitQuotation() {
                   Go Back & Edit
                 </Button>
                 <Button
-                  className="h-11 rounded-xl bg-success px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-success/90"
+                  className="h-11 rounded-xl bg-blue-600 px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-blue-700"
                   onClick={() => {
                     if (submitting || isLocked) return;
                     setShowSummaryModal(false);

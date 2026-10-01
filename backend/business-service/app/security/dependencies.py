@@ -59,7 +59,10 @@ async def get_current_user(
         if "WAREHOUSE" in roles_upper or "WAREHOUSE_MANAGER" in roles_upper:
             perms.extend(["gate:read", "gate:write", "gate:approve", "gate:verify", "gate:entry:read", "gate:entry:create", "storage:read", "storage:write", "receiving:read", "receiving:write", "returns:read", "returns:write", "store:read", "store:write"])
         if "GATE_SECURITY" in roles_upper:
-            perms.extend(["gate:read", "gate:write", "gate:entry:read", "gate:entry:create", "gate:entry:verify"])
+            # Gate security also operates the outbound gate queue.  These are
+            # read/execute permissions for dispatches that have already passed
+            # warehouse loading and final verification.
+            perms.extend(["gate:read", "gate:write", "gate:entry:read", "gate:entry:create", "gate:entry:verify", "dispatch:read", "dispatch:execute"])
         if "PROCUREMENT" in roles_upper:
             perms.extend(["procurement:read", "procurement:create", "procurement:write"])
         if "FINANCE" in roles_upper:
@@ -180,7 +183,7 @@ async def get_current_user(
                 subject="gate_security",
                 username="gate_security",
                 roles=["GATE_SECURITY"],
-                permissions=["gate:read", "gate:write", "gate:verify", "gate:entry:create", "gate:entry:read", "gate:entry:verify"],
+                permissions=["gate:read", "gate:write", "gate:verify", "gate:entry:create", "gate:entry:read", "gate:entry:verify", "dispatch:read", "dispatch:execute"],
                 raw_claims={},
             )
         elif token == "mock-jwt-grn-token":

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, ChevronRight, ClipboardCheck, ClipboardList, Factory, Gauge, GitFork, ListChecks, Loader2, PackageCheck, Pencil, Play, RefreshCw, Search, Trash2, Users, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
-import { AppShell } from "@/components/wms/app-shell";
+import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -48,6 +48,7 @@ const statusClass: Record<string, string> = {
 
 function AssemblyOrders() {
   const [orders, setOrders] = useState<any[]>([]);
+  const [finishedGoodsRequests, setFinishedGoodsRequests] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -89,16 +90,39 @@ function AssemblyOrders() {
   }, []);
 
   const load = useCallback(async () => {
-    try {
-      const [orderRows, teamRows] = await Promise.all([
-        api.getAssemblyOrders(),
-        api.getAssemblyTeams(),
-      ]);
-      setOrders(orderRows);
-      setTeams(teamRows.filter((team: any) => team.active));
+    // The order endpoint performs an idempotent legacy-data backfill. Load it
+    // first so the other reads do not contend with that write transaction.
+    const ordersResult = await Promise.race([
+      api.getAssemblyOrders().then((value) => ({ status: "fulfilled" as const, value }))
+        .catch((reason) => ({ status: "rejected" as const, reason })),
+      new Promise<{ status: "rejected"; reason: Error }>((resolve) =>
+        window.setTimeout(() => resolve({ status: "rejected", reason: new Error("Assembly Orders request timed out") }), 10000)
+      ),
+    ]);
+    const auxiliaryResults = await Promise.race([
+      Promise.allSettled([api.getAssemblyTeams(), api.getFinishedGoodsRequests()]),
+      new Promise<PromiseSettledResult<any>[]>((resolve) => window.setTimeout(() => resolve([
+        { status: "rejected", reason: new Error("Auxiliary assembly data request timed out") },
+        { status: "rejected", reason: new Error("Auxiliary assembly data request timed out") },
+      ]), 5000)),
+    ]);
+    const [teamsResult, finishedGoodsResult] = auxiliaryResults;
+
+    if (ordersResult.status === "fulfilled") {
+      setOrders(Array.isArray(ordersResult.value) ? ordersResult.value : []);
+    } else {
+      toast.error("Unable to load assembly orders", {
+        description: ordersResult.reason instanceof Error ? ordersResult.reason.message : undefined,
+      });
     }
-    catch (error) { toast.error("Unable to load assembly orders", { description: error instanceof Error ? error.message : undefined }); }
-    finally { setLoading(false); }
+
+    if (teamsResult.status === "fulfilled") {
+      setTeams(Array.isArray(teamsResult.value) ? teamsResult.value.filter((team: any) => team.active) : []);
+    }
+    if (finishedGoodsResult.status === "fulfilled") {
+      setFinishedGoodsRequests(Array.isArray(finishedGoodsResult.value) ? finishedGoodsResult.value : []);
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -119,23 +143,22 @@ function AssemblyOrders() {
     return text.includes(query.toLowerCase());
   }), [orders, query, filter]);
 
+  const incomingFinishedGoodsRequests = useMemo(() => finishedGoodsRequests.filter((request) =>
+    ["SENT_TO_ASSEMBLY", "IN_PROGRESS", "PENDING", "SUBMITTED", "READY", "DRAFT"].includes(String(request.status || "").toUpperCase())
+  ), [finishedGoodsRequests]);
+
   async function transition(order: any, status: string) {
     if (status === "IN_PROGRESS" && !order.assigned_team) {
       openWorkOrder(order);
       toast.info("Assign an assembly team before starting the work order");
       return;
     }
-    if (
-      status === "COMPLETED" &&
-      (order.assembly_steps || []).some((step: any) => step.status !== "COMPLETED")
-    ) {
-      openWorkOrder(order);
-      toast.info("Complete every assembly step before completing the work order");
-      return;
-    }
     setBusy(order.id);
     try {
-      const updated = await api.updateAssemblyOrder(order.id, { status });
+      let updated = await api.updateAssemblyOrder(order.id, { status });
+      if (status === "COMPLETED") {
+        updated = await api.updateAssemblyOrder(order.id, { status: "QUALITY_CHECK" });
+      }
       toast.success(
         `${order.order_number} moved to ${updated.status.replaceAll("_", " ").toLowerCase()}`,
         updated.reservation ? { description: `${updated.reservation.materials_count} component${updated.reservation.materials_count === 1 ? "" : "s"} protected from other departments.` } : undefined,
@@ -374,10 +397,26 @@ function AssemblyOrders() {
       </div>
     </Card>
 
+    {!loading && incomingFinishedGoodsRequests.length > 0 && <Card className="mb-5 border-blue-200 bg-blue-50/50 shadow-soft dark:border-blue-900/60 dark:bg-blue-950/20">
+      <div className="flex items-center justify-between border-b border-blue-200/70 px-5 py-4 dark:border-blue-900/60">
+        <div><h2 className="flex items-center gap-2 text-sm font-bold text-blue-900 dark:text-blue-100"><ClipboardList className="size-4" /> Finished Goods Requests from Procurement</h2><p className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">Incoming production demand shown alongside Assembly Orders.</p></div>
+        <Badge className="bg-blue-600 text-white">{incomingFinishedGoodsRequests.length} open</Badge>
+      </div>
+      <div className="grid gap-3 p-4 md:grid-cols-2">{incomingFinishedGoodsRequests.map((request: any) => {
+        const requested = Number(request.quantity || request.requested_quantity || 0);
+        const available = Number(request.fg_store_available ?? request.available_quantity ?? 0);
+        const shortage = Math.max(0, requested - available);
+        return <div key={request.id || request.request_number} className="rounded-xl border border-blue-200 bg-white p-4 dark:border-blue-900/60 dark:bg-slate-950/40">
+          <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-xs font-bold text-blue-700 dark:text-blue-300">{request.request_number}</p><p className="mt-1 font-semibold">{request.product_name || request.finished_goods_name || request.product_code}</p></div><StatusBadge status={request.status} /></div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-muted-foreground">Requested</p><p className="mt-1 font-bold">{requested} {request.uom || "PCS"}</p></div><div><p className="text-muted-foreground">FG available</p><p className="mt-1 font-bold">{available} {request.uom || "PCS"}</p></div><div><p className="text-muted-foreground">Shortage</p><p className={cn("mt-1 font-bold", shortage > 0 ? "text-red-600" : "text-emerald-600")}>{shortage} {request.uom || "PCS"}</p></div></div>
+        </div>;
+      })}</div>
+    </Card>}
+
     {loading ? <div className="grid h-64 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div>
       : filtered.length === 0 ? <Card className="grid h-64 place-items-center text-center text-muted-foreground"><div><Factory className="mx-auto mb-2 size-9 opacity-40" /><p>No assembly orders found.</p></div></Card>
       : <div className="grid gap-4 xl:grid-cols-2">{filtered.map((order) => <Card key={order.id} className="gap-4 rounded-2xl p-5 shadow-soft">
-        <div className="flex items-start justify-between gap-4"><div><p className="font-mono text-sm font-bold text-primary">{order.order_number}</p><h2 className="mt-1 text-xl font-bold">{order.product_name}</h2><p className="text-xs text-muted-foreground">From {order.request_number}</p></div><div className="flex flex-wrap justify-end gap-2"><Badge className={statusClass[order.status]}>{order.status.replaceAll("_", " ")}</Badge>{order.putaway_status && order.putaway_status !== "PUTAWAY_PENDING" && <Badge className={statusClass[order.putaway_status] || "bg-slate-100 text-slate-700"}>FG {order.putaway_status.replace("PUTAWAY_", "").replaceAll("_", " ")}</Badge>}</div></div>
+        <div className="flex items-start justify-between gap-4"><div><p className="font-mono text-sm font-bold text-primary">{order.order_number}</p><h2 className="mt-1 text-xl font-bold">{order.product_name}</h2><p className="text-xs text-muted-foreground">From {order.request_number}</p></div><div className="flex flex-wrap justify-end gap-2"><Badge className={statusClass[order.status] || "bg-slate-100 text-slate-700"}>{String(order.status || "UNKNOWN").replaceAll("_", " ")}</Badge>{order.putaway_status && order.putaway_status !== "PUTAWAY_PENDING" && <Badge className={statusClass[order.putaway_status] || "bg-slate-100 text-slate-700"}>FG {String(order.putaway_status).replace("PUTAWAY_", "").replaceAll("_", " ")}</Badge>}</div></div>
         <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-4 sm:grid-cols-3">
           <Field label="Quantity" value={String(order.planned_quantity)} />
           <Field label="Priority" value={order.priority} highlight={order.priority === "HIGH" || order.priority === "URGENT"} />
@@ -386,7 +425,7 @@ function AssemblyOrders() {
           <Field label="Materials" value={`${order.materials_count} components`} />
           <Field label="Department" value={order.department} />
         </div>
-        <div className="flex flex-wrap gap-2">{order.items.map((item: any) => <span key={item.material_code} className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground">{item.material_name || item.material_code} · {item.quantity} {item.uom}</span>)}</div>
+        <div className="flex flex-wrap gap-2">{(order.items || []).map((item: any) => <span key={item.material_code} className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground">{item.material_name || item.material_code} · {item.quantity} {item.uom}</span>)}</div>
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <Button size="sm" variant="outline" onClick={() => openRequirements(order)} disabled={loadingReqs}><ClipboardList className="size-3.5" /> Requirements</Button>
           <Button size="sm" variant="outline" onClick={() => openMaterialIssue(order)} disabled={loadingReqs}><PackageCheck className="size-3.5" /> Material issue</Button>
@@ -415,9 +454,6 @@ function AssemblyOrders() {
           <div className="ml-auto flex flex-wrap gap-2">
             {(nextStatus[order.status] || []).map((action, index) => {
               const needsTeam = action.status === "IN_PROGRESS" && !order.assigned_team;
-              const needsSteps =
-                action.status === "COMPLETED" &&
-                (order.assembly_steps || []).some((step: any) => step.status !== "COMPLETED");
               return (
                 <Button
                   key={action.status}
@@ -430,12 +466,10 @@ function AssemblyOrders() {
                     <Loader2 className="size-3.5 animate-spin" />
                   ) : needsTeam ? (
                     <Users className="size-3.5" />
-                  ) : needsSteps ? (
-                    <ListChecks className="size-3.5" />
                   ) : (
                     <ChevronRight className="size-3.5" />
                   )}
-                  {needsTeam ? "Assign team to start" : needsSteps ? "Complete work steps" : action.label}
+                  {needsTeam ? "Assign team to start" : action.label}
                 </Button>
               );
             })}
@@ -576,16 +610,6 @@ function AssemblyOrders() {
       <div className="grid gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[1fr_auto]">
         <div className="space-y-2"><Label>Assembly team</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={workTeam} disabled={loadingTeams || ["IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED"].includes(workOrder?.status)} onChange={(event) => setWorkTeam(event.target.value)}><option value="">{loadingTeams ? "Loading teams..." : teams.length ? "Select team" : "No active teams found"}</option>{teams.map((team) => <option key={team.id} value={team.name}>{team.name} · {team.workers_count} workers · {team.workstation}</option>)}</select></div>
         <Button className="self-end" variant="outline" disabled={loadingTeams || !workTeam.trim() || busy === workOrder?.id || ["IN_PROGRESS", "COMPLETED", "QUALITY_CHECK", "CLOSED"].includes(workOrder?.status)} onClick={() => void saveWorkTeam()}><Users className="size-4" /> Assign team</Button>
-      </div>
-      <div className="space-y-2">
-        {(workOrder?.assembly_steps || []).map((step: any, index: number) => {
-          const previousComplete = index === 0 || workOrder.assembly_steps[index - 1].status === "COMPLETED";
-          return <div key={step.id} className="flex items-center gap-3 rounded-xl border p-3">
-            <div className={cn("grid size-8 shrink-0 place-items-center rounded-full text-sm font-bold", step.status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" : step.status === "IN_PROGRESS" ? "bg-blue-100 text-blue-700" : "bg-muted text-muted-foreground")}>{step.status === "COMPLETED" ? <CheckCircle2 className="size-4" /> : step.sequence}</div>
-            <div className="min-w-0 flex-1"><p className="font-semibold">{step.name}</p><p className="text-xs text-muted-foreground">{step.status.replaceAll("_", " ")}</p></div>
-            {workOrder?.status === "IN_PROGRESS" && step.status !== "COMPLETED" && <Button size="sm" variant={step.status === "IN_PROGRESS" ? "default" : "outline"} disabled={!previousComplete || busy === `${workOrder.id}:${step.id}`} onClick={() => void updateStep(step)}>{step.status === "IN_PROGRESS" ? <><CheckCircle2 className="size-4" /> Complete</> : <><Play className="size-4" /> Start</>}</Button>}
-          </div>;
-        })}
       </div>
       {workOrder?.status === "READY" && <Button disabled={!workOrder.assigned_team || busy === workOrder.id} onClick={() => void startWorkOrder()}><Play className="size-4" /> Start assembly</Button>}
       {workOrder?.status !== "READY" && workOrder?.status !== "IN_PROGRESS" && <p className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">Assembly can start after materials are checked and the order reaches READY status.</p>}

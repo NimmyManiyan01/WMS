@@ -15,6 +15,12 @@ function DispatchTransitPage() {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
   const [selectedTransit, setSelectedTransit] = useState<any | null>(null);
+  const formatEta = (minutes?: number) => {
+    if (minutes == null) return "—";
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    return hours ? `${hours} Hours ${mins} Mins` : `${mins} Mins`;
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -83,11 +89,11 @@ function DispatchTransitPage() {
                       className={`p-3.5 rounded-xl border cursor-pointer transition-all ${selectedTransit?.id === order.id ? "bg-primary/10 border-primary shadow-sm" : "hover:bg-muted/30"}`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-primary text-xs">{order.dispatch_number || "DO-2026-00125"}</span>
+                        <span className="font-mono font-bold text-primary text-xs">{order.dispatch_number}</span>
                         <StatusBadge status={order.status} />
                       </div>
-                      <div className="font-semibold text-sm mt-1">{order.customer_name || "ABC Industries"}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Dest: {order.destination || "Mysore"}</div>
+                      <div className="font-semibold text-sm mt-1">{order.customer_name || "—"}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">Dest: {order.destination || "—"}</div>
                     </div>
                   ))
                 )}
@@ -117,7 +123,7 @@ function DispatchTransitPage() {
                   <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-muted/40 border">
                     <div>
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Origin</span>
-                      <span className="font-bold text-base text-foreground">Bangalore</span>
+                      <span className="font-bold text-base text-foreground">{selectedTransit.warehouse_id || "—"}</span>
                     </div>
                     <div>
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Destination</span>
@@ -133,7 +139,7 @@ function DispatchTransitPage() {
                       </div>
                       <div>
                         <span className="text-[10px] uppercase font-bold text-muted-foreground block">Driver</span>
-                        <span className="font-bold text-sm">Rajesh Kumar (DRV-001)</span>
+                        <span className="font-bold text-sm">{selectedTransit.driver_name || "—"}</span>
                       </div>
                     </div>
 
@@ -143,7 +149,7 @@ function DispatchTransitPage() {
                       </div>
                       <div>
                         <span className="text-[10px] uppercase font-bold text-muted-foreground block">Vehicle</span>
-                        <span className="font-bold text-sm font-mono">KA01AB1234 (Truck)</span>
+                        <span className="font-bold text-sm font-mono">{selectedTransit.vehicle_number || "—"}</span>
                       </div>
                     </div>
                   </div>
@@ -152,19 +158,19 @@ function DispatchTransitPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="p-3.5 rounded-xl border bg-muted/20">
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Current Location</span>
-                      <span className="font-bold text-xs text-foreground mt-1 block">Mandya Bypass, NH-275</span>
+                      <span className="font-bold text-xs text-foreground mt-1 block">{selectedTransit.current_location || "—"}</span>
                     </div>
                     <div className="p-3.5 rounded-xl border bg-muted/20">
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Distance Travelled</span>
-                      <span className="font-bold text-sm font-mono text-emerald-600 mt-1 block">92 KM</span>
+                      <span className="font-bold text-sm font-mono text-emerald-600 mt-1 block">{selectedTransit.distance_travelled_km ?? 0} KM</span>
                     </div>
                     <div className="p-3.5 rounded-xl border bg-muted/20">
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Remaining Distance</span>
-                      <span className="font-bold text-sm font-mono text-amber-600 mt-1 block">48 KM</span>
+                      <span className="font-bold text-sm font-mono text-amber-600 mt-1 block">{selectedTransit.remaining_distance_km ?? 0} KM</span>
                     </div>
                     <div className="p-3.5 rounded-xl border bg-muted/20">
                       <span className="text-[10px] uppercase font-bold text-muted-foreground block">Estimated ETA</span>
-                      <span className="font-bold text-xs text-blue-600 mt-1 block">2 Hours 15 Mins</span>
+                      <span className="font-bold text-xs text-blue-600 mt-1 block">{formatEta(selectedTransit.eta_minutes)}</span>
                     </div>
                   </div>
 
@@ -172,17 +178,17 @@ function DispatchTransitPage() {
                   <div className="p-4 rounded-xl border bg-card/50 space-y-2 text-xs">
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground uppercase font-bold">Active Route:</span>
-                      <span className="font-mono font-semibold">Bangalore - Ramanagara - Mandya - Mysore</span>
+                      <span className="font-mono font-semibold">{selectedTransit.route_path || "—"}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground uppercase font-bold">Route Deviation:</span>
                       <span className="font-bold text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="size-3.5" /> None (On Track)
+                        <CheckCircle2 className="size-3.5" /> {selectedTransit.route_deviation || "—"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground uppercase font-bold">Driver Status:</span>
-                      <span className="font-bold text-blue-600">Active / Driving</span>
+                      <span className="font-bold text-blue-600">{selectedTransit.driver_status || "—"}</span>
                     </div>
                   </div>
 

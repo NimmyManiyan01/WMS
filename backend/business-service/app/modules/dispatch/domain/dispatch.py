@@ -44,7 +44,7 @@ class DispatchItem:
 @dataclass
 class DispatchOrder:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    dispatch_number: str = field(default_factory=lambda: f"DO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}")
+    dispatch_number: str = field(default_factory=lambda: f"FG-DISP-{datetime.now().year}-{uuid.uuid4().hex[:6].upper()}")
     order_number: str = ""
     customer_name: str = ""
     warehouse_id: str = "WH-01"
@@ -66,6 +66,13 @@ class DispatchOrder:
     transport_type: str | None = "Full Truckload"
     transporter: str | None = None
     notes: str | None = None
+    current_location: str | None = None
+    distance_travelled_km: float = 0.0
+    remaining_distance_km: float = 0.0
+    eta_minutes: float = 0.0
+    route_path: str | None = None
+    route_deviation: str | None = None
+    driver_status: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     recorded_events: list[object] = field(default_factory=list, repr=False)
@@ -100,7 +107,7 @@ class DispatchOrder:
         
         order = cls(
             id=dispatch_id or str(uuid.uuid4()),
-            dispatch_number=dispatch_number or f"DO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}",
+            dispatch_number=dispatch_number or f"FG-DISP-{datetime.now().year}-{uuid.uuid4().hex[:6].upper()}",
             order_number=order_number,
             customer_name=customer_name,
             warehouse_id=warehouse_id,
@@ -141,13 +148,28 @@ class DispatchOrder:
         self.updated_at = datetime.now(timezone.utc)
 
     def pick_items(self, picked_items_data: list[dict]) -> None:
+        if self.status != DispatchStatus.PICKING_IN_PROGRESS:
+            raise ValueError("Dispatch must be in picking before items can be picked")
+        seen: set[str] = set()
         for p in picked_items_data:
             item_id = p.get("id") or p.get("material_code")
-            qty = p.get("quantity_picked", 0.0)
+            if not item_id or item_id in seen:
+                raise ValueError("Each dispatch item may be picked only once per request")
+            seen.add(item_id)
+            qty = float(p.get("quantity_picked", 0.0))
+            if qty < 0:
+                raise ValueError("Picked quantity cannot be negative")
             for item in self.items:
                 if item.id == item_id or item.material_code == item_id:
-                    item.quantity_picked = float(qty)
+                    if qty > item.quantity_reserved:
+                        raise ValueError(f"Picked quantity exceeds reserved quantity for {item.material_code}")
+                    item.quantity_picked = qty
                     item.status = "PICKED"
+                    break
+            else:
+                raise ValueError(f"Item {item_id} does not belong to this dispatch")
+        if any(item.quantity_picked != item.quantity_reserved for item in self.items):
+            raise ValueError("All reserved dispatch quantities must be picked before packing")
         self.status = DispatchStatus.PICKED
         self.updated_at = datetime.now(timezone.utc)
 
@@ -156,13 +178,22 @@ class DispatchOrder:
         self.updated_at = datetime.now(timezone.utc)
 
     def pack_items(self, packed_items_data: list[dict]) -> None:
+        if self.status != DispatchStatus.PACKING_IN_PROGRESS:
+            raise ValueError("Dispatch must be in packing before items can be packed")
         for p in packed_items_data:
             item_id = p.get("id") or p.get("material_code")
-            qty = p.get("quantity_packed", 0.0)
+            qty = float(p.get("quantity_packed", 0.0))
             for item in self.items:
                 if item.id == item_id or item.material_code == item_id:
-                    item.quantity_packed = float(qty)
+                    if qty != item.quantity_picked:
+                        raise ValueError(f"Packed quantity must equal picked quantity for {item.material_code}")
+                    item.quantity_packed = qty
                     item.status = "PACKED"
+                    break
+            else:
+                raise ValueError(f"Item {item_id} does not belong to this dispatch")
+        if any(item.quantity_packed != item.quantity_picked for item in self.items):
+            raise ValueError("All picked quantities must be packed before loading")
         self.status = DispatchStatus.PACKED
         self.updated_at = datetime.now(timezone.utc)
 

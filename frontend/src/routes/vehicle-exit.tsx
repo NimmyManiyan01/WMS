@@ -44,7 +44,12 @@ import { api } from "@/lib/api-client";
 import { requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/vehicle-exit")({
-  beforeLoad: () => requireRole(["WAREHOUSE", "GATE_SECURITY"]),
+  // This screen is linked from the gate-security sidebar, which is also
+  // available to gate operators and warehouse managers. Keep the route guard
+  // consistent with that navigation visibility so clicking the item does not
+  // immediately redirect the user away.
+  beforeLoad: () =>
+    requireRole(["WAREHOUSE", "WAREHOUSE_MANAGER", "GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"]),
   head: () => ({ meta: [{ title: "Vehicle Exit · Outbound Gate Security · NexusWMS" }] }),
   component: VehicleExit,
 });
@@ -143,7 +148,19 @@ function VehicleExit() {
     if (!quiet) setLoading(true);
     try {
       const data = await api.getOutboundDispatchQueue("ALL", searchTerm);
-      setDispatches(data || []);
+      // The queue is persisted in the business service. Normalize its dispatch
+      // response here so the gate-exit view does not depend on seed/local data.
+      setDispatches(
+        (data || []).map((dispatch: any) => ({
+          ...dispatch,
+          order_reference: dispatch.order_reference ?? dispatch.order_number ?? "",
+          destination_address: dispatch.destination_address ?? dispatch.delivery_address ?? dispatch.destination,
+          loading_status: dispatch.loading_status ?? (dispatch.status === "READY_FOR_GATE_EXIT" ? "LOADING_COMPLETED" : dispatch.status),
+          vehicle_number: dispatch.vehicle_number ?? "",
+          driver_name: dispatch.driver_name ?? "",
+          customer_name: dispatch.customer_name ?? "",
+        })),
+      );
     } catch (error) {
       if (!quiet) {
         toast.error("Unable to load outbound vehicle exit queue", {
@@ -165,17 +182,17 @@ function VehicleExit() {
     return dispatches.filter((d) => {
       const matchesSearch =
         !searchTerm.trim() ||
-        d.dispatch_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.order_reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.vehicle_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.driver_name.toLowerCase().includes(searchTerm.toLowerCase());
+        String(d.dispatch_number ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(d.customer_name ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(d.order_reference ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(d.vehicle_number ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(d.driver_name ?? "").toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesStatus =
         statusFilter === "ALL" ||
         (statusFilter === "READY_FOR_GATE_EXIT" && d.status === "READY_FOR_GATE_EXIT") ||
         (statusFilter === "GATE_EXIT_MISMATCH" && d.status === "GATE_EXIT_MISMATCH") ||
-        (statusFilter === "GATE_OUT" && (d.status === "GATE_OUT" || d.status === "EXIT_COMPLETED"));
+        (statusFilter === "GATE_OUT" && ["GATE_OUT", "EXIT_COMPLETED", "DISPATCHED"].includes(d.status));
 
       return matchesSearch && matchesStatus;
     });
@@ -192,7 +209,7 @@ function VehicleExit() {
   );
 
   const completedCount = useMemo(
-    () => dispatches.filter((d) => d.status === "GATE_OUT" || d.status === "EXIT_COMPLETED").length,
+    () => dispatches.filter((d) => ["GATE_OUT", "EXIT_COMPLETED", "DISPATCHED"].includes(d.status)).length,
     [dispatches],
   );
 
@@ -473,7 +490,7 @@ function VehicleExit() {
               {filteredDispatches.map((dispatch) => {
                 const isReady = dispatch.status === "READY_FOR_GATE_EXIT";
                 const isMismatch = dispatch.status === "GATE_EXIT_MISMATCH";
-                const isCompleted = dispatch.status === "GATE_OUT" || dispatch.status === "EXIT_COMPLETED";
+                const isCompleted = ["GATE_OUT", "EXIT_COMPLETED", "DISPATCHED"].includes(dispatch.status);
 
                 return (
                   <div

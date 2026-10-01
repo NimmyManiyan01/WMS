@@ -22,15 +22,15 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
   const [activeIndex, setActiveIndex] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [overviewProgress, setOverviewProgress] = useState(0);
-  const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 });
+  const mouseOffset = useRef({ x: 0, y: 0 }).current;
+  const targetProgress = useRef(0);
+  const displayedProgress = useRef(0);
+  const wakeScrollRef = useRef<(() => void) | null>(null);
 
   const introTweenRef = useRef<gsap.core.Tween | null>(null);
   const overviewRef = useRef({ val: 0 });
 
   // Mouse Parallax Lerp
-  const targetMouseRef = useRef({ x: 0, y: 0 });
-  const currentMouseRef = useRef({ x: 0, y: 0 });
-  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -56,45 +56,58 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
     };
   }, [mounted]);
 
-  // Parallax animation frame loop
+  // Read pointer targets in the camera without rerendering the entire scene.
   useEffect(() => {
     if (!mounted) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      // Normalize mouse between -1 and 1
-      const nx = (e.clientX / window.innerWidth) * 2 - 1;
-      const ny = (e.clientY / window.innerHeight) * 2 - 1;
-      targetMouseRef.current = { x: nx, y: ny };
+    const move = (event: MouseEvent) => {
+      mouseOffset.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouseOffset.y = (event.clientY / window.innerHeight) * 2 - 1;
     };
+    window.addEventListener("mousemove", move, { passive: true });
+    return () => window.removeEventListener("mousemove", move);
+  }, [mounted, mouseOffset]);
 
-    window.addEventListener("mousemove", handleMouseMove, { passive: true });
-
-    const lerp = (a: number, b: number, factor: number) => a + (b - a) * factor;
-
-    const loop = () => {
-      const curr = currentMouseRef.current;
-      const target = targetMouseRef.current;
-
-      curr.x = lerp(curr.x, target.x, 0.18);
-      curr.y = lerp(curr.y, target.y, 0.18);
-
-      setMouseOffset({ x: curr.x, y: curr.y });
-      rafRef.current = requestAnimationFrame(loop);
+  // Native-refresh scroll damping. No React frame updates while scroll is idle.
+  useEffect(() => {
+    if (!mounted) return;
+    let frame: number | null = null;
+    let previousTime = 0;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const tick = (time: number) => {
+      const delta = previousTime ? Math.min((time - previousTime) / 1000, 0.05) : 1 / 120;
+      previousTime = time;
+      const target = targetProgress.current;
+      const current = displayedProgress.current;
+      const next = reducedMotion
+        ? target
+        : current + (target - current) * (1 - Math.exp(-16 * delta));
+      const settled = Math.abs(target - next) < 0.00001;
+      displayedProgress.current = settled ? target : next;
+      setScrollProgress(displayedProgress.current);
+      setActiveIndex(
+        Math.min(
+          stages.length - 1,
+          Math.max(0, Math.round(displayedProgress.current * (stages.length - 1))),
+        ),
+      );
+      frame = settled ? null : requestAnimationFrame(tick);
     };
-
-    rafRef.current = requestAnimationFrame(loop);
-
+    wakeScrollRef.current = () => {
+      if (frame === null) {
+        previousTime = 0;
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    wakeScrollRef.current();
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (frame !== null) cancelAnimationFrame(frame);
+      wakeScrollRef.current = null;
     };
-  }, [mounted]);
+  }, [mounted, stages.length]);
 
   // GSAP ScrollTrigger pinning and scrub tracking
   useEffect(() => {
     if (!mounted || !pinRef.current) return;
-
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const ctx = gsap.context(() => {
       const trigger = ScrollTrigger.create({
@@ -102,7 +115,7 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
         start: "top top",
         end: "+=7800",
         pin: true,
-        scrub: prefersReducedMotion ? false : 0.08,
+
         anticipatePin: 1,
         onUpdate: (self) => {
           const rawProgress = self.progress;
@@ -121,15 +134,12 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
             setOverviewProgress(1);
           }
 
-          const p = Math.max(0, (rawProgress - OVERVIEW_SCROLL_FRACTION) / (1 - OVERVIEW_SCROLL_FRACTION));
-          setScrollProgress(p);
-
-          // 7 Stages transition mapping (0 to 6)
-          const stageIndex = Math.min(
-            stages.length - 1,
-            Math.max(0, Math.round(p * (stages.length - 1)))
+          const p = Math.max(
+            0,
+            (rawProgress - OVERVIEW_SCROLL_FRACTION) / (1 - OVERVIEW_SCROLL_FRACTION),
           );
-          setActiveIndex(stageIndex);
+          targetProgress.current = p;
+          wakeScrollRef.current?.();
         },
       });
 
@@ -151,7 +161,8 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
       overviewRef.current.val = 1;
       setOverviewProgress(1);
 
-      const targetFraction = OVERVIEW_SCROLL_FRACTION + (index / (stages.length - 1)) * (1 - OVERVIEW_SCROLL_FRACTION);
+      const targetFraction =
+        OVERVIEW_SCROLL_FRACTION + (index / (stages.length - 1)) * (1 - OVERVIEW_SCROLL_FRACTION);
       const targetScroll = trigger.start + targetFraction * (trigger.end - trigger.start);
 
       window.scrollTo({
@@ -159,7 +170,7 @@ export function WarehouseJourney({ stages = JOURNEY_STAGES }: WarehouseJourneyPr
         behavior: "smooth",
       });
     },
-    [stages.length]
+    [stages.length],
   );
 
   // Toggle between front warehouse top view and gate entry

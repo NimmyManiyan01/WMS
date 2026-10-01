@@ -72,7 +72,7 @@ export function StatCard({
                   <Info className="size-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs text-xs">
+              <TooltipContent side="top" className="max-w-xs">
                 {infoTooltip}
               </TooltipContent>
             </Tooltip>

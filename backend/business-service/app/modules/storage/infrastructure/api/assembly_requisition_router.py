@@ -456,7 +456,13 @@ async def _build_requisition_responses_with_availability(
             and all(i.has_sufficient_stock and i.shortage_quantity == Decimal("0.0") for i in item_schemas)
         )
         req_status = (r.status or "PENDING").upper()
-        can_assign = all_available and (req_status in ["PENDING", "RESERVED", "READY"])
+        # A requisition with a shortage can still be assigned when at least one
+        # unit is available. The pickup task will be created for the available
+        # quantity and the remaining shortage stays visible for replenishment.
+        can_assign = bool(
+            req_status in ["PENDING", "RESERVED", "READY"]
+            and any(i.available_quantity > 0 for i in item_schemas)
+        )
 
         # Automatic Store Determination
         res_store_counts: Dict[str, Decimal] = {}
@@ -523,8 +529,12 @@ async def _build_requisition_responses_with_availability(
             avail_status = "AVAILABLE"
             avail_msg = f"All materials available/reserved in inventory — Auto-assigned to {suggested_s_name or 'Store'}" if suggested_s_name else "All materials available/reserved in inventory — Ready for Store assignment"
         else:
-            avail_status = "SHORTAGE"
-            avail_msg = f"Material shortage ({tot_short} remaining) — Store assignment unavailable"
+            avail_status = "PARTIAL_AVAILABLE" if can_assign else "SHORTAGE"
+            avail_msg = (
+                f"{tot_short} units short — available quantity can be assigned for Store pickup"
+                if can_assign
+                else f"Material shortage ({tot_short} remaining) — Store assignment unavailable"
+            )
 
         tasks = pickup_map.get(r.id, [])
         tracking = [{
@@ -1629,6 +1639,7 @@ async def assign_store_to_assembly_requisition(
 
     # Availability Validation: Ensure all requested material quantities are in stock or reserved
     shortages = []
+    pickup_quantities: dict[str, Decimal] = {}
     for item in req.items:
         if getattr(item, "is_custom", False) or item.material_code == "CUSTOM" or not item.material_id:
             shortages.append(
@@ -1638,6 +1649,7 @@ async def assign_store_to_assembly_requisition(
 
         res_qty = Decimal(str(getattr(item, "reserved_quantity", 0) or 0))
         if res_qty >= item.requested_quantity:
+            pickup_quantities[item.material_code] = Decimal(str(item.requested_quantity))
             continue
 
         stock_res = await uow.session.execute(
@@ -1670,15 +1682,18 @@ async def assign_store_to_assembly_requisition(
         free_unreserved = max(Decimal("0.0"), effective_avail - other_res - res_qty)
 
         total_satisfied = res_qty + free_unreserved
+        pickup_quantities[item.material_code] = min(Decimal(str(item.requested_quantity)), total_satisfied)
         if total_satisfied < item.requested_quantity:
             shortages.append(
                 f"Material '{item.material_code}' ({item.material_name}): Required {item.requested_quantity} {item.uom}, Available/Reserved {total_satisfied} {item.uom} (Shortage: {item.requested_quantity - total_satisfied} {item.uom})"
             )
 
-    if shortages:
+    # Partial assignment is supported: only the quantity currently available
+    # in reservations/free stock is sent to the Store pickup task.
+    if not pickup_quantities or all(quantity <= 0 for quantity in pickup_quantities.values()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Material shortage — Store assignment unavailable: {'; '.join(shortages)}",
+            detail=f"No stock is currently available for Store pickup: {'; '.join(shortages)}",
         )
 
     store_stmt = select(StoreModel).where(StoreModel.id == store_uuid)
@@ -1701,6 +1716,9 @@ async def assign_store_to_assembly_requisition(
 
     tasks_created = []
     for item in req.items:
+        pickup_quantity = pickup_quantities.get(item.material_code, Decimal("0.0"))
+        if pickup_quantity <= 0:
+            continue
         existing_pck_res = await uow.session.execute(
             select(PickupTaskModel).where(
                 PickupTaskModel.requisition_id == req.id,
@@ -1721,7 +1739,7 @@ async def assign_store_to_assembly_requisition(
                 department=req.department or "Assembly",
                 material_code=item.material_code,
                 material_name=item.material_name,
-                requested_quantity=item.requested_quantity,
+                requested_quantity=pickup_quantity,
                 picked_quantity=Decimal("0.0"),
                 uom=item.uom or "PCS",
                 priority=req.priority or "MEDIUM",

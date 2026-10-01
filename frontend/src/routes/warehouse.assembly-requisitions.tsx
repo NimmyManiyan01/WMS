@@ -43,6 +43,7 @@ import {
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { getUserInfo } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/warehouse/assembly-requisitions")({
   head: () => ({
@@ -74,6 +75,8 @@ const UOM_OPTIONS = ["PCS", "MTR", "KG", "LTR", "BOX", "PKT", "SET", "NOS", "ROL
 
 function WarehouseAssemblyRequisitionsPage() {
   const navigate = useNavigate();
+  const userRoles = (getUserInfo()?.roles || []).map((role) => role.toUpperCase());
+  const isStoreUser = userRoles.includes("STORE_MANAGER") || userRoles.includes("STORE_KEEPER");
   const [requisitions, setRequisitions] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
@@ -245,6 +248,7 @@ function WarehouseAssemblyRequisitionsPage() {
 
   // Action states
   const [reservingId, setReservingId] = useState<string | null>(null);
+  const [creatingMrId, setCreatingMrId] = useState<string | null>(null);
 
   const handleReserveStock = async (req: any) => {
     setReservingId(req.id);
@@ -265,6 +269,7 @@ function WarehouseAssemblyRequisitionsPage() {
   };
 
   const handleCreateShortageMR = (req: any) => {
+    setCreatingMrId(req.id);
     const shortageItems = (req.items || [])
       .map((it: any) => {
         const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
@@ -305,6 +310,7 @@ function WarehouseAssemblyRequisitionsPage() {
         items_json: JSON.stringify(shortageItems),
       },
     });
+    setTimeout(() => setCreatingMrId(null), 1000);
   };
 
   const filteredRequisitions = useMemo(() => {
@@ -545,7 +551,7 @@ function WarehouseAssemblyRequisitionsPage() {
                           </Button>
                         )}
 
-                        {isPending && canAssign && (
+                        {!isStoreUser && isPending && canAssign && (
                           <Button
                             size="sm"
                             className="rounded-xl h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold"
@@ -574,7 +580,7 @@ function WarehouseAssemblyRequisitionsPage() {
       </div>
 
       {/* Assign Store Modal */}
-      <Dialog open={Boolean(assigningReq)} onOpenChange={(open) => !open && setAssigningReq(null)}>
+      {!isStoreUser && <Dialog open={Boolean(assigningReq)} onOpenChange={(open) => !open && setAssigningReq(null)}>
         <DialogContent className="max-w-md rounded-3xl p-6 bg-card border-none shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold flex items-center gap-2">
@@ -661,7 +667,7 @@ function WarehouseAssemblyRequisitionsPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
       {/* View Details Modal */}
       <Dialog open={Boolean(viewingReq)} onOpenChange={(open) => !open && setViewingReq(null)}>

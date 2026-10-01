@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, desc, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 
 from app.database.session import UnitOfWork, get_uow
 from app.modules.dock.application.service import DockAllocationService
@@ -295,8 +296,12 @@ async def create_dock(
     user: CurrentUser = Depends(require_permission("gate:write")),
     uow: UnitOfWork = Depends(get_uow),
 ):
+    dock_code = req.dock_code.strip().upper()
+    existing = await uow.session.scalar(select(DockMasterModel).where(DockMasterModel.dock_code == dock_code))
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists")
     dock = DockMasterModel(
-        dock_code=req.dock_code.strip().upper(),
+        dock_code=dock_code,
         dock_name=req.dock_name.strip(),
         dock_type=req.dock_type.strip().upper(),
         location=req.location,
@@ -305,7 +310,11 @@ async def create_dock(
         is_active=req.is_active,
     )
     uow.session.add(dock)
-    await uow.session.commit()
+    try:
+        await uow.session.commit()
+    except IntegrityError as exc:
+        await uow.session.rollback()
+        raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists") from exc
     return await get_dock_by_id(dock.id, uow)
 
 
@@ -423,7 +432,11 @@ async def update_dock(
         raise HTTPException(status_code=404, detail="Dock not found")
 
     if req.dock_code is not None:
-        dock.dock_code = req.dock_code.strip().upper()
+        dock_code = req.dock_code.strip().upper()
+        duplicate = await uow.session.scalar(select(DockMasterModel).where(DockMasterModel.dock_code == dock_code, DockMasterModel.id != dock.id))
+        if duplicate:
+            raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists")
+        dock.dock_code = dock_code
     if req.dock_name is not None:
         dock.dock_name = req.dock_name.strip()
     if req.dock_type is not None:
@@ -435,7 +448,11 @@ async def update_dock(
     if req.is_active is not None:
         dock.is_active = req.is_active
 
-    await uow.session.commit()
+    try:
+        await uow.session.commit()
+    except IntegrityError as exc:
+        await uow.session.rollback()
+        raise HTTPException(status_code=409, detail="Dock code already exists") from exc
     return await get_dock_by_id(dock.id, uow)
 
 

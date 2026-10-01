@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -275,6 +275,60 @@ function AssemblyDashboard() {
             ) : (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 No assembly notifications.
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Assembly material pickup requests */}
+          <SectionCard
+            title="Material pickup requests"
+            description="Track warehouse-to-store handoff for your assembly requisitions"
+            icon={PackageCheck}
+            className="mt-4"
+          >
+            {requisitions.length ? (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {requisitions.slice(0, 6).map((req: any) => {
+                  const status = String(req.status || "PENDING").toUpperCase();
+                  const isPickupState = [
+                    "STORE_ASSIGNED",
+                    "PICKING",
+                    "PICKED",
+                    "PARTIALLY_PICKED",
+                  ].includes(status);
+                  return (
+                    <div key={req.id} className="rounded-xl border bg-background p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-mono text-sm font-bold text-primary">
+                            {req.requisitionNumber || req.requisition_number || req.request_number}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {(req.items || []).length} material item(s)
+                            {req.assignedStoreName || req.assigned_store_name
+                              ? ` · ${req.assignedStoreName || req.assigned_store_name}`
+                              : " · Store not assigned"}
+                          </p>
+                        </div>
+                        <Badge className={isPickupState ? "bg-purple-500/15 text-purple-700 dark:text-purple-300" : "bg-muted text-muted-foreground"}>
+                          {status.replaceAll("_", " ")}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
+                        <span className="text-xs text-muted-foreground">
+                          {isPickupState ? "Pickup task is active" : "Awaiting warehouse assignment"}
+                        </span>
+                        <Button size="sm" variant="outline" className="rounded-xl text-xs" asChild>
+                          <Link to="/assembly/requests">View request</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No assembly material pickup requests.
               </div>
             )}
           </SectionCard>

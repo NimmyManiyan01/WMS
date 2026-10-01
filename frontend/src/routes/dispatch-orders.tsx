@@ -49,7 +49,7 @@ const SAMPLE_SALES_ORDERS = [
     contact_person: "Ramesh Rao",
     contact_phone: "+91 9812345678",
     delivery_instructions: "Handle fragile automotive parts with care.",
-    transport_mode: "Road",
+    transport_mode: "Vehicle",
     transport_type: "Full Truckload",
     transporter: "VRL Logistics",
     notes: "Priority dispatch for Mysore assembly line.",
@@ -70,7 +70,7 @@ const SAMPLE_SALES_ORDERS = [
     contact_person: "Suresh Kumar",
     contact_phone: "+91 9823456789",
     delivery_instructions: "Express export delivery SLA.",
-    transport_mode: "Road",
+    transport_mode: "Vehicle",
     transport_type: "Container",
     transporter: "SafeExpress",
     notes: "Express export shipment SLA.",
@@ -80,9 +80,14 @@ const SAMPLE_SALES_ORDERS = [
   }
 ];
 
+function dateOnly(value: string | null | undefined): string {
+  return value ? String(value).split("T")[0] : "";
+}
+
 function DispatchOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
+  const [salesOrders, setSalesOrders] = useState<any[]>(SAMPLE_SALES_ORDERS);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   // Filter States
@@ -100,8 +105,8 @@ function DispatchOrdersPage() {
   const [customerName, setCustomerName] = useState("");
   const [warehouseId, setWarehouseId] = useState("Bangalore FG Warehouse");
   const [dispatchType, setDispatchType] = useState("Standard");
-  const [dispatchDate, setDispatchDate] = useState("2026-09-22T09:00");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("2026-09-23T18:00");
+  const [dispatchDate, setDispatchDate] = useState("2026-09-22");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("2026-09-23");
   const [priority, setPriority] = useState("High");
 
   // Section 2: Delivery Info
@@ -112,7 +117,7 @@ function DispatchOrdersPage() {
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
 
   // Section 3: Transport Info
-  const [transportMode, setTransportMode] = useState("Road");
+  const [transportMode, setTransportMode] = useState("Vehicle");
   const [transportType, setTransportType] = useState("Full Truckload");
   const [transporter, setTransporter] = useState("VRL Logistics");
 
@@ -145,7 +150,7 @@ function DispatchOrdersPage() {
     const newDoNum = generateNewDispatchNumber();
     setDispatchNumber(newDoNum);
     setAutosaveStatus("Draft Autosaved");
-    const defaultSo = SAMPLE_SALES_ORDERS[0];
+    const defaultSo = salesOrders[0];
     setSelectedSo(defaultSo.order_number);
     setOrderNumber(defaultSo.order_number);
     setCustomerName(defaultSo.customer_name);
@@ -153,8 +158,8 @@ function DispatchOrdersPage() {
     setDestination(defaultSo.destination);
     setWarehouseId(defaultSo.warehouse_id);
     setDispatchType("Standard");
-    setDispatchDate(defaultSo.dispatch_date);
-    setExpectedDeliveryDate(defaultSo.expected_delivery_date);
+    setDispatchDate(dateOnly(defaultSo.dispatch_date));
+    setExpectedDeliveryDate(dateOnly(defaultSo.expected_delivery_date));
     setPriority(defaultSo.priority);
     setContactPerson(defaultSo.contact_person);
     setContactPhone(defaultSo.contact_phone);
@@ -170,15 +175,15 @@ function DispatchOrdersPage() {
 
   const handleSalesOrderSelect = (soNum: string) => {
     setSelectedSo(soNum);
-    const found = SAMPLE_SALES_ORDERS.find((so) => so.order_number === soNum);
+    const found = salesOrders.find((so) => so.order_number === soNum);
     if (found) {
       setOrderNumber(found.order_number);
       setCustomerName(found.customer_name);
       setCustomerAddress(found.customer_address);
       setDestination(found.destination);
       setWarehouseId(found.warehouse_id);
-      setDispatchDate(found.dispatch_date);
-      setExpectedDeliveryDate(found.expected_delivery_date);
+      setDispatchDate(dateOnly(found.dispatch_date));
+      setExpectedDeliveryDate(dateOnly(found.expected_delivery_date));
       setPriority(found.priority);
       setContactPerson(found.contact_person);
       setContactPhone(found.contact_phone);
@@ -196,8 +201,39 @@ function DispatchOrdersPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getDispatches();
+      const [res, finishedGoodsRequests] = await Promise.all([
+        api.getDispatches(),
+        api.getFinishedGoodsRequests(),
+      ]);
       setOrders(res.items || []);
+      const requestOrders = (Array.isArray(finishedGoodsRequests) ? finishedGoodsRequests : [])
+        .filter((request) => !["REJECTED", "CANCELLED"].includes(String(request.status || "").toUpperCase()))
+        .map((request) => ({
+          order_number: request.request_number,
+          customer_name: "Assembly",
+          customer_address: request.warehouse_id || "",
+          destination: "Assembly",
+          warehouse_id: request.warehouse_id || "Bangalore FG Warehouse",
+          dispatch_date: request.required_date || new Date().toISOString(),
+          expected_delivery_date: request.required_date || "",
+          priority: "Normal",
+          contact_person: request.requested_by || "Assembly",
+          contact_phone: "",
+          delivery_instructions: "Finished goods requested for assembly",
+          transport_mode: "Vehicle",
+          transport_type: "Full Truckload",
+          transporter: "",
+          notes: request.remarks || `Finished Goods Request ${request.request_number}`,
+          items: [{
+            material_code: request.finished_goods_code || request.product_code || request.request_number,
+            material_name: request.finished_goods_name || request.product_name || "Finished Good",
+            uom: request.uom || "PCS",
+            quantity_ordered: Number(request.quantity || request.requested_quantity || 0),
+            quantity_available: Number(request.available_quantity || request.fg_store_available || 0),
+            dispatch_qty: Number(request.quantity || request.requested_quantity || 0),
+          }],
+        }));
+      setSalesOrders(requestOrders.length ? requestOrders : SAMPLE_SALES_ORDERS);
     } catch (e) {
       toast.error("Failed to load dispatch orders", { description: e instanceof Error ? e.message : undefined });
     } finally {
@@ -394,7 +430,7 @@ function DispatchOrdersPage() {
                         className="mt-1.5 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs shadow-sm font-semibold text-primary"
                       >
                         <option value="">-- Select Sales Order --</option>
-                        {SAMPLE_SALES_ORDERS.map((so) => (
+                        {salesOrders.map((so) => (
                           <option key={so.order_number} value={so.order_number}>
                             {so.order_number} - {so.customer_name}
                           </option>
@@ -442,7 +478,7 @@ function DispatchOrdersPage() {
                     <div>
                       <Label className="text-xs font-semibold uppercase text-muted-foreground">Dispatch Date</Label>
                       <Input
-                        type="datetime-local"
+                        type="date"
                         value={dispatchDate}
                         onChange={(e) => setDispatchDate(e.target.value)}
                         className="mt-1.5 rounded-xl font-mono text-xs"
@@ -451,7 +487,7 @@ function DispatchOrdersPage() {
                     <div>
                       <Label className="text-xs font-semibold uppercase text-muted-foreground">Expected Delivery</Label>
                       <Input
-                        type="datetime-local"
+                        type="date"
                         value={expectedDeliveryDate}
                         onChange={(e) => setExpectedDeliveryDate(e.target.value)}
                         className="mt-1.5 rounded-xl font-mono text-xs"
@@ -545,7 +581,7 @@ function DispatchOrdersPage() {
                         onChange={(e) => setTransportMode(e.target.value)}
                         className="mt-1.5 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs shadow-sm font-semibold"
                       >
-                        <option value="Road">Road Transport</option>
+                        <option value="Vehicle">Vehicle / Truck</option>
                         <option value="Rail">Rail Freight</option>
                         <option value="Air">Air Cargo</option>
                         <option value="Sea">Sea Freight</option>

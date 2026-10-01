@@ -42,6 +42,7 @@ function SupplierDashboard() {
   const [asns, setAsns] = useState<any[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [qualityIssues, setQualityIssues] = useState<any[]>([]);
+  const [replacementRequests, setReplacementRequests] = useState<any[]>([]);
 
   useEffect(() => {
     let userInfo = getUserInfo();
@@ -64,12 +65,13 @@ function SupplierDashboard() {
     const fetchAllData = async () => {
       try {
         const sid = userInfo.supplierId || "";
-        const [fetchedRfqs, fetchedQuotes, fetchedAsns, fetchedPurchaseOrders, fetchedQualityIssues] = await Promise.all([
+        const [fetchedRfqs, fetchedQuotes, fetchedAsns, fetchedPurchaseOrders, fetchedQualityIssues, fetchedReplacementRequests] = await Promise.all([
           api.getRfqs(sid),
           api.getQuotations(undefined, sid),
           api.getAsns(sid),
           api.getPurchaseOrders({ supplierId: sid }),
           api.getQualityIssues(),
+          api.getSupplierReplacementRequests(),
         ]);
 
         setRfqs(fetchedRfqs);
@@ -77,6 +79,7 @@ function SupplierDashboard() {
         setAsns(fetchedAsns);
         setPurchaseOrders(fetchedPurchaseOrders);
         setQualityIssues(fetchedQualityIssues);
+        setReplacementRequests(fetchedReplacementRequests);
       } catch (error: any) {
         toast.error("Error loading dashboard data: " + error.message);
       } finally {
@@ -223,6 +226,32 @@ function SupplierDashboard() {
           </Card>
         )}
 
+        {replacementRequests.length > 0 && (
+          <Card className="border-border/40 shadow-soft">
+            <CardHeader>
+              <CardTitle className="text-base font-bold">Replacement Requests</CardTitle>
+              <CardDescription className="text-xs">Quality-related replacement requests requiring your action.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/60">
+                {replacementRequests.map((request) => (
+                  <div key={request.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2"><h4 className="text-sm font-bold">{request.request_number}</h4><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">{request.status}</span></div>
+                      <p className="mt-1 text-xs text-muted-foreground">{request.item_name || request.item_code} · Qty {request.replacement_quantity} {request.uom} · {request.reason}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Dispatch due: {request.replacement_dispatch_due_at ? new Date(request.replacement_dispatch_due_at).toLocaleDateString() : "Not specified"}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {(request.status === "SENT_TO_SUPPLIER" || request.status === "AWAITING_SUPPLIER") && <Button size="sm" className="rounded-xl text-xs" onClick={async () => { try { const updated = await api.acceptSupplierReplacementRequest(request.id); setReplacementRequests((items) => items.map((item) => item.id === updated.id ? updated : item)); toast.success("Replacement request accepted"); } catch (error: any) { toast.error(error.message); } }}>Accept</Button>}
+                      {request.status === "SUPPLIER_ACCEPTED" && <Button size="sm" variant="outline" className="rounded-xl text-xs" asChild><Link to="/supplier/asns/new" search={{ poId: request.purchase_order_id, replacementRequestId: request.id, shipmentType: "REPLACEMENT" }}>Create Replacement ASN</Link></Button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tabular Lists */}
         <Tabs defaultValue="rfqs" className="w-full space-y-4">
           <TabsList className="bg-muted/40 p-1 rounded-xl">
@@ -342,6 +371,22 @@ function SupplierDashboard() {
                         .filter((line: string) => line.startsWith("Rejected by "));
                       const rejectionReason = rejectionLines[rejectionLines.length - 1];
                       const quotationRfqId = q.rfqId || q.rfq_id;
+                      const quotationLines = Array.isArray(q.lines) ? q.lines : [];
+                      const subtotal = quotationLines.reduce(
+                        (total: number, line: any) =>
+                          total + Number(line.quantity || 0) * Number(line.unitPrice || line.unit_price || 0),
+                        0,
+                      );
+                      const discountRate = Number(q.discount || 0);
+                      const discount = subtotal * discountRate / 100;
+                      const tax = Number(q.tax || 0);
+                      const freight = Number(q.freightCharges || q.freight_charges || 0);
+                      const additionalCharges = Number(q.additionalCharges || q.additional_charges || 0);
+                      const formatAmount = (value: number) =>
+                        `INR ${value.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`;
                       return (
                         <div
                           key={q.id || `quo-${idx}`}
@@ -365,7 +410,47 @@ function SupplierDashboard() {
                             </div>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                               <span>RFQ ID: {quotationRfqId}</span>
-                              <span>Date: {new Date(q.created_at).toLocaleDateString()}</span>
+                              <span>Date: {new Date(q.createdAt || q.created_at || Date.now()).toLocaleDateString()}</span>
+                            </div>
+                            <div className="mt-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-xs">
+                              <p className="mb-2 font-bold text-foreground">Submitted quotation details</p>
+                              <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+                                <span>Subtotal: <strong>{formatAmount(subtotal)}</strong></span>
+                                <span>Discount ({discountRate}%): <strong>{formatAmount(discount)}</strong></span>
+                                <span>GST / Tax: <strong>{tax}%</strong></span>
+                                <span>Freight: <strong>{formatAmount(freight)}</strong></span>
+                                {additionalCharges > 0 && (
+                                  <span>Other charges: <strong>{formatAmount(additionalCharges)}</strong></span>
+                                )}
+                                <span>Delivery: <strong>{q.deliveryTime || q.delivery_time || "Not specified"}</strong></span>
+                                <span>Payment: <strong>{q.paymentTerms || q.payment_terms || "Not specified"}</strong></span>
+                                <span>Mode: <strong>{q.modeOfPayment || q.mode_of_payment || "Not specified"}</strong></span>
+                                <span>Warranty: <strong>{q.warranty || "Not specified"}</strong></span>
+                              </div>
+                              {quotationLines.length > 0 && (
+                                <div className="mt-3 space-y-1 border-t border-border/60 pt-2">
+                                  <p className="font-semibold text-foreground">Quoted items</p>
+                                  {quotationLines.map((line: any, lineIndex: number) => (
+                                    <div key={`${q.id}-line-${lineIndex}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                                      <span>
+                                        {line.materialName || line.material_name || line.itemCode || line.item_code || "Item"}
+                                        {line.uom ? ` (${line.uom})` : ""}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        Qty {line.quantity} × {formatAmount(Number(line.unitPrice || line.unit_price || 0))}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {(q.expectedDeliveryDate || q.expected_delivery_date || q.remarks) && (
+                                <div className="mt-3 space-y-1 border-t border-border/60 pt-2">
+                                  {(q.expectedDeliveryDate || q.expected_delivery_date) && (
+                                    <p>Expected delivery date: <strong>{q.expectedDeliveryDate || q.expected_delivery_date}</strong></p>
+                                  )}
+                                  {q.remarks && <p>Remarks: <strong className="font-medium">{q.remarks}</strong></p>}
+                                </div>
+                              )}
                             </div>
                             {(isRejected || isDeclined) && (
                               <div className="max-w-xl rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs">
@@ -381,13 +466,25 @@ function SupplierDashboard() {
                               </div>
                             )}
                           </div>
-                          <div className="text-right">
-                            <span className="text-sm font-extrabold text-foreground">
-                              INR {parseFloat(q.total_amount || 0).toLocaleString()}
-                            </span>
-                            <span className="block text-[10px] text-muted-foreground mt-0.5">
-                              {q.lines?.length || 0} items quoted
-                            </span>
+                          <div className="flex flex-col items-end gap-2 text-right">
+                            <div>
+                              <span className="text-sm font-extrabold text-foreground">
+                                {formatAmount(parseFloat(q.totalAmount || q.total_amount || 0))}
+                              </span>
+                              <span className="block text-[10px] text-muted-foreground mt-0.5">
+                                {q.lines?.length || 0} items quoted
+                              </span>
+                            </div>
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl text-xs h-8"
+                            >
+                              <Link to="/submit-quotation" search={{ rfqId: quotationRfqId }}>
+                                View Quote
+                              </Link>
+                            </Button>
                           </div>
                         </div>
                       );

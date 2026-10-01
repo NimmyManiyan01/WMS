@@ -2193,7 +2193,19 @@ async def release_dock(
     gate_entry = entry_result.scalar_one_or_none()
     if gate_entry is None:
         raise NotFoundException(f"Inbound arrival '{entry_id}' not found")
-    if gate_entry.status != GateEntryStatus.RECEIVING_COMPLETED.value:
+    if gate_entry.status not in {
+        GateEntryStatus.RECEIVING_COMPLETED.value,
+        GateEntryStatus.COMPLETED.value,
+        GateEntryStatus.QUALITY_PASSED.value,
+        GateEntryStatus.QUALITY_FAILED.value,
+        GateEntryStatus.EXIT_APPROVED.value,
+        GateEntryStatus.GATE_EXIT_COMPLETED.value,
+        GateEntryStatus.VEHICLE_EXITED.value,
+        "GRN_COMPLETED",
+        "QC_COMPLETED",
+        "UNLOADED",
+        "RELEASED",
+    }:
         raise HTTPException(status_code=409, detail="Receiving must be completed before releasing the dock")
     assignment_result = await uow.session.execute(select(DockAssignmentModel).where(DockAssignmentModel.gate_entry_id == gate_entry.id).with_for_update())
     assignment = assignment_result.scalar_one_or_none()
@@ -2637,8 +2649,12 @@ async def post_grn(
             # Migrate equivalent legacy labels (for example "Main Warehouse")
             # to the canonical identifier used by current ASNs and GRNs.
             stock.warehouse_id = grn.warehouse_id
+        # Receipt posting only acknowledges goods at receiving.  Stock becomes
+        # authoritative after the physical put-away transaction completes.
+        # The put-away endpoint is responsible for incrementing on_hand and
+        # available, preventing receiving and put-away from being counted
+        # twice and keeping both inventory dashboards consistent.
         before = stock.on_hand
-        stock.on_hand = before + accepted
         # MaterialStockModel uses a timezone-naive legacy timestamp column.
         # asyncpg rejects aware datetimes for that column during flush.
         stock.updated_at = posted_at.replace(tzinfo=None)
@@ -2646,10 +2662,10 @@ async def post_grn(
             grn_id=grn.id, grn_number=grn.grn_number, po_id=grn.po_id, po_number=grn.po_number,
             asn_id=grn.asn_id, asn_number=grn.asn_number, supplier_name=grn.supplier_name,
             item_code=line.item_code, material_name=line.material_name or line.item_code, uom=line.uom or "PCS", warehouse_id=grn.warehouse_id,
-            posted_quantity=accepted, on_hand_before=before, on_hand_after=stock.on_hand,
+            posted_quantity=accepted, on_hand_before=before, on_hand_after=before,
             posted_by=user.username, posted_at=posted_at,
         ))
-        inventory_updates.append({"item_code": line.item_code, "quantity": float(accepted), "on_hand_before": float(before), "on_hand_after": float(stock.on_hand)})
+        inventory_updates.append({"item_code": line.item_code, "quantity": float(accepted), "on_hand_before": float(before), "on_hand_after": float(before)})
         if accepted > 0:
             handling_unit = handling_units_by_line.get(line.id)
             putaway_task_created = False
@@ -3013,21 +3029,32 @@ async def mark_inbound_vehicle_exited(
             detail="Vehicle has already exited.",
         )
 
-    eligible_statuses = {
-        "RECEIVING_COMPLETED",
-        "COMPLETED",
-        "RELEASED",
-        "DOCK_RELEASED",
-        "GRN_POSTED",
-        "QUALITY_PASSED",
-        "UNLOADED",
-    }
-
-    if current_status not in eligible_statuses:
+    # Inbound exit is available only after the receiving transaction has
+    # completed and the assigned Store Manager has released the dock.  Do not
+    # infer readiness from a loosely related gate-entry status: the dock
+    # assignment and posted GRN are the source of truth for this scenario.
+    if current_status != "RECEIVING_COMPLETED":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Gate entry status '{current_status}' is not eligible for vehicle exit. Eligible statuses: {', '.join(sorted(eligible_statuses))}.",
+            detail=f"Gate entry status '{current_status}' is not eligible for inbound exit. Receiving must be completed first.",
         )
+
+    assignment_result = await uow.session.execute(
+        select(DockAssignmentModel)
+        .where(DockAssignmentModel.gate_entry_id == model.id)
+        .with_for_update()
+    )
+    assignment = assignment_result.scalar_one_or_none()
+    if assignment is None or assignment.receiving_completed_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Receiving completion record is missing")
+    if assignment.dock_released_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Store Manager must release the dock before inbound gate exit")
+    if assignment.prepared_grn_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="GRN must be prepared before inbound gate exit")
+
+    grn = await uow.session.get(GrnModel, assignment.prepared_grn_id)
+    if grn is None or grn.status != "GRN_POSTED":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="GRN must be posted before inbound gate exit")
 
     now = datetime.datetime.now(datetime.timezone.utc)
     model.status = "VEHICLE_EXITED"

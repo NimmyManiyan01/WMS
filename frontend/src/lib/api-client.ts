@@ -757,9 +757,11 @@ export const api = {
   async getOutboundDispatchQueue(status?: string, search?: string): Promise<any[]> {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
-    if (search) params.set("search", search);
-    const queryStr = params.toString() ? `?${params.toString()}` : "";
-    return request<any[]>(`${BUSINESS_API_URL}/api/v1/dispatch/queue${queryStr}`);
+    if (search?.trim()) params.set("search", search.trim());
+    const query = params.toString();
+    return request<any[]>(`${BUSINESS_API_URL}/api/dispatches/ready-for-gate-exit${query ? `?${query}` : ""}`, {
+      cache: "no-store",
+    });
   },
 
   async getOutboundDispatch(dispatchId: string): Promise<any> {
@@ -770,10 +772,10 @@ export const api = {
     dispatchId: string,
     payload: { vehicle_verified: boolean; driver_verified: boolean; remarks?: string; vehicle_photo_base64?: string },
   ): Promise<any> {
-    return request<any>(`${BUSINESS_API_URL}/api/v1/dispatch/${encodeURIComponent(dispatchId)}/gate-exit`, {
+    void payload;
+    return request<any>(`${BUSINESS_API_URL}/api/dispatches/${encodeURIComponent(dispatchId)}/dispatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
     });
   },
 
@@ -1363,6 +1365,25 @@ export const api = {
       ? `${BUSINESS_API_URL}/api/v1/procurement/asns?supplier_id=${supplierId}`
       : `${BUSINESS_API_URL}/api/v1/procurement/asns`;
     return request<any[]>(url, { cache: "no-store" });
+  },
+
+  async getSupplierReplacementRequests(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/supplier/replacement-requests`, { cache: "no-store" });
+  },
+  async getSupplierReplacementRequest(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/supplier/replacement-requests/${id}`, { cache: "no-store" });
+  },
+
+  async acceptSupplierReplacementRequest(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/supplier/replacement-requests/${id}/accept`, { method: "POST" });
+  },
+
+  async requestSupplierReplacementExtension(id: string, remarks: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/supplier/replacement-requests/${id}/extension-request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remarks }) });
+  },
+
+  async disputeSupplierReplacementRequest(id: string, remarks: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/supplier/replacement-requests/${id}/dispute`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remarks }) });
   },
 
   async getAsn(id: string): Promise<any> {
@@ -2348,6 +2369,13 @@ export const api = {
   },
   async resolveGrnQr(qrCode: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/resolve-grn-qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ qr_code: qrCode }),
+    });
+  },
+  async resolveFinishedGoodsQr(qrCode: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/storage/putaway-tasks/resolve-finished-goods-qr`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ qr_code: qrCode }),

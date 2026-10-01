@@ -193,6 +193,13 @@ class SQLAlchemyDispatchRepository(DispatchRepository):
             transport_type=model.transport_type,
             transporter=model.transporter,
             notes=model.notes,
+            current_location=model.current_location,
+            distance_travelled_km=float(model.distance_travelled_km or 0),
+            remaining_distance_km=float(model.remaining_distance_km or 0),
+            eta_minutes=float(model.eta_minutes or 0),
+            route_path=model.route_path,
+            route_deviation=model.route_deviation,
+            driver_status=model.driver_status,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -241,6 +248,14 @@ class SQLAlchemyDriverRepository(DriverRepository):
         stmt = select(DriverModel)
         res = await self._session.execute(stmt)
         return [self._to_domain(m) for m in res.scalars().all()]
+
+    async def delete(self, driver_id: str) -> bool:
+        model = await self._session.get(DriverModel, driver_id)
+        if not model:
+            return False
+        await self._session.delete(model)
+        await self._session.flush()
+        return True
 
     def _to_domain(self, model: DriverModel) -> Driver:
         return Driver(
@@ -314,6 +329,14 @@ class SQLAlchemyVehicleRepository(VehicleRepository):
         stmt = select(VehicleModel)
         res = await self._session.execute(stmt)
         return [self._to_domain(m) for m in res.scalars().all()]
+
+    async def delete(self, vehicle_id: str) -> bool:
+        model = await self._session.get(VehicleModel, vehicle_id)
+        if not model:
+            return False
+        await self._session.delete(model)
+        await self._session.flush()
+        return True
 
     def _to_domain(self, model: VehicleModel) -> Vehicle:
         return Vehicle(

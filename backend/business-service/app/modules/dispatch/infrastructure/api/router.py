@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -20,6 +21,7 @@ from app.modules.dispatch.infrastructure.persistence.repository_impl import (
     SQLAlchemyDriverRepository,
     SQLAlchemyVehicleRepository,
 )
+from app.modules.dispatch.infrastructure.persistence.models import DriverModel, VehicleModel
 from app.modules.dispatch.infrastructure.api.schemas import (
     DispatchOrderResponse,
     DispatchItemResponse,
@@ -32,7 +34,7 @@ from app.security.dependencies import get_current_user, CurrentUser
 router = APIRouter(tags=["Finished Goods Dispatch"])
 
 
-def _to_dispatch_dto(o) -> DispatchOrderResponse:
+def _to_dispatch_dto(o, *, driver_name: str | None = None, vehicle_number: str | None = None) -> DispatchOrderResponse:
     items = [
         DispatchItemResponse(
             id=i.id,
@@ -46,6 +48,8 @@ def _to_dispatch_dto(o) -> DispatchOrderResponse:
             quantity_loaded=i.quantity_loaded,
             quantity_pending=i.quantity_pending,
             uom=i.uom,
+            batch=i.batch,
+            bin=i.bin,
             status=i.status,
         )
         for i in o.items
@@ -59,7 +63,9 @@ def _to_dispatch_dto(o) -> DispatchOrderResponse:
         status=o.status.value if hasattr(o.status, "value") else str(o.status),
         items=items,
         driver_id=o.driver_id,
+        driver_name=driver_name,
         vehicle_id=o.vehicle_id,
+        vehicle_number=vehicle_number,
         route_code=o.route_code,
         delivery_address=o.delivery_address,
         destination=o.destination,
@@ -67,6 +73,13 @@ def _to_dispatch_dto(o) -> DispatchOrderResponse:
         expected_delivery_date=o.expected_delivery_date,
         priority=o.priority,
         notes=o.notes,
+        current_location=o.current_location,
+        distance_travelled_km=o.distance_travelled_km,
+        remaining_distance_km=o.remaining_distance_km,
+        eta_minutes=o.eta_minutes,
+        route_path=o.route_path,
+        route_deviation=o.route_deviation,
+        driver_status=o.driver_status,
         created_at=o.created_at,
         updated_at=o.updated_at,
     )
@@ -79,6 +92,11 @@ def _to_driver_dto(d) -> DriverResponse:
         license_number=d.license_number,
         phone=d.phone,
         email=d.email,
+        license_type=d.license_type,
+        is_active=d.is_active,
+        photo_path=d.photo_path,
+        address=d.address,
+        aadhaar_number=d.aadhaar_number,
         status=d.status.value if hasattr(d.status, "value") else str(d.status),
         rating=d.rating,
         assigned_vehicle_id=d.assigned_vehicle_id,
@@ -92,7 +110,23 @@ def _to_vehicle_dto(v) -> VehicleResponse:
         id=v.id,
         vehicle_number=v.vehicle_number,
         vehicle_type=v.vehicle_type,
+        ownership_type=v.ownership_type,
         capacity_tons=v.capacity_tons,
+        rc_number=v.rc_number,
+        chassis_number=v.chassis_number,
+        registration_date=v.registration_date,
+        registration_expiry_date=v.registration_expiry_date,
+        insurance_expiry=v.insurance_expiry,
+        fitness_expiry=v.fitness_expiry,
+        permit_expiry=v.permit_expiry,
+        puc_expiry=v.puc_expiry,
+        rc_book_number=v.rc_book_number,
+        insurance_valid=v.insurance_valid,
+        fitness_valid=v.fitness_valid,
+        permit_valid=v.permit_valid,
+        puc_valid=v.puc_valid,
+        gps_available=v.gps_available,
+        is_active=v.is_active,
         status=v.status.value if hasattr(v.status, "value") else str(v.status),
         current_driver_id=v.current_driver_id,
         created_at=v.created_at,
@@ -108,14 +142,63 @@ def _get_use_cases(db: AsyncSession) -> DispatchUseCases:
     )
 
 
+async def _dispatch_party_names(db: AsyncSession, orders) -> tuple[dict[str, str], dict[str, str]]:
+    driver_ids = {str(order.driver_id) for order in orders if order.driver_id}
+    vehicle_ids = {str(order.vehicle_id) for order in orders if order.vehicle_id}
+    drivers: dict[str, str] = {}
+    vehicles: dict[str, str] = {}
+    if driver_ids:
+        result = await db.execute(select(DriverModel).where(DriverModel.id.cast(String).in_(driver_ids)))
+        drivers = {str(driver.id): driver.driver_name for driver in result.scalars().all()}
+    if vehicle_ids:
+        result = await db.execute(select(VehicleModel).where(VehicleModel.id.cast(String).in_(vehicle_ids)))
+        vehicles = {str(vehicle.id): vehicle.vehicle_number for vehicle in result.scalars().all()}
+    return drivers, vehicles
+
+
 @router.get("/api/dispatches/ready-for-gate-exit", response_model=list[DispatchOrderResponse])
 async def get_ready_for_gate_exit(
     db: Annotated[AsyncSession, Depends(get_db)],
+    status_filter: str | None = Query(None, alias="status"),
+    search: str | None = Query(None),
     _user: CurrentUser = Depends(get_current_user),
 ):
     uc = _get_use_cases(db)
-    orders = await uc.get_ready_for_gate_exit()
-    return [_to_dispatch_dto(o) for o in orders]
+    if status_filter and status_filter.upper() != "READY_FOR_GATE_EXIT":
+        orders, _ = await uc.list_dispatches(
+            status=None if status_filter.upper() == "ALL" else status_filter.upper(),
+            skip=0,
+            limit=200,
+        )
+    else:
+        orders = await uc.get_ready_for_gate_exit()
+    if search:
+        needle = search.strip().lower()
+        orders = [order for order in orders if any(
+            needle in str(value or "").lower()
+            for value in (order.dispatch_number, order.order_number, order.customer_name)
+        )]
+    driver_ids = {str(order.driver_id) for order in orders if order.driver_id}
+    vehicle_ids = {str(order.vehicle_id) for order in orders if order.vehicle_id}
+
+    drivers = {}
+    if driver_ids:
+        result = await db.execute(select(DriverModel).where(DriverModel.id.cast(String).in_(driver_ids)))
+        drivers = {str(driver.id): driver.driver_name for driver in result.scalars().all()}
+
+    vehicles = {}
+    if vehicle_ids:
+        result = await db.execute(select(VehicleModel).where(VehicleModel.id.cast(String).in_(vehicle_ids)))
+        vehicles = {str(vehicle.id): vehicle.vehicle_number for vehicle in result.scalars().all()}
+
+    return [
+        _to_dispatch_dto(
+            order,
+            driver_name=drivers.get(str(order.driver_id)) if order.driver_id else None,
+            vehicle_number=vehicles.get(str(order.vehicle_id)) if order.vehicle_id else None,
+        )
+        for order in orders
+    ]
 
 
 @router.get("/api/dispatches/kpis", response_model=dict)
@@ -138,8 +221,9 @@ async def list_dispatches(
 ):
     uc = _get_use_cases(db)
     items, total = await uc.list_dispatches(status=status_filter, warehouse_id=warehouse_id, skip=skip, limit=limit)
+    drivers, vehicles = await _dispatch_party_names(db, items)
     return DispatchListResponse(
-        items=[_to_dispatch_dto(o) for o in items],
+        items=[_to_dispatch_dto(o, driver_name=drivers.get(str(o.driver_id)), vehicle_number=vehicles.get(str(o.vehicle_id))) for o in items],
         total=total,
     )
 
@@ -170,7 +254,8 @@ async def get_dispatch(
     order = await uc.get_dispatch(dispatch_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispatch order not found")
-    return _to_dispatch_dto(order)
+    drivers, vehicles = await _dispatch_party_names(db, [order])
+    return _to_dispatch_dto(order, driver_name=drivers.get(str(order.driver_id)), vehicle_number=vehicles.get(str(order.vehicle_id)))
 
 
 @router.post("/api/dispatches/{dispatch_id}/reserve-stock", response_model=DispatchOrderResponse)

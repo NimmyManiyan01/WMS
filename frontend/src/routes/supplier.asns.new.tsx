@@ -37,15 +37,25 @@ function NewAsn() {
   const search = useSearch({ strict: false }) as any;
   const poId = search.po_id || search.poId || "";
   const poNumberFromSearch = search.po_number || search.poNumber || "";
+  const replacementRequestId = search.replacementRequestId || search.replacement_request_id || "";
   const draftStorageKey = `supplier-asn-draft:${poId || poNumberFromSearch || "new"}`;
   const draftHydrated = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [po, setPo] = useState<any>(null);
+  const [replacementRequest, setReplacementRequest] = useState<any>(null);
   const [asnNumber, setAsnNumber] = useState("");
 
   const [formData, setFormData] = useState({
+    shipment_type: search.shipmentType || "STANDARD",
+    return_reason: "",
+    refund_days: "",
+    return_method: "",
+    original_asn_number: "",
+    replacement_reason: "",
+    replacement_for_asn: "",
+    replacement_dispatch_date: "",
     shipment_date: new Date().toISOString().split("T")[0],
     expected_arrival_date: "",
     vehicle_number: "",
@@ -84,6 +94,12 @@ function NewAsn() {
         // 1. Fetch next ASN number
         const { asnNumber: nextAsn } = await api.getNextAsnNumber();
         setAsnNumber(nextAsn);
+        if (replacementRequestId) {
+          const request = await api.getSupplierReplacementRequest(replacementRequestId);
+          if (request.status !== "SUPPLIER_ACCEPTED") throw new Error("Replacement request must be accepted before creating an ASN");
+          setReplacementRequest(request);
+          setFormData((current) => ({ ...current, shipment_type: "REPLACEMENT", original_asn_number: request.original_asn_id || "", replacement_for_asn: request.original_asn_id || "", replacement_reason: request.reason }));
+        }
 
         let userInfo = getUserInfo();
         if (!userInfo || !userInfo.supplierId) {
@@ -221,6 +237,16 @@ function NewAsn() {
 
     setSubmitting(true);
     try {
+      if (formData.shipment_type === "RETURN" && (!formData.return_reason || !formData.original_asn_number || !formData.refund_days || !formData.return_method)) {
+        toast.error("Return details are required", { description: "Enter the return reason and original ASN number." });
+        setSubmitting(false);
+        return;
+      }
+      if (formData.shipment_type === "REPLACEMENT" && (!replacementRequestId || !replacementRequest || !formData.replacement_dispatch_date)) {
+        toast.error("Replacement details are required", { description: "Enter the replacement reason and original ASN number." });
+        setSubmitting(false);
+        return;
+      }
       // Validate quantities before submission
       const overShippedItems = lines.filter(
         (l) => l.shipped_quantity + l.already_shipped_quantity > l.ordered_quantity,
@@ -251,6 +277,15 @@ function NewAsn() {
         invoice_date: formData.invoice_date || null,
         challan_number: String(formData.challan_number || ""),
         challan_date: formData.challan_date || null,
+        shipment_type: formData.shipment_type,
+        return_reason: formData.return_reason || null,
+        refund_days: formData.refund_days ? Number(formData.refund_days) : null,
+        return_method: formData.return_method || null,
+        original_asn_number: formData.original_asn_number || null,
+        replacement_reason: formData.replacement_reason || null,
+        replacement_for_asn: formData.replacement_for_asn || null,
+        replacement_dispatch_date: formData.replacement_dispatch_date || null,
+        replacement_request_id: replacementRequestId || null,
         status: "SUBMITTED",
         documents: documents,
         lines: lines.map((l) => ({
@@ -332,6 +367,74 @@ function NewAsn() {
                     {po?.supplierName || "Independent Supplier"}
                   </div>
                 </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Shipment Type</Label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[
+                      ["STANDARD", "Standard Shipment", "Normal dispatch against the PO"],
+                      ["RETURN", "Return Shipment", "Send goods back to the warehouse"],
+                      ["REPLACEMENT", "Replacement Shipment", "Replace rejected or defective goods"],
+                    ].map(([value, title, description]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, shipment_type: value }))}
+                        className={cn(
+                          "rounded-xl border p-3 text-left transition-colors",
+                          formData.shipment_type === value ? "border-primary bg-primary/10 ring-2 ring-primary/20" : "border-border hover:border-primary/50",
+                        )}
+                      >
+                        <span className="block text-xs font-bold">{title}</span>
+                        <span className="mt-1 block text-[10px] text-muted-foreground">{description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {replacementRequest && (
+                    <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-4 text-xs">
+                      <p className="font-bold text-primary">Replacement Request {replacementRequest.request_number}</p>
+                      <p className="mt-1">Original ASN: {replacementRequest.original_asn_id} · Approved quantity: {replacementRequest.replacement_quantity} {replacementRequest.uom}</p>
+                      <p className="mt-1">Reason: {replacementRequest.reason} · Due: {replacementRequest.replacement_dispatch_due_at ? new Date(replacementRequest.replacement_dispatch_due_at).toLocaleDateString() : "Not specified"}</p>
+                    </div>
+                  )}
+                </div>
+                {formData.shipment_type === "RETURN" && (
+                  <div className="sm:col-span-2 grid gap-4 rounded-xl border border-amber-300/50 bg-amber-50/60 p-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="return_reason">Return Reason</Label>
+                      <Input id="return_reason" name="return_reason" placeholder="Damaged, rejected, excess, etc." className={inputClass} value={formData.return_reason} onChange={handleInputChange} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="return_method">Return Method</Label>
+                      <Input id="return_method" name="return_method" placeholder="Courier, pickup, transport, etc." className={inputClass} value={formData.return_method} onChange={handleInputChange} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="refund_days">Refund Within (Days)</Label>
+                      <Input id="refund_days" name="refund_days" type="number" min="0" placeholder="e.g. 7" className={inputClass} value={formData.refund_days} onChange={handleInputChange} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="original_asn_number">Original ASN Number</Label>
+                      <Input id="original_asn_number" name="original_asn_number" placeholder="ASN-..." className={inputClass} value={formData.original_asn_number} onChange={handleInputChange} required />
+                    </div>
+                    <p className="sm:col-span-2 text-xs text-amber-900">Procurement will be notified with the return method and promised refund timeline. Attach inspection or rejection evidence below.</p>
+                  </div>
+                )}
+                {formData.shipment_type === "REPLACEMENT" && (
+                  <div className="sm:col-span-2 grid gap-4 rounded-xl border border-blue-300/50 bg-blue-50/60 p-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="replacement_reason">Replacement Reason</Label>
+                      <Input id="replacement_reason" name="replacement_reason" placeholder="Defective, short supplied, warranty, etc." className={inputClass} value={formData.replacement_reason} onChange={handleInputChange} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="replacement_for_asn">Replacement For ASN</Label>
+                      <Input id="replacement_for_asn" name="replacement_for_asn" placeholder="ASN-..." className={inputClass} value={formData.replacement_for_asn} onChange={handleInputChange} required />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="replacement_dispatch_date">Expected Replacement Dispatch Date</Label>
+                      <Input id="replacement_dispatch_date" name="replacement_dispatch_date" type="date" className={inputClass} value={formData.replacement_dispatch_date} onChange={handleInputChange} required />
+                    </div>
+                    <p className="sm:col-span-2 text-xs text-blue-900">For a replacement, provide the original ASN and the reason for replacement. Attach warranty, inspection, or approval evidence below.</p>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="shipment_date">Shipment Date</Label>
                   <Input

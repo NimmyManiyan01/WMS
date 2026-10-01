@@ -52,20 +52,44 @@ async def _sync_finished_goods_putaway_status(uow: UnitOfWork, finished_goods_id
     fg = await uow.session.get(AssemblyFinishedGoodsModel, finished_goods_id, with_for_update=True)
     if not fg:
         return None
-    active_statuses = ["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_PENDING", "PUTAWAY_IN_PROGRESS"]
+    active_statuses = ["OPEN", "PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_PENDING", "PUTAWAY_IN_PROGRESS"]
     remaining = await uow.session.scalar(select(func.count(PutawayTaskModel.id)).where(
         PutawayTaskModel.finished_goods_id == fg.id,
         PutawayTaskModel.status.in_(active_statuses),
     )) or 0
-    fg.status = "AVAILABLE" if remaining == 0 else "PUTAWAY_PENDING"
+    # The Assembly Finished Goods list uses this record as the source of
+    # truth. Once its QR-backed putaway is complete, mark the unit as stored
+    # instead of leaving it looking merely available for putaway.
+    fg.status = "PUTAWAY_COMPLETED" if remaining == 0 else "PUTAWAY_PENDING"
     if location_code:
         fg.location_code = location_code
+    completed_quantity = await uow.session.scalar(select(func.coalesce(
+        func.sum(PutawayMovementModel.confirmed_quantity), 0
+    )).where(PutawayMovementModel.putaway_task_id.in_(
+        select(PutawayTaskModel.id).where(PutawayTaskModel.finished_goods_id == fg.id)
+    ))) or Decimal("0")
+    fg.on_hand_after = completed_quantity
+    destination_store_id = await uow.session.scalar(select(PutawayTaskModel.destination_store_id).where(
+        PutawayTaskModel.finished_goods_id == fg.id,
+        PutawayTaskModel.destination_store_id.is_not(None),
+    ).order_by(PutawayTaskModel.updated_at.desc()))
+    if destination_store_id:
+        fg.store_id = destination_store_id
     fg.updated_at = completed_at.replace(tzinfo=None) if completed_at.tzinfo else completed_at
 
     order = await uow.session.get(AssemblyOrderModel, fg.assembly_order_id, with_for_update=True)
     if order:
         order.putaway_status = "PUTAWAY_COMPLETED" if remaining == 0 else "PUTAWAY_IN_PROGRESS"
         order.updated_at = completed_at.replace(tzinfo=None) if completed_at.tzinfo else completed_at
+        # A Finished Goods Request is fulfilled only after the produced goods
+        # have physically reached the Finished Goods Store.
+        from app.modules.procurement.infrastructure.persistence.models import FinishedGoodsRequestModel
+        request = await uow.session.scalar(select(FinishedGoodsRequestModel).where(
+            FinishedGoodsRequestModel.request_number == order.request_number
+        ).with_for_update())
+        if request:
+            request.status = "COMPLETED" if remaining == 0 else "IN_PROGRESS"
+            request.updated_at = completed_at.replace(tzinfo=None) if completed_at.tzinfo else completed_at
         if remaining == 0:
             uow.session.add(NotificationModel(
                 id=uuid.uuid4(), user_role="ASSEMBLY_MANAGER",
@@ -232,7 +256,7 @@ def task_response(task: PutawayTaskModel) -> dict:
         "handling_unit_id": str(task.handling_unit_id) if task.handling_unit_id else None,
         "item_code": task.item_code,
         "material_name": task.material_name,
-        "material_qr": f"QR-MAT-{task.item_code}",
+        "material_qr": (task.placement_metadata or {}).get("unit_qr") if task.finished_goods_id else None,
         "barcode_value": None,
         "quantity": float(task.quantity),
         "uom": task.uom,
@@ -314,6 +338,21 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
             except Exception:
                 pass
 
+        finished_goods_store = None
+        if fg_ids:
+            try:
+                finished_goods_store = (await session.execute(
+                    select(StoreModel).where(
+                        or_(
+                            func.upper(StoreModel.store_code) == "STR-FG",
+                            func.upper(StoreModel.store_name) == "FINISHED GOODS STORE",
+                        ),
+                        StoreModel.status == "ACTIVE",
+                    ).order_by(StoreModel.created_at.asc())
+                )).scalars().first()
+            except Exception:
+                finished_goods_store = None
+
         gate_passes = {g.gate_entry_number for g in grns.values() if g and g.gate_entry_number}
         gate_entry_ids = {g.gate_entry_id for g in grns.values() if g and g.gate_entry_id}
         grn_id_keys = [g.id for g in grns.values() if g and g.id]
@@ -344,7 +383,10 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
         for t in tasks:
             grn = grns.get(t.grn_id)
             hu = hus.get(t.handling_unit_id) if t.handling_unit_id else None
-            store = stores.get(t.destination_store_id) if t.destination_store_id else None
+            is_finished_goods = bool(t.finished_goods_id)
+            store = finished_goods_store if is_finished_goods and finished_goods_store else (
+                stores.get(t.destination_store_id) if t.destination_store_id else None
+            )
 
             da = None
             for item in dock_allocs:
@@ -384,7 +426,7 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 or (store.store_manager_id if store and getattr(store, "store_manager_id", None) else None)
             )
 
-            dock_code = (
+            dock_code = None if is_finished_goods else (
                 (da.assigned_dock.dock_code if da and da.assigned_dock and getattr(da.assigned_dock, "dock_code", None) else None)
                 or (das.dock_number if das and das.dock_number else None)
                 or (grn.dock_number if grn and grn.dock_number else None)
@@ -408,13 +450,16 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 (grn.po_number if grn and grn.po_number else None)
                 or (hu.po_number if hu and hu.po_number else None)
             )
+            fg_record = finished_goods.get(t.finished_goods_id) if t.finished_goods_id else None
+            unit_qr = (t.placement_metadata or {}).get("unit_qr") if t.finished_goods_id else None
             mat_qr = (
-                (hu.barcode_value if hu and hu.barcode_value else None)
+                unit_qr
+                or (fg_record.qr_code if fg_record else None)
+                or (hu.barcode_value if hu and hu.barcode_value else None)
                 or (hu.hu_number if hu and hu.hu_number else None)
-                or f"QR-MAT-{t.item_code}"
+                or None
             )
 
-            fg_record = finished_goods.get(t.finished_goods_id) if t.finished_goods_id else None
             unit_metadata = t.placement_metadata or {}
             recorded_putaway_quantity = unit_metadata.get("putaway_quantity")
             if recorded_putaway_quantity is None and t.finished_goods_id and t.status in ("PUTAWAY_COMPLETED", "STORED"):
@@ -422,8 +467,10 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
             results.append({
                 "id": str(t.id),
                 "task_number": t.task_number,
+                "finished_goods_id": str(t.finished_goods_id) if t.finished_goods_id else None,
+                "is_finished_goods": is_finished_goods,
                 "grn_id": str(t.grn_id),
-                "grn_number": t.grn_number,
+                "grn_number": None if t.finished_goods_id else t.grn_number,
                 "handling_unit_id": str(t.handling_unit_id) if t.handling_unit_id else None,
                 "item_code": t.item_code,
                 "material_name": t.material_name,
@@ -434,12 +481,12 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 "uom": t.uom,
                 "warehouse_id": t.warehouse_id,
                 "source_location": t.source_location,
-                "gate_entry_number": gate_entry_no,
-                "gate_entry_id": str(grn.gate_entry_id) if grn and grn.gate_entry_id else None,
-                "truck_number": truck_no,
-                "vehicle_number": truck_no,
-                "asn_number": asn_no,
-                "po_number": po_no,
+                "gate_entry_number": None if t.finished_goods_id else gate_entry_no,
+                "gate_entry_id": None if t.finished_goods_id else (str(grn.gate_entry_id) if grn and grn.gate_entry_id else None),
+                "truck_number": None if t.finished_goods_id else truck_no,
+                "vehicle_number": None if t.finished_goods_id else truck_no,
+                "asn_number": None if t.finished_goods_id else asn_no,
+                "po_number": None if t.finished_goods_id else po_no,
                 "assigned_dock": dock_code,
                 "assigned_dock_code": dock_code,
                 "assigned_store_manager": sm_name or sm_user or sm_id,
@@ -1022,9 +1069,14 @@ async def assign_storage_location(
     store_name_disp = store.store_name if store else "Designated Store"
     store_code_disp = store.store_code if store else "STORE"
 
+    source_label = (
+        "Assembly finished goods"
+        if task.finished_goods_id
+        else f"GRN {task.grn_number}"
+    )
     notif_msg = (
         f"Material {task.material_name} ({task.item_code}) x {task.quantity} {task.uom} "
-        f"assigned to {store_name_disp} ({store_code_disp}) from GRN {task.grn_number}."
+        f"assigned to {store_name_disp} ({store_code_disp}) from {source_label}."
     )
     # Store-scoped notification
     if store and store.store_code:
@@ -1102,22 +1154,25 @@ async def complete_putaway(
 
     roles_upper = {r.upper() for r in user.roles}
     is_store_user = bool(roles_upper.intersection({"STORE_MANAGER", "STORE_KEEPER"})) or ("putaway:execute" in (user.permissions or []))
+    is_finished_goods_task = bool(task.finished_goods_id)
+    is_warehouse_user = bool(roles_upper.intersection({"WAREHOUSE_MANAGER", "WAREHOUSE"}))
+    can_execute_finished_goods = is_finished_goods_task and is_warehouse_user
 
     # Reject Warehouse Manager explicitly
-    if ("WAREHOUSE_MANAGER" in roles_upper or "WAREHOUSE" in roles_upper) and not is_store_user:
+    if is_warehouse_user and not is_store_user and not can_execute_finished_goods:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Warehouse Manager is not authorized to execute Putaway. Physical putaway must be performed by the assigned Store Manager.",
         )
 
-    if not is_store_user and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
+    if not is_store_user and not can_execute_finished_goods and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Only Store Keepers or Store Managers assigned to this Store can complete physical putaway",
         )
 
     # Store isolation: Physical Putaway confirmation into a Store is performed by assigned Store Keeper/Manager
-    if task.destination_store_id and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
+    if task.destination_store_id and not can_execute_finished_goods and "ADMIN" not in roles_upper and "SUPERUSER" not in roles_upper:
         user_store_ids, user_store_codes = await get_user_store_context(user, uow)
         if user_store_ids or user_store_codes:
             store_match = False
@@ -1420,6 +1475,11 @@ async def complete_putaway(
 
     completed_at = datetime.datetime.now(datetime.timezone.utc)
     available_before = stock.available
+    # Putaway completion moves produced stock into warehouse inventory. Keep
+    # the canonical on-hand total in sync with available stock; this is
+    # especially important for Assembly finished goods, which do not arrive
+    # through the GRN receipt-posting flow.
+    stock.on_hand = stock.on_hand + request.quantity
     stock.available = stock.available + request.quantity
     stock.updated_at = completed_at.replace(tzinfo=None)
     target_bin.occupied_quantity = target_bin.occupied_quantity + request.quantity
@@ -1443,14 +1503,14 @@ async def complete_putaway(
             available_quantity=0,
             uom=task.uom,
             last_putaway_task_id=task.id,
-            last_grn_number=task.grn_number or "FG-INTERNAL",
+            last_grn_number=task.grn_number or "ASSEMBLY-FINISHED-GOODS",
             updated_at=completed_at,
         )
         uow.session.add(balance)
     balance.quantity = balance.quantity + request.quantity
     balance.available_quantity = balance.available_quantity + request.quantity
     balance.last_putaway_task_id = task.id
-    balance.last_grn_number = task.grn_number or "FG-INTERNAL"
+    balance.last_grn_number = task.grn_number or "ASSEMBLY-FINISHED-GOODS"
     balance.updated_at = completed_at
 
     # 7. Task and Handling Unit Completion
@@ -1567,7 +1627,7 @@ async def resolve_grn_qr(
         unit_task = None
         active_fg_tasks = (await uow.session.execute(select(PutawayTaskModel).where(
             PutawayTaskModel.finished_goods_id.is_not(None),
-            PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
+            PutawayTaskModel.status.in_(["OPEN", "PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
         ))).scalars().all()
         for candidate in active_fg_tasks:
             if (candidate.placement_metadata or {}).get("unit_qr", "").upper() == raw_code.upper():
@@ -1601,7 +1661,7 @@ async def resolve_grn_qr(
 
         fg_task = unit_task or (await uow.session.execute(select(PutawayTaskModel).where(
             PutawayTaskModel.finished_goods_id == fg.id,
-            PutawayTaskModel.status.in_(["PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
+            PutawayTaskModel.status.in_(["OPEN", "PENDING", "IN_PROGRESS", "ASSIGNED", "DRAFT", "PUTAWAY_IN_PROGRESS"]),
         ).order_by(PutawayTaskModel.created_at.desc()))).scalars().first()
         if not fg_task:
             raise HTTPException(status_code=409, detail="No active Finished Goods Putaway task exists for this QR")
@@ -1609,13 +1669,45 @@ async def resolve_grn_qr(
         movement_total = await uow.session.scalar(select(func.coalesce(
             func.sum(PutawayMovementModel.confirmed_quantity), 0
         )).where(PutawayMovementModel.putaway_task_id == fg_task.id)) or Decimal("0")
-        received_qty = Decimal(str(fg.quantity or fg_task.quantity or 0))
+        is_unit_task = bool((fg_task.placement_metadata or {}).get("unit_qr"))
+        received_qty = Decimal(str(fg_task.quantity if is_unit_task else (fg.quantity or fg_task.quantity or 0)))
         already_put_away = Decimal(str(movement_total))
         available_qty = max(Decimal("0"), received_qty - already_put_away)
         if available_qty <= 0:
             raise HTTPException(status_code=422, detail="Finished Goods QR has already been completely put away")
 
         fg_store = await uow.session.get(StoreModel, fg_task.destination_store_id) if fg_task.destination_store_id else None
+        if not fg_store or (fg_store.store_code or "").upper() != "STR-FG":
+            fg_store = (await uow.session.execute(
+                select(StoreModel).where(
+                    or_(
+                        func.upper(StoreModel.store_code) == "STR-FG",
+                        func.upper(StoreModel.store_name) == "FINISHED GOODS STORE",
+                    ),
+                    StoreModel.status == "ACTIVE",
+                ).order_by(StoreModel.created_at.asc())
+            )).scalars().first()
+        if fg_store and not fg_task.destination_bin_code:
+            fg_zone = (await uow.session.execute(
+                select(StoreZoneModel).where(
+                    StoreZoneModel.store_id == fg_store.id,
+                    StoreZoneModel.status == "ACTIVE",
+                ).order_by(StoreZoneModel.created_at.asc())
+            )).scalars().first()
+            fg_bin = (await uow.session.execute(
+                select(StoreBinModel).where(
+                    StoreBinModel.store_id == fg_store.id,
+                    StoreBinModel.status == "ACTIVE",
+                ).order_by(StoreBinModel.created_at.asc())
+            )).scalars().first()
+            if fg_bin:
+                fg_task.destination_store_id = fg_store.id
+                fg_task.destination_zone_id = fg_zone.id if fg_zone else fg_bin.zone_id
+                fg_task.destination_zone = fg_zone.zone_code if fg_zone else None
+                fg_task.destination_bin_id = fg_bin.id
+                fg_task.destination_bin = fg_bin.bin_code
+                fg_task.destination_bin_code = fg_bin.bin_code
+                await uow.session.flush()
         return {
             "valid": True,
             "material_code": fg.product_code,
@@ -1623,8 +1715,10 @@ async def resolve_grn_qr(
             "material_description": fg.product_name,
             "material_variant": "Finished Goods",
             "material_category": "Finished Goods",
-            "grn_number": "FG-INTERNAL",
+            "grn_number": None,
             "grn_id": None,
+            "source_type": "ASSEMBLY_FINISHED_GOODS",
+            "source_reference": fg_task.task_number,
             "po_number": "N/A",
             "asn_number": "N/A",
             "batch_lot_number": None,
@@ -1637,6 +1731,9 @@ async def resolve_grn_qr(
             "store_id": str(fg_task.destination_store_id) if fg_task.destination_store_id else None,
             "store_name": fg_store.store_name if fg_store else "Finished Goods Store",
             "store_code": fg_store.store_code if fg_store else "STR-FG",
+            "destination_zone": fg_task.destination_zone,
+            "destination_bin": fg_task.destination_bin,
+            "destination_bin_code": fg_task.destination_bin_code,
             "current_location": fg.location_code or fg_task.source_location or "ASSEMBLY_LINE",
             "putaway_task_id": str(fg_task.id),
             "putaway_status": fg_task.status,
@@ -1969,6 +2066,19 @@ async def resolve_grn_qr(
         "handling_unit_id": str(hu_obj.id) if hu_obj else None,
         "qr_code": raw_code,
     }
+
+
+@router.post("/resolve-finished-goods-qr")
+async def resolve_finished_goods_qr(
+    request: ResolveGrnQrRequest,
+    user: CurrentUser = Depends(get_current_user),
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """Resolve an Assembly finished-goods QR without any GRN relationship."""
+    raw_code = (request.qr_code or "").strip()
+    if not raw_code.upper().startswith("FG-QR|") and not raw_code.upper().startswith("FG-"):
+        raise HTTPException(status_code=422, detail="Scan a valid Assembly finished-goods QR code.")
+    return await resolve_grn_qr(request, user=user, uow=uow)
 
 
 @router.post("/resolve-bin-qr")

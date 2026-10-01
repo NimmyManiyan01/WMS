@@ -200,15 +200,9 @@ function GateEntry() {
 
   const isEligibleForInboundExit = (statusStr: string) => {
     const upper = (statusStr || "").toUpperCase().trim();
-    return [
-      "RECEIVING_COMPLETED",
-      "COMPLETED",
-      "RELEASED",
-      "DOCK_RELEASED",
-      "GRN_POSTED",
-      "QUALITY_PASSED",
-      "UNLOADED",
-    ].includes(upper);
+    // The backend requires the receiving workflow to be complete; dock
+    // release and posted-GRN checks are validated when the action is submitted.
+    return upper === "RECEIVING_COMPLETED";
   };
 
   const handleMarkVehicleExited = async (entry: any) => {
@@ -387,7 +381,27 @@ function GateEntry() {
   const loadEntries = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      setEntries(await api.getGateEntries());
+      const records = await api.getGateEntries();
+      // Gate Entry API returns its persisted records in snake_case. Normalize
+      // once at the boundary so the live queue/history renders backend data.
+      setEntries(
+        (records || []).map((record: any) => ({
+          ...record,
+          poNumber: record.poNumber ?? record.po_number ?? "",
+          poStatus: record.poStatus ?? record.po_status,
+          asnNumber: record.asnNumber ?? record.asn_number,
+          asnStatus: record.asnStatus ?? record.asn_status,
+          vehiclePlate: record.vehiclePlate ?? record.vehicle_plate ?? record.vehicle_number ?? "",
+          driverName: record.driverName ?? record.driver_name ?? "",
+          assignedDock: record.assignedDock ?? record.assigned_dock_id,
+          dockAllocationStatus: record.dockAllocationStatus ?? record.dock_allocation_status,
+          verificationStatus: record.verificationStatus ?? record.verification_status,
+          truckPhotoBase64: record.truckPhotoBase64 ?? record.truck_photo_base64,
+          verificationResult: record.verificationResult ?? record.verification_result,
+          exitedAt: record.exitedAt ?? record.exited_at ?? record.exit_time,
+          exitedBy: record.exitedBy ?? record.exited_by,
+        })),
+      );
     } catch (error) {
       if (!quiet)
         toast.error("Unable to load gate entries", {
@@ -439,115 +453,15 @@ function GateEntry() {
   }, [vehiclePhoto]);
 
   async function scanCapture(kind: CaptureKind, file: File) {
-    console.log(`Starting scanCapture for kind: ${kind}`, file);
     setScanning(null);
     if (kind === "po") {
       setPoDocument(file);
-      toast.success("PO document photo attached");
+      toast.success("PO document attached. Enter the PO number manually to load details.");
       return;
     }
-    if (kind === "vehicle") setVehiclePhoto(file);
-
-    const toastId = toast.loading("Analyzing vehicle photo...");
-
-    try {
-      console.log(`Calling api.scanOcr for ${kind}...`);
-      const result = await api.scanOcr(file, kind);
-      console.log("OCR scan result:", result);
-
-      const extraction = result.extraction || result;
-      const fields = extraction.fields || {};
-      setExtractedDetails({
-        ...extraction,
-        source: result.source || "ocr",
-        confidence: result.confidence,
-        verified_against_backend: result.verified ?? false,
-      });
-
-      // Greedy extraction: if we find these core fields in ANY scan, fill them
-      const detectedPo = result.po_number || fields.po_number || fields.purchase_order_number;
-      const detectedVehicle =
-        result.vehicle_number ||
-        fields.vehicle_number ||
-        fields.license_plate ||
-        fields.plate_number ||
-        fields.license_plate_number;
-      const detectedDriver = result.driver_name || fields.driver_name || fields.full_name;
-      const detectedLicense = result.license_number || fields.license_number || fields.dl_number;
-
-      if (detectedPo) {
-        setPoNumber(detectedPo);
-        if (kind === "po")
-          setPoVerificationStatus(result.verified ? "PO_VERIFIED" : "UNSCHEDULED_ARRIVAL");
-        void fetchPoDetails(String(detectedPo), true);
-      }
-      if (result.supplier_name || fields.supplier_name)
-        setSupplierName(result.supplier_name || fields.supplier_name);
-      const foundLineItems = applyLineItems(
-        result.line_items || result.lineItems || fields.line_items || fields.lineItems,
-      );
-      if (!foundLineItems) {
-        setArrivalLineItems([]);
-        if (result.material_description || fields.material_description)
-          setMaterialDescription(result.material_description || fields.material_description);
-        const scannedQuantity = result.quantity ?? fields.quantity;
-        if (scannedQuantity !== undefined && scannedQuantity !== null && scannedQuantity !== "")
-          setTotalQuantity(String(scannedQuantity));
-      }
-      if (result.po_date || fields.po_date) setPoDate(result.po_date || fields.po_date);
-      if (result.delivery_date || fields.delivery_date)
-        setDeliveryDate(result.delivery_date || fields.delivery_date);
-      if (detectedVehicle && detectedVehicle !== "NOT_FOUND") {
-        handleVehicleNumberChange(detectedVehicle);
-      }
-      if (detectedDriver) setDriverName(detectedDriver);
-      if (detectedLicense) setLicenseNumber(detectedLicense);
-
-      if (kind === "po") {
-        const missing = [
-          ["supplier name", result.supplier_name || fields.supplier_name],
-          ["material", result.material_description || fields.material_description],
-          ["quantity", result.quantity ?? fields.quantity],
-          ["PO date", result.po_date || fields.po_date],
-          ["delivery date", result.delivery_date || fields.delivery_date],
-        ]
-          .filter(([, value]) => value === undefined || value === null || value === "")
-          .map(([label]) => label);
-        if (missing.length) {
-          toast.warning("PO scanned with fields requiring review", {
-            id: toastId,
-            description: `Check: ${missing.join(", ")}`,
-          });
-        } else {
-          toast.success(
-            result.verified
-              ? "PO verified and filled from backend"
-              : "PO details extracted from image",
-            {
-              id: toastId,
-              description: `Confidence: ${Math.round((Number(result.confidence) || 0) * 100)}%`,
-            },
-          );
-        }
-      } else if (kind === "vehicle") {
-        toast.success(
-          detectedVehicle === "NOT_FOUND"
-            ? "Vehicle details extracted — enter the plate manually"
-            : "Vehicle plate detected",
-          {
-            id: toastId,
-            description: detectedVehicle === "NOT_FOUND" ? undefined : detectedVehicle,
-          },
-        );
-      } else if (kind === "license") {
-        toast.success("Driver details extracted", { id: toastId });
-      }
-    } catch (error: any) {
-      console.error("OCR scan error:", error);
-      toast.error("OCR scan failed", {
-        id: toastId,
-        description: error.message || "Falling back to manual entry.",
-      });
+    if (kind === "vehicle") {
+      setVehiclePhoto(file);
+      toast.success("Vehicle photo attached. Enter vehicle details manually.");
     }
   }
 

@@ -83,6 +83,7 @@ import { Route as SupplierQualityIssuesRouteImport } from './routes/supplier.qua
 import { Route as WarehouseAssemblyRequisitionsRouteImport } from './routes/warehouse.assembly-requisitions'
 import { Route as WarehouseDispatchTrackingRouteImport } from './routes/warehouse.dispatch-tracking'
 import { Route as WarehouseFinishedGoodsRequestsRouteImport } from './routes/warehouse.finished-goods-requests'
+import { Route as WarehouseFinishedGoodsStoreRouteImport } from './routes/warehouse.finished-goods-store'
 import { Route as WarehouseMaterialRequestsRouteImport } from './routes/warehouse.material-requests'
 import { Route as WarehouseMaterialsRouteImport } from './routes/warehouse.materials'
 import { Route as WarehouseQuarantineRouteImport } from './routes/warehouse.quarantine'
@@ -478,6 +479,12 @@ const WarehouseFinishedGoodsRequestsRoute =
     path: '/warehouse/finished-goods-requests',
     getParentRoute: () => rootRouteImport,
   } as any)
+const WarehouseFinishedGoodsStoreRoute =
+  WarehouseFinishedGoodsStoreRouteImport.update({
+    id: '/warehouse/finished-goods-store',
+    path: '/warehouse/finished-goods-store',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const WarehouseMaterialRequestsRoute =
   WarehouseMaterialRequestsRouteImport.update({
     id: '/warehouse/material-requests',
@@ -607,6 +614,7 @@ export interface FileRoutesByFullPath {
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
   '/warehouse/dispatch-tracking': typeof WarehouseDispatchTrackingRoute
   '/warehouse/finished-goods-requests': typeof WarehouseFinishedGoodsRequestsRoute
+  '/warehouse/finished-goods-store': typeof WarehouseFinishedGoodsStoreRoute
   '/warehouse/material-requests': typeof WarehouseMaterialRequestsRoute
   '/warehouse/materials': typeof WarehouseMaterialsRoute
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
@@ -691,6 +699,7 @@ export interface FileRoutesByTo {
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
   '/warehouse/dispatch-tracking': typeof WarehouseDispatchTrackingRoute
   '/warehouse/finished-goods-requests': typeof WarehouseFinishedGoodsRequestsRoute
+  '/warehouse/finished-goods-store': typeof WarehouseFinishedGoodsStoreRoute
   '/warehouse/material-requests': typeof WarehouseMaterialRequestsRoute
   '/warehouse/materials': typeof WarehouseMaterialsRoute
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
@@ -778,6 +787,7 @@ export interface FileRoutesById {
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
   '/warehouse/dispatch-tracking': typeof WarehouseDispatchTrackingRoute
   '/warehouse/finished-goods-requests': typeof WarehouseFinishedGoodsRequestsRoute
+  '/warehouse/finished-goods-store': typeof WarehouseFinishedGoodsStoreRoute
   '/warehouse/material-requests': typeof WarehouseMaterialRequestsRoute
   '/warehouse/materials': typeof WarehouseMaterialsRoute
   '/warehouse/quarantine': typeof WarehouseQuarantineRoute
@@ -866,6 +876,7 @@ export interface FileRouteTypes {
     | '/warehouse/assembly-requisitions'
     | '/warehouse/dispatch-tracking'
     | '/warehouse/finished-goods-requests'
+    | '/warehouse/finished-goods-store'
     | '/warehouse/material-requests'
     | '/warehouse/materials'
     | '/warehouse/quarantine'
@@ -950,6 +961,7 @@ export interface FileRouteTypes {
     | '/warehouse/assembly-requisitions'
     | '/warehouse/dispatch-tracking'
     | '/warehouse/finished-goods-requests'
+    | '/warehouse/finished-goods-store'
     | '/warehouse/material-requests'
     | '/warehouse/materials'
     | '/warehouse/quarantine'
@@ -1036,6 +1048,7 @@ export interface FileRouteTypes {
     | '/warehouse/assembly-requisitions'
     | '/warehouse/dispatch-tracking'
     | '/warehouse/finished-goods-requests'
+    | '/warehouse/finished-goods-store'
     | '/warehouse/material-requests'
     | '/warehouse/materials'
     | '/warehouse/quarantine'
@@ -1123,6 +1136,7 @@ export interface RootRouteChildren {
   WarehouseAssemblyRequisitionsRoute: typeof WarehouseAssemblyRequisitionsRoute
   WarehouseDispatchTrackingRoute: typeof WarehouseDispatchTrackingRoute
   WarehouseFinishedGoodsRequestsRoute: typeof WarehouseFinishedGoodsRequestsRoute
+  WarehouseFinishedGoodsStoreRoute: typeof WarehouseFinishedGoodsStoreRoute
   WarehouseMaterialRequestsRoute: typeof WarehouseMaterialRequestsRoute
   WarehouseMaterialsRoute: typeof WarehouseMaterialsRoute
   WarehouseQuarantineRoute: typeof WarehouseQuarantineRoute
@@ -1650,6 +1664,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WarehouseFinishedGoodsRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/warehouse/finished-goods-store': {
+      id: '/warehouse/finished-goods-store'
+      path: '/warehouse/finished-goods-store'
+      fullPath: '/warehouse/finished-goods-store'
+      preLoaderRoute: typeof WarehouseFinishedGoodsStoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/warehouse/material-requests': {
       id: '/warehouse/material-requests'
       path: '/warehouse/material-requests'
@@ -1827,6 +1848,7 @@ const rootRouteChildren: RootRouteChildren = {
   WarehouseAssemblyRequisitionsRoute: WarehouseAssemblyRequisitionsRoute,
   WarehouseDispatchTrackingRoute: WarehouseDispatchTrackingRoute,
   WarehouseFinishedGoodsRequestsRoute: WarehouseFinishedGoodsRequestsRoute,
+  WarehouseFinishedGoodsStoreRoute: WarehouseFinishedGoodsStoreRoute,
   WarehouseMaterialRequestsRoute: WarehouseMaterialRequestsRoute,
   WarehouseMaterialsRoute: WarehouseMaterialsRoute,
   WarehouseQuarantineRoute: WarehouseQuarantineRoute,

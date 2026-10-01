@@ -100,12 +100,18 @@ function ApprovalDetail() {
 
   if (!po) return null;
 
-  const subtotal = Number(po.subtotal) || 0;
-  const discountAmount = Number(po.discountAmount) || 0;
-  const taxAmount = Number(po.taxAmount) || 0;
-  const taxableAmount = subtotal - discountAmount;
-  const discountPercentage = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
-  const taxPercentage = Number(po.taxPercentage ?? po.tax_percentage) || (taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0);
+  const quotation = po.quotation || {};
+  const subtotal = Number(po.subtotal ?? quotation.lines?.reduce((sum: number, line: any) => sum + Number(line.quantity || 0) * Number(line.unitPrice || line.unit_price || 0), 0)) || 0;
+  const quotationDiscountRate = Number(quotation.discount) || 0;
+  const discountAmount = subtotal * quotationDiscountRate / 100;
+  const taxableAmount = Math.max(subtotal - discountAmount, 0);
+  const taxRate = Number(quotation.tax ?? po.taxPercentage ?? po.tax_percentage) || 0;
+  const taxAmount = taxableAmount * taxRate / 100;
+  const freightAmount = Number(quotation.freightCharges ?? quotation.freight_charges ?? po.freightCharges) || 0;
+  const additionalCharges = Number(quotation.additionalCharges ?? quotation.additional_charges) || 0;
+  const grandTotal = Number(quotation.totalAmount ?? quotation.total_amount ?? po.totalAmount) || 0;
+  const discountPercentage = quotationDiscountRate || (subtotal > 0 ? (discountAmount / subtotal) * 100 : 0);
+  const taxPercentage = taxRate || (taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0);
 
   return (
     <AppShell
@@ -402,7 +408,8 @@ function ApprovalDetail() {
                 isNegative
               />
               <SummaryRow label={`Tax (GST ${taxPercentage.toFixed(2)}%)`} value={po.taxAmount} />
-              <SummaryRow label="Freight" value={po.freightCharges} />
+              <SummaryRow label="Freight" value={freightAmount} />
+              {additionalCharges > 0 && <SummaryRow label="Additional Charges" value={additionalCharges} />}
 
               <div className="pt-4 border-t border-border mt-2">
                 <div className="flex items-center justify-between">
@@ -410,7 +417,7 @@ function ApprovalDetail() {
                     Grand Total
                   </span>
                   <span className="text-xl font-black text-primary">
-                    ₹ {parseFloat(po.totalAmount).toLocaleString()}
+                    ₹ {grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

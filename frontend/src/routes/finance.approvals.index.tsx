@@ -29,6 +29,8 @@ export const Route = createFileRoute("/finance/approvals/")({
 });
 
 function FinanceApprovals() {
+  const getOrderTotal = (po: any) => Number(po.quotation?.totalAmount ?? po.quotation?.total_amount ?? po.totalAmount ?? po.total_amount ?? 0);
+  const formatCurrency = (po: any) => `₹${getOrderTotal(po).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const [approvals, setApprovals] = useState<any[]>([]);
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
