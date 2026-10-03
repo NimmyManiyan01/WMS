@@ -755,6 +755,14 @@ export const api = {
   },
 
   async getOutboundDispatchQueue(status?: string, search?: string): Promise<any[]> {
+    if (status?.toUpperCase() === "ALL") {
+      const params = new URLSearchParams({ limit: "200" });
+      if (search?.trim()) params.set("search", search.trim());
+      const result = await request<{ items?: any[] }>(`${BUSINESS_API_URL}/api/dispatches?${params.toString()}`, {
+        cache: "no-store",
+      });
+      return result?.items || [];
+    }
     const params = new URLSearchParams();
     if (status) params.set("status", status);
     if (search?.trim()) params.set("search", search.trim());
