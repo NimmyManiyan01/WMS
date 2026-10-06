@@ -334,6 +334,7 @@ class AsnModel(Base):
     challan_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     challan_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    logistics: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
 
     lines: Mapped[List[AsnLineModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
     documents: Mapped[List[AsnDocumentModel]] = relationship(back_populates="asn", cascade="all, delete-orphan")
@@ -575,6 +576,7 @@ class FinishedGoodsRequestModel(Base):
     uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
     required_date: Mapped[date] = mapped_column(Date, nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    requested_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=date.today)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="SENT_TO_ASSEMBLY")
     bom_attachment_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     bom_attachment_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
@@ -719,3 +721,19 @@ class SupplierUserModel(Base):
     must_change_password: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     supplier: Mapped[SupplierModel] = relationship("SupplierModel")
+
+
+class QuotationMagicLinkModel(Base):
+    __tablename__ = "quotation_magic_link"
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True, index=True)
+    rfq_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    po_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    link_type: Mapped[str] = mapped_column(String(32), default="RFQ", nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    email: Mapped[str] = mapped_column(String(256), nullable=False)
+    token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    used_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

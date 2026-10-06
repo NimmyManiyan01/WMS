@@ -62,12 +62,16 @@ function ProcurementFinishedGoods() {
   const [uploadedBomUrl, setUploadedBomUrl] = useState<string | null>(null);
   const [uploadedBomName, setUploadedBomName] = useState<string | null>(null);
 
+  const defaultRequester = getUserInfo()?.username?.trim() || "procurement";
+
   const [form, setForm] = useState({
     product_name: "",
     warehouse_id: "MAIN",
     quantity: "10",
     uom: "PCS",
     required_date: today(),
+    requested_by: defaultRequester,
+    requested_date: today(),
     remarks: "",
   });
 
@@ -86,6 +90,10 @@ function ProcurementFinishedGoods() {
 
   useEffect(() => {
     void fetchRequests();
+    const user = getUserInfo()?.username?.trim();
+    if (user) {
+      setForm((prev) => ({ ...prev, requested_by: prev.requested_by || user }));
+    }
   }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,7 +129,8 @@ function ProcurementFinishedGoods() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const requester = getUserInfo()?.username?.trim() || "procurement";
+    const requester = form.requested_by.trim() || getUserInfo()?.username?.trim() || "procurement";
+    const requestDate = form.requested_date || today();
     const productName = form.product_name.trim();
     const quantity = Number(form.quantity);
 
@@ -131,6 +140,10 @@ function ProcurementFinishedGoods() {
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Quantity must be a positive number greater than 0");
+      return;
+    }
+    if (!requester) {
+      toast.error("Requested By (Requester name) is required");
       return;
     }
 
@@ -144,13 +157,14 @@ function ProcurementFinishedGoods() {
         uom: form.uom.trim() || "PCS",
         required_date: form.required_date,
         requested_by: requester,
+        requested_date: requestDate,
         bom_attachment_url: uploadedBomUrl,
         bom_attachment_name: uploadedBomName,
         remarks: form.remarks.trim() || null,
       });
 
       toast.success("Finished Goods Request created and sent to Assembly!", {
-        description: `Request for ${quantity} ${form.uom} of ${productName} sent.`,
+        description: `Request for ${quantity} ${form.uom} of ${productName} sent by ${requester}.`,
       });
 
       // Reset form
@@ -160,6 +174,8 @@ function ProcurementFinishedGoods() {
         quantity: "10",
         uom: "PCS",
         required_date: today(),
+        requested_by: defaultRequester,
+        requested_date: today(),
         remarks: "",
       });
       removeBomFile();
@@ -178,6 +194,7 @@ function ProcurementFinishedGoods() {
       (req.request_number || "").toLowerCase().includes(q) ||
       (req.product_name || req.finished_goods_name || "").toLowerCase().includes(q) ||
       (req.product_code || req.finished_goods_code || "").toLowerCase().includes(q) ||
+      (req.requested_by || "").toLowerCase().includes(q) ||
       (req.status || "").toLowerCase().includes(q)
     );
   });
@@ -295,6 +312,37 @@ function ProcurementFinishedGoods() {
                   onChange={(e) => setForm((c) => ({ ...c, warehouse_id: e.target.value }))}
                   className="h-11 rounded-xl"
                   placeholder="MAIN"
+                />
+              </div>
+            </div>
+
+            {/* Who has requested & Date he requested (Above BOM Attachment) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="fg-requested-by" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Requested By <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="fg-requested-by"
+                  value={form.requested_by}
+                  onChange={(e) => setForm((c) => ({ ...c, requested_by: e.target.value }))}
+                  className="h-11 rounded-xl font-medium"
+                  placeholder="e.g. procurement / Officer Name"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="fg-requested-date" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Request Date <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="fg-requested-date"
+                  type="date"
+                  value={form.requested_date}
+                  onChange={(e) => setForm((c) => ({ ...c, requested_date: e.target.value }))}
+                  className="h-11 rounded-xl"
+                  required
                 />
               </div>
             </div>
@@ -417,23 +465,24 @@ function ProcurementFinishedGoods() {
                     <th className="px-4 py-3">Request #</th>
                     <th className="px-4 py-3">Product</th>
                     <th className="px-4 py-3 text-right">Requested Qty</th>
+                    <th className="px-4 py-3">Requested By</th>
                     <th className="px-4 py-3 text-right">FG Store Avail.</th>
                     <th className="px-4 py-3">BOM Attachment</th>
                     <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Created Date</th>
+                    <th className="px-4 py-3">Request Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loadingRequests ? (
                     <tr>
-                      <td colSpan={7} className="h-48 text-center">
+                      <td colSpan={8} className="h-48 text-center">
                         <Loader2 className="size-7 animate-spin mx-auto text-primary" />
                         <span className="block mt-2 text-xs text-muted-foreground">Loading Finished Goods Requests...</span>
                       </td>
                     </tr>
                   ) : filteredRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="h-48 text-center p-6">
+                      <td colSpan={8} className="h-48 text-center p-6">
                         <ClipboardList className="size-10 text-muted-foreground/30 mx-auto mb-2" />
                         <p className="text-sm font-semibold text-muted-foreground">No Finished Goods Requests Found</p>
                         <p className="text-xs text-muted-foreground/80 mt-1">Create a new request to send to Assembly.</p>
@@ -465,6 +514,11 @@ function ProcurementFinishedGoods() {
                           </td>
                           <td className="px-4 py-3 text-right font-bold text-foreground">
                             {req.quantity || req.requested_quantity} {req.uom || "PCS"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-xs text-foreground">
+                              {req.requested_by || req.created_by || "Procurement"}
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="font-semibold text-foreground">
@@ -500,7 +554,7 @@ function ProcurementFinishedGoods() {
                             <StatusBadge status={req.status || "SENT_TO_ASSEMBLY"} />
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {formatDisplayDate(req.created_at)}
+                            {formatDisplayDate(req.requested_date || req.created_at)}
                           </td>
                         </tr>
                       );
@@ -520,7 +574,10 @@ function ProcurementFinishedGoods() {
                     <Boxes className="size-4" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold">{selectedRequest.request_number}</h3>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-base font-bold text-foreground">{selectedRequest.request_number}</h3>
+                      <StatusBadge status={selectedRequest.status || "SENT_TO_ASSEMBLY"} />
+                    </div>
                     <p className="text-xs text-muted-foreground">Finished Goods Request Overview</p>
                   </div>
                 </div>
@@ -529,7 +586,7 @@ function ProcurementFinishedGoods() {
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
                 <div className="rounded-xl bg-muted/30 p-3 border">
                   <span className="text-[10px] font-bold uppercase text-muted-foreground">Product</span>
                   <div className="font-bold text-sm text-foreground mt-0.5">
@@ -551,6 +608,26 @@ function ProcurementFinishedGoods() {
                 </div>
 
                 <div className="rounded-xl bg-muted/30 p-3 border">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground">Requested By</span>
+                  <div className="font-bold text-sm text-foreground mt-0.5">
+                    {selectedRequest.requested_by || selectedRequest.created_by || "Procurement"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Requested on: {formatDisplayDate(selectedRequest.requested_date || selectedRequest.created_at)}
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-muted/30 p-3 border">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground">Status</span>
+                  <div className="mt-1.5">
+                    <StatusBadge status={selectedRequest.status || "SENT_TO_ASSEMBLY"} />
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Sent to Assembly
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-muted/30 p-3 border">
                   <span className="text-[10px] font-bold uppercase text-muted-foreground">FG Store Available</span>
                   <div className="font-black text-lg text-emerald-600 mt-0.5">
                     {selectedRequest.fg_store_available ?? selectedRequest.available_quantity ?? 0} {selectedRequest.uom || "PCS"}
@@ -565,6 +642,31 @@ function ProcurementFinishedGoods() {
                   </div>
                   <div className="text-[11px] text-muted-foreground">
                     {(selectedRequest.shortage ?? 0) > 0 ? "Production needed" : "Fully available in store"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual Workflow Status Stepper */}
+              <div className="mt-4 rounded-xl border bg-muted/20 p-3.5">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-semibold text-foreground flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-blue-500 animate-pulse" />
+                    Request Workflow Status
+                  </span>
+                  <StatusBadge status={selectedRequest.status || "SENT_TO_ASSEMBLY"} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/30 p-2 font-medium text-blue-700 dark:text-blue-300">
+                    <div className="font-bold text-[11px] uppercase tracking-wider">1. Procurement</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">Request Sent</div>
+                  </div>
+                  <div className={`rounded-lg p-2 font-medium ${selectedRequest.status === "COMPLETED" ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold" : "bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 font-bold"}`}>
+                    <div className="font-bold text-[11px] uppercase tracking-wider">2. Assembly</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{selectedRequest.status === "COMPLETED" ? "Completed" : "In Progress / Pending"}</div>
+                  </div>
+                  <div className={`rounded-lg p-2 font-medium ${selectedRequest.status === "COMPLETED" ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold" : "bg-muted/40 border text-muted-foreground"}`}>
+                    <div className="font-bold text-[11px] uppercase tracking-wider">3. FG Store</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{selectedRequest.status === "COMPLETED" ? "Stock Available" : "Awaiting Production"}</div>
                   </div>
                 </div>
               </div>

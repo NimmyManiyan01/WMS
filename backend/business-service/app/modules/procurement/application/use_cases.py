@@ -440,6 +440,7 @@ class CreateAsnUseCase:
             status=command.status if command.status else "DISPATCHED",
             documents=documents,
             supplier_id=command.supplier_id,
+            logistics=command.logistics,
         )
 
         await self._repository.save(asn)

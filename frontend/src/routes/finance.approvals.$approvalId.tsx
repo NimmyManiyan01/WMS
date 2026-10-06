@@ -432,7 +432,12 @@ function ApprovalDetail() {
               )}
 
               <div className="space-y-3 pt-6">
-                {!isRejecting ? (
+                {po.status !== "PENDING_FINANCE" ? (
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border/40 text-center space-y-1">
+                    <p className="text-sm font-bold text-foreground">Read-Only Mode</p>
+                    <p className="text-xs text-muted-foreground">This purchase order is {po.status} and cannot be modified.</p>
+                  </div>
+                ) : !isRejecting ? (
                   <>
                     <Button
                       className="w-full h-12 rounded-xl bg-success hover:bg-success/90 shadow-glow font-bold"

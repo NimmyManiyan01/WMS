@@ -49,6 +49,7 @@ class ASN(AggregateRoot):
         documents: List[AsnDocument] = None,
         created_at: datetime | None = None,
         supplier_id: str | None = None,
+        logistics: List[dict] | None = None,
     ) -> None:
         super().__init__()
         self.id = id
@@ -70,6 +71,8 @@ class ASN(AggregateRoot):
         self.documents = documents or []
         self.created_at = created_at or datetime.now()
         self.supplier_id = supplier_id
+        self.logistics = logistics
+
 
     @staticmethod
     def create(
@@ -90,6 +93,7 @@ class ASN(AggregateRoot):
         status: str = "SUBMITTED",
         documents: List[AsnDocument] = None,
         supplier_id: str | None = None,
+        logistics: List[dict] | None = None,
     ) -> ASN:
         asn = ASN(
             id=AsnId.new_id(),
@@ -110,6 +114,7 @@ class ASN(AggregateRoot):
             shipping_method=shipping_method,
             documents=documents,
             supplier_id=supplier_id,
+            logistics=logistics,
         )
         if status == "SUBMITTED":
             asn._register_event(

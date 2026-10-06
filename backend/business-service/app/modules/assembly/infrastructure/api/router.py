@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import logging
 import re
+from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +23,8 @@ from app.modules.assembly.infrastructure.persistence.models import (
     AssemblyFinishedGoodsModel,
     AssemblyOrderModel,
     AssemblyTeamModel,
+    BillOfMaterialsModel,
+    BillOfMaterialsItemModel,
 )
 from app.modules.procurement.infrastructure.persistence.models import (
     MaterialIssueModel,
@@ -1280,6 +1283,36 @@ async def list_finished_goods(uow: UnitOfWork = Depends(get_uow)):
     return output
 
 
+def serialize_bom(bom: BillOfMaterialsModel) -> dict:
+    if not bom:
+        return None
+    return {
+        "id": str(bom.id),
+        "bom_number": bom.bom_number,
+        "product_code": bom.product_code,
+        "product_name": bom.product_name,
+        "description": bom.description,
+        "status": bom.status,
+        "created_by": bom.created_by,
+        "created_at": bom.created_at.isoformat() if bom.created_at else None,
+        "updated_at": bom.updated_at.isoformat() if bom.updated_at else None,
+        "items": [
+            {
+                "id": str(item.id),
+                "bom_id": str(item.bom_id),
+                "material_id": str(item.material_id) if item.material_id else None,
+                "material_code": item.material_code,
+                "material_name": item.material_name,
+                "variant_code": item.variant_code,
+                "quantity_per_unit": float(item.quantity_per_unit),
+                "uom": item.uom or "PCS",
+                "notes": item.notes,
+            }
+            for item in (bom.items or [])
+        ],
+    }
+
+
 async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: UnitOfWork) -> dict:
     fg_available = Decimal("0")
     try:
@@ -1299,6 +1332,29 @@ async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: Un
     except Exception as e:
         logger.warning(f"Error calculating FG store availability: {e}")
 
+    # Check if a BOM already exists for this finished good product
+    bom_obj = None
+    try:
+        bom_conditions = []
+        if req.finished_goods_code:
+            bom_conditions.append(func.upper(BillOfMaterialsModel.product_code) == req.finished_goods_code.strip().upper())
+        if req.finished_goods_name:
+            bom_conditions.append(func.lower(func.trim(BillOfMaterialsModel.product_name)) == func.lower(func.trim(req.finished_goods_name)))
+
+        if bom_conditions:
+            bom_res = await uow.session.execute(
+                select(BillOfMaterialsModel)
+                .options(selectinload(BillOfMaterialsModel.items))
+                .where(BillOfMaterialsModel.status == "ACTIVE", or_(*bom_conditions))
+                .order_by(BillOfMaterialsModel.created_at.desc())
+            )
+            bom_obj = bom_res.scalars().first()
+    except Exception as e:
+        logger.warning(f"Error checking BOM for FG request: {e}")
+
+    has_bom = bom_obj is not None
+    bom_data = serialize_bom(bom_obj) if bom_obj else None
+
     req_qty = Decimal(str(req.quantity or 0))
     shortage = max(Decimal("0"), req_qty - fg_available)
 
@@ -1315,6 +1371,7 @@ async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: Un
         "uom": req.uom or "PCS",
         "required_date": req.required_date.isoformat() if req.required_date else None,
         "requested_by": req.requested_by,
+        "requested_date": req.requested_date.isoformat() if getattr(req, "requested_date", None) else (req.created_at.date().isoformat() if req.created_at else None),
         "created_by": req.requested_by,
         "status": req.status,
         "bom_attachment_url": req.bom_attachment_url,
@@ -1326,6 +1383,8 @@ async def _serialize_assembly_fg_request(req: FinishedGoodsRequestModel, uow: Un
         "available_quantity": float(fg_available),
         "shortage": float(shortage),
         "shortage_quantity": float(shortage),
+        "has_bom": has_bom,
+        "bom": bom_data,
     }
 
 
@@ -1366,6 +1425,262 @@ async def get_assembly_finished_goods_request(
         raise HTTPException(status_code=404, detail="Finished Goods Request not found")
 
     return await _serialize_assembly_fg_request(req, uow)
+
+
+# -------------------------------------------------------------------------
+# BOM (Bill of Materials) Endpoints
+# -------------------------------------------------------------------------
+
+
+class BOMItemCreate(BaseModel):
+    material_id: Optional[str] = None
+    material_code: str
+    material_name: str
+    variant_code: Optional[str] = None
+    quantity_per_unit: float = Field(..., gt=0)
+    uom: str = "PCS"
+    notes: Optional[str] = None
+
+
+class BOMCreate(BaseModel):
+    product_name: str
+    product_code: Optional[str] = None
+    description: Optional[str] = None
+    created_by: Optional[str] = "Assembly"
+    items: list[BOMItemCreate] = Field(..., min_length=1)
+
+
+class BOMUpdate(BaseModel):
+    product_name: Optional[str] = None
+    product_code: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    items: Optional[list[BOMItemCreate]] = None
+
+
+@router.get("/bom")
+async def list_boms(
+    product_code: Optional[str] = None,
+    product_name: Optional[str] = None,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    query = select(BillOfMaterialsModel).options(selectinload(BillOfMaterialsModel.items))
+    conditions = []
+    if product_code:
+        conditions.append(func.upper(BillOfMaterialsModel.product_code) == product_code.strip().upper())
+    if product_name:
+        conditions.append(func.lower(func.trim(BillOfMaterialsModel.product_name)) == func.lower(func.trim(product_name)))
+    if conditions:
+        query = query.where(or_(*conditions))
+    query = query.order_by(BillOfMaterialsModel.created_at.desc())
+
+    res = await uow.session.execute(query)
+    records = res.scalars().all()
+    return [serialize_bom(b) for b in records]
+
+
+@router.get("/bom/by-product")
+async def get_bom_by_product(
+    product_name: Optional[str] = None,
+    product_code: Optional[str] = None,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    if not product_name and not product_code:
+        raise HTTPException(status_code=400, detail="product_name or product_code must be provided")
+
+    conditions = []
+    if product_code:
+        conditions.append(func.upper(BillOfMaterialsModel.product_code) == product_code.strip().upper())
+    if product_name:
+        conditions.append(func.lower(func.trim(BillOfMaterialsModel.product_name)) == func.lower(func.trim(product_name)))
+
+    query = (
+        select(BillOfMaterialsModel)
+        .options(selectinload(BillOfMaterialsModel.items))
+        .where(BillOfMaterialsModel.status == "ACTIVE", or_(*conditions))
+        .order_by(BillOfMaterialsModel.created_at.desc())
+    )
+    res = await uow.session.execute(query)
+    bom = res.scalars().first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="No BOM found for this product")
+    return serialize_bom(bom)
+
+
+@router.get("/bom/{bom_id}")
+async def get_bom(bom_id: str, uow: UnitOfWork = Depends(get_uow)):
+    bom = None
+    try:
+        b_uuid = uuid.UUID(bom_id)
+        bom = await uow.session.get(BillOfMaterialsModel, b_uuid, options=[selectinload(BillOfMaterialsModel.items)])
+    except ValueError:
+        bom = await uow.session.scalar(
+            select(BillOfMaterialsModel)
+            .options(selectinload(BillOfMaterialsModel.items))
+            .where(BillOfMaterialsModel.bom_number == bom_id)
+        )
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM not found")
+    return serialize_bom(bom)
+
+
+@router.post("/bom", status_code=201)
+async def create_bom(payload: BOMCreate, uow: UnitOfWork = Depends(get_uow)):
+    # Check if a BOM already exists for this product to prevent duplicate BOM definitions
+    conditions = []
+    if payload.product_code:
+        conditions.append(func.upper(BillOfMaterialsModel.product_code) == payload.product_code.strip().upper())
+    if payload.product_name:
+        conditions.append(func.lower(func.trim(BillOfMaterialsModel.product_name)) == func.lower(func.trim(payload.product_name)))
+
+    existing = None
+    if conditions:
+        query = (
+            select(BillOfMaterialsModel)
+            .options(selectinload(BillOfMaterialsModel.items))
+            .where(BillOfMaterialsModel.status == "ACTIVE", or_(*conditions))
+        )
+        res = await uow.session.execute(query)
+        existing = res.scalars().first()
+
+    if existing:
+        # Update existing BOM items to maintain single source of truth for the product
+        existing.product_name = payload.product_name.strip()
+        if payload.product_code:
+            existing.product_code = payload.product_code.strip()
+        if payload.description is not None:
+            existing.description = payload.description
+
+        for old_item in (existing.items or []):
+            await uow.session.delete(old_item)
+
+        for it in payload.items:
+            mat_uuid = None
+            if it.material_id:
+                try:
+                    mat_uuid = uuid.UUID(it.material_id)
+                except ValueError:
+                    pass
+            itm = BillOfMaterialsItemModel(
+                bom_id=existing.id,
+                material_id=mat_uuid,
+                material_code=it.material_code.strip(),
+                material_name=it.material_name.strip(),
+                variant_code=it.variant_code.strip() if it.variant_code else None,
+                quantity_per_unit=Decimal(str(it.quantity_per_unit)),
+                uom=it.uom.strip() if it.uom else "PCS",
+                notes=it.notes,
+            )
+            uow.session.add(itm)
+        await uow.commit()
+
+        refreshed = await uow.session.scalar(
+            select(BillOfMaterialsModel)
+            .options(selectinload(BillOfMaterialsModel.items))
+            .where(BillOfMaterialsModel.id == existing.id)
+        )
+        return serialize_bom(refreshed or existing)
+
+    date_str = datetime.now().strftime("%Y%m%d")
+    count_query = select(func.count(BillOfMaterialsModel.id))
+    cnt = (await uow.session.scalar(count_query)) or 0
+    bom_number = f"BOM-{date_str}-{cnt + 1:04d}"
+
+    bom = BillOfMaterialsModel(
+        bom_number=bom_number,
+        product_code=payload.product_code.strip() if payload.product_code else None,
+        product_name=payload.product_name.strip(),
+        description=payload.description,
+        created_by=payload.created_by or "Assembly",
+        status="ACTIVE",
+    )
+    uow.session.add(bom)
+    await uow.session.flush()
+
+    for it in payload.items:
+        mat_uuid = None
+        if it.material_id:
+            try:
+                mat_uuid = uuid.UUID(it.material_id)
+            except ValueError:
+                pass
+        item_model = BillOfMaterialsItemModel(
+            bom_id=bom.id,
+            material_id=mat_uuid,
+            material_code=it.material_code.strip(),
+            material_name=it.material_name.strip(),
+            variant_code=it.variant_code.strip() if it.variant_code else None,
+            quantity_per_unit=Decimal(str(it.quantity_per_unit)),
+            uom=it.uom.strip() if it.uom else "PCS",
+            notes=it.notes,
+        )
+        uow.session.add(item_model)
+
+    await uow.commit()
+
+    refreshed = await uow.session.scalar(
+        select(BillOfMaterialsModel)
+        .options(selectinload(BillOfMaterialsModel.items))
+        .where(BillOfMaterialsModel.id == bom.id)
+    )
+    return serialize_bom(refreshed or bom)
+
+
+@router.put("/bom/{bom_id}")
+async def update_bom(bom_id: str, payload: BOMUpdate, uow: UnitOfWork = Depends(get_uow)):
+    bom = None
+    try:
+        b_uuid = uuid.UUID(bom_id)
+        bom = await uow.session.get(BillOfMaterialsModel, b_uuid, options=[selectinload(BillOfMaterialsModel.items)])
+    except ValueError:
+        bom = await uow.session.scalar(
+            select(BillOfMaterialsModel)
+            .options(selectinload(BillOfMaterialsModel.items))
+            .where(BillOfMaterialsModel.bom_number == bom_id)
+        )
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM not found")
+
+    if payload.product_name is not None:
+        bom.product_name = payload.product_name.strip()
+    if payload.product_code is not None:
+        bom.product_code = payload.product_code.strip() if payload.product_code else None
+    if payload.description is not None:
+        bom.description = payload.description
+    if payload.status is not None:
+        bom.status = payload.status
+
+    if payload.items is not None:
+        for old_item in (bom.items or []):
+            await uow.session.delete(old_item)
+
+        for it in payload.items:
+            mat_uuid = None
+            if it.material_id:
+                try:
+                    mat_uuid = uuid.UUID(it.material_id)
+                except ValueError:
+                    pass
+            item_model = BillOfMaterialsItemModel(
+                bom_id=bom.id,
+                material_id=mat_uuid,
+                material_code=it.material_code.strip(),
+                material_name=it.material_name.strip(),
+                variant_code=it.variant_code.strip() if it.variant_code else None,
+                quantity_per_unit=Decimal(str(it.quantity_per_unit)),
+                uom=it.uom.strip() if it.uom else "PCS",
+                notes=it.notes,
+            )
+            uow.session.add(item_model)
+
+    await uow.commit()
+
+    refreshed = await uow.session.scalar(
+        select(BillOfMaterialsModel)
+        .options(selectinload(BillOfMaterialsModel.items))
+        .where(BillOfMaterialsModel.id == bom.id)
+    )
+    return serialize_bom(refreshed or bom)
 
 
 @router.get("/genealogy/{identifier}")

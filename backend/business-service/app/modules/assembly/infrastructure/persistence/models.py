@@ -6,7 +6,7 @@ from typing import Optional
 import uuid
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, GUID
 
@@ -176,4 +176,41 @@ class AssemblyFinishedGoodsModel(Base):
     )
     posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+
+class BillOfMaterialsModel(Base):
+    __tablename__ = "bill_of_materials"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    bom_number: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    product_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False, default="Assembly")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    items: Mapped[list["BillOfMaterialsItemModel"]] = relationship(
+        "BillOfMaterialsItemModel", back_populates="bom", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class BillOfMaterialsItemModel(Base):
+    __tablename__ = "bill_of_materials_item"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    bom_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("bill_of_materials.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    material_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, nullable=True)
+    material_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    material_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    variant_code: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    quantity_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    uom: Mapped[str] = mapped_column(String(32), nullable=False, default="PCS")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+    bom: Mapped["BillOfMaterialsModel"] = relationship("BillOfMaterialsModel", back_populates="items")
 

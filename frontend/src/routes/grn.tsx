@@ -4527,6 +4527,8 @@ function GrnPageWorkflow() {
                                 lineId={m.grn_line_id}
                                 damagedQuantity={m.damaged_quantity}
                                 reason={m.damage_reason}
+                                initialPreviewUrl={damagePhotos[rowKey]?.previewUrl || damagePhotos[m.item_code]?.previewUrl}
+                                initialFile={damagePhotos[rowKey]?.file || damagePhotos[m.item_code]?.file}
                                 onSuccess={(ev) => {
                                   setDamagePhotos((prev) => ({
                                     ...prev,
@@ -4598,11 +4600,60 @@ function GrnPageWorkflow() {
                       className={`rounded-xl p-4 border ${isValid ? "border-emerald-300 bg-emerald-50/20" : "border-rose-300 bg-rose-50/20"}`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3 mb-3 border-b pb-2">
-                        <div>
-                          <span className="font-bold text-foreground">{m.material_name}</span>
-                          <span className="ml-2 font-mono text-xs text-primary font-bold">
-                            ({m.item_code})
-                          </span>
+                        <div className="flex items-center flex-wrap gap-4">
+                          <div>
+                            <span className="font-bold text-foreground">{m.material_name}</span>
+                            <span className="ml-2 font-mono text-xs text-primary font-bold">
+                              ({m.item_code})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 bg-background/50 px-3 py-1.5 rounded-lg border">
+                            <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">No. of Batches:</span>
+                            <Input
+                              type="number"
+                              min="1"
+                              placeholder="1"
+                              className="w-16 h-7 text-xs rounded border-border text-center font-bold"
+                              value={batches.length === 0 ? "" : batches.length}
+                              onChange={(e) => {
+                                const valStr = e.target.value;
+                                if (valStr === "") {
+                                  setMaterialBatches(prev => ({ ...prev, [rowKey]: [] }));
+                                  return;
+                                }
+                                const num = parseInt(valStr, 10);
+                                if (!isNaN(num) && num > 0) {
+                                  const isFloat = appQty % 1 !== 0;
+                                  let newBatches = [];
+                                  if (isFloat) {
+                                      const baseQty = Number((appQty / num).toFixed(2));
+                                      let sum = 0;
+                                      for (let i = 0; i < num - 1; i++) {
+                                        newBatches.push({
+                                          batch_number: `BATCH-${m.item_code}-${(i + 1).toString().padStart(3, "0")}`,
+                                          batch_quantity: baseQty,
+                                        });
+                                        sum += baseQty;
+                                      }
+                                      newBatches.push({
+                                          batch_number: `BATCH-${m.item_code}-${(num).toString().padStart(3, "0")}`,
+                                          batch_quantity: Number((appQty - sum).toFixed(2)),
+                                      });
+                                  } else {
+                                      const baseQty = Math.floor(appQty / num);
+                                      const remainder = appQty % num;
+                                      for (let i = 0; i < num; i++) {
+                                        newBatches.push({
+                                          batch_number: `BATCH-${m.item_code}-${(i + 1).toString().padStart(3, "0")}`,
+                                          batch_quantity: i === num - 1 ? baseQty + remainder : baseQty,
+                                        });
+                                      }
+                                  }
+                                  setMaterialBatches(prev => ({ ...prev, [rowKey]: newBatches }));
+                                }
+                              }}
+                            />
+                          </div>
                         </div>
                         <div className="flex items-center gap-4 text-xs font-semibold">
                           <span>
@@ -4667,49 +4718,8 @@ function GrnPageWorkflow() {
                             <span className="text-xs text-muted-foreground font-medium">
                               {m.uom}
                             </span>
-                            {batches.length > 1 && (
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="size-9 rounded-xl text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                                title="Delete batch"
-                                onClick={() => {
-                                  setMaterialBatches((prev) => {
-                                    const list = [...(prev[rowKey] || prev[m.item_code] || [])].filter(
-                                      (_, index) => index !== bIdx,
-                                    );
-                                    return { ...prev, [rowKey]: list };
-                                  });
-                                }}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            )}
                           </div>
                         ))}
-                      </div>
-
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="rounded-xl text-xs"
-                          onClick={() => {
-                            setMaterialBatches((prev) => ({
-                              ...prev,
-                              [rowKey]: [
-                                ...batches,
-                                {
-                                  batch_number: `BATCH-${m.item_code}-${(batches.length + 1).toString().padStart(3, "0")}`,
-                                  batch_quantity: 0,
-                                },
-                              ],
-                            }));
-                          }}
-                        >
-                          <Plus className="mr-1 size-3" /> Add Sub-Batch
-                        </Button>
                       </div>
                     </Card>
                   );

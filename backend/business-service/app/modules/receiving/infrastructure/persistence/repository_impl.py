@@ -1407,8 +1407,8 @@ class SqlAlchemyGrnRepository(GrnRepository):
                     if ge_obj:
                         ge_obj.status = "RECEIVING_COMPLETED"
 
-        dest_store_id = dock_assignment.assigned_store_id if dock_assignment else None
-        assigned_to = (
+        base_dest_store_id = dock_assignment.assigned_store_id if dock_assignment else None
+        base_assigned_to = (
             (dock_assignment.assigned_store_manager_username or dock_assignment.assigned_store_manager_id or dock_assignment.assigned_store_manager_name)
             if dock_assignment
             else None
@@ -1416,36 +1416,51 @@ class SqlAlchemyGrnRepository(GrnRepository):
         assigned_by = (dock_assignment.assigned_by if dock_assignment else None) or posted_by
         assigned_at = (dock_assignment.assigned_at if dock_assignment else None) or now
 
-        # Fallback to dock definition or store master if not populated on dock assignment
-        if not dest_store_id and grn.dock_number:
+        # Fallback to dock definition if not populated on dock assignment
+        if not base_dest_store_id and grn.dock_number:
             dock_res = await self._session.execute(
                 select(DockModel).where(DockModel.dock_number == grn.dock_number)
             )
             dock_obj = dock_res.scalars().first()
             if dock_obj and getattr(dock_obj, "assigned_store_id", None):
-                dest_store_id = dock_obj.assigned_store_id
-                assigned_to = assigned_to or getattr(dock_obj, "assigned_store_manager_username", None) or getattr(dock_obj, "assigned_store_manager_id", None)
+                base_dest_store_id = dock_obj.assigned_store_id
+                base_assigned_to = base_assigned_to or getattr(dock_obj, "assigned_store_manager_username", None) or getattr(dock_obj, "assigned_store_manager_id", None)
 
-        if not dest_store_id:
-            store_res = await self._session.execute(
-                select(StoreModel).where(StoreModel.status == "ACTIVE").order_by(StoreModel.created_at.asc())
-            )
-            store_obj = store_res.scalars().first()
-            if store_obj:
-                dest_store_id = store_obj.id
-                if not assigned_to:
-                    assigned_to = store_obj.store_manager_name or store_obj.store_manager_id
-
-        if dest_store_id and not assigned_to:
-            store_res = await self._session.execute(
-                select(StoreModel).where(StoreModel.id == dest_store_id)
-            )
-            store_obj = store_res.scalars().first()
-            if store_obj:
-                assigned_to = store_obj.store_manager_name or store_obj.store_manager_id
+        # Pre-fetch all active stores to match by category
+        store_res = await self._session.execute(
+            select(StoreModel).where(StoreModel.status == "ACTIVE").order_by(StoreModel.created_at.asc())
+        )
+        active_stores = list(store_res.scalars().all())
 
         # Post inventory updates & putaway tasks
         for line in grn.lines:
+            dest_store_id = base_dest_store_id
+            assigned_to = base_assigned_to
+
+            # If no store assigned from dock, try to match by material category
+            if not dest_store_id and active_stores:
+                cat_lower = (line.material_category or "").lower().strip()
+                matched_store = None
+                if cat_lower:
+                    for st in active_stores:
+                        st_type = (st.store_type or "").lower()
+                        st_name = (st.store_name or "").lower()
+                        if cat_lower in st_type or cat_lower in st_name or st_type in cat_lower:
+                            matched_store = st
+                            break
+                
+                # Default to first active store if no match
+                if not matched_store:
+                    matched_store = active_stores[0]
+                
+                dest_store_id = matched_store.id
+                assigned_to = assigned_to or matched_store.store_manager_name or matched_store.store_manager_id
+
+            if dest_store_id and not assigned_to:
+                for st in active_stores:
+                    if st.id == dest_store_id:
+                        assigned_to = st.store_manager_name or st.store_manager_id
+                        break
             post_qty = line.quality_approved_quantity if line.quality_approved_quantity > Decimal("0") else line.good_quantity
             if post_qty <= Decimal("0"):
                 post_qty = line.received_quantity
@@ -1524,32 +1539,63 @@ class SqlAlchemyGrnRepository(GrnRepository):
                 )
 
                 # 3. Create putaway task for line or batches
-                task_num = f"PT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
-                await self._session.execute(
-                    text("""
-                        INSERT INTO putaway_task
-                        (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at)
-                        VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now)
-                    """),
-                    {
-                        "id": uuid.uuid4(),
-                        "task_num": task_num,
-                        "grn_id": grn.id,
-                        "grn_num": grn.grn_number,
-                        "code": line.item_code,
-                        "name": line.material_name or line.item_code,
-                        "qty": post_qty,
-                        "uom": line.uom or "PCS",
-                        "wh": grn.warehouse_id or "WH-MAIN",
-                        "source": f"RECEIVING_DOCK_{grn.dock_number or '1'}",
-                        "dest_store_id": dest_store_id,
-                        "assigned_to": assigned_to,
-                        "assigned_by": assigned_by,
-                        "assigned_at": assigned_at,
-                        "user": posted_by,
-                        "now": now,
-                    },
-                )
+                if line.batches and len(line.batches) > 0:
+                    for batch in line.batches:
+                        if batch.batch_quantity and batch.batch_quantity > Decimal("0"):
+                            task_num = f"PT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+                            await self._session.execute(
+                                text("""
+                                    INSERT INTO putaway_task
+                                    (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at, batch_number)
+                                    VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now, :batch_number)
+                                """),
+                                {
+                                    "id": uuid.uuid4(),
+                                    "task_num": task_num,
+                                    "grn_id": grn.id,
+                                    "grn_num": grn.grn_number,
+                                    "code": line.item_code,
+                                    "name": line.material_name or line.item_code,
+                                    "qty": batch.batch_quantity,
+                                    "uom": line.uom or "PCS",
+                                    "wh": grn.warehouse_id or "WH-MAIN",
+                                    "source": f"RECEIVING_DOCK_{grn.dock_number or '1'}",
+                                    "dest_store_id": dest_store_id,
+                                    "assigned_to": assigned_to,
+                                    "assigned_by": assigned_by,
+                                    "assigned_at": assigned_at,
+                                    "user": posted_by,
+                                    "now": now,
+                                    "batch_number": batch.batch_number,
+                                },
+                            )
+                else:
+                    task_num = f"PT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+                    await self._session.execute(
+                        text("""
+                            INSERT INTO putaway_task
+                            (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at)
+                            VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now)
+                        """),
+                        {
+                            "id": uuid.uuid4(),
+                            "task_num": task_num,
+                            "grn_id": grn.id,
+                            "grn_num": grn.grn_number,
+                            "code": line.item_code,
+                            "name": line.material_name or line.item_code,
+                            "qty": post_qty,
+                            "uom": line.uom or "PCS",
+                            "wh": grn.warehouse_id or "WH-MAIN",
+                            "source": f"RECEIVING_DOCK_{grn.dock_number or '1'}",
+                            "dest_store_id": dest_store_id,
+                            "assigned_to": assigned_to,
+                            "assigned_by": assigned_by,
+                            "assigned_at": assigned_at,
+                            "user": posted_by,
+                            "now": now,
+                        },
+                    )
 
         await self._session.flush()
         return grn

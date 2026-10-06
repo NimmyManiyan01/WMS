@@ -112,7 +112,7 @@ function FinanceDashboard() {
         />
         <StatsCard
           title="Authorized Spend"
-          value={`₹${(stats.totalValue / 100000).toFixed(1)}L`}
+          value={formatCurrency(stats.totalValue)}
           icon={TrendingUp}
           color="text-primary"
           bg="bg-primary-soft/20"

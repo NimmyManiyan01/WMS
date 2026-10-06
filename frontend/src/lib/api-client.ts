@@ -287,6 +287,43 @@ export const api = {
     });
   },
 
+  async magicLogin(token: string): Promise<any> {
+    const response = await request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/auth/magic-login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      },
+    );
+    const supplierUser = {
+      token: response.token,
+      username: response.username,
+      roles: ["SUPPLIER"],
+      supplierId: response.supplierId || response.supplier_id,
+      mustChangePassword: false,
+    };
+    storeAuthSession(supplierUser, true);
+    return {
+      ...supplierUser,
+      rfq_id: response.rfqId || response.rfq_id,
+      rfqId: response.rfqId || response.rfq_id,
+      po_id: response.poId || response.po_id,
+      poId: response.poId || response.po_id,
+      link_type: response.linkType || response.link_type,
+      linkType: response.linkType || response.link_type,
+      email: response.email,
+      expires_in_hours: response.expiresInHours || response.expires_in_hours,
+      expiresInHours: response.expiresInHours || response.expires_in_hours,
+    };
+  },
+
+  async verifyMagicToken(token: string): Promise<any> {
+    return request<any>(
+      `${BUSINESS_API_URL}/api/v1/procurement/auth/verify-magic-token?token=${encodeURIComponent(token)}`,
+    );
+  },
+
   async getRfq(rfqId: string): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/rfqs/${rfqId}`);
   },
@@ -1848,6 +1885,59 @@ export const api = {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/finished-goods`);
   },
 
+  async getAssemblyFinishedGoodsRequests(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/finished-goods-requests`);
+  },
+
+  async getBOMs(params?: { product_code?: string; product_name?: string }): Promise<any[]> {
+    const qs = new URLSearchParams();
+    if (params?.product_code) qs.append("product_code", params.product_code);
+    if (params?.product_name) qs.append("product_name", params.product_name);
+    const q = qs.toString() ? `?${qs.toString()}` : "";
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/assembly/bom${q}`);
+  },
+
+  async getBOMByProduct(params: { product_name?: string; product_code?: string }): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params.product_name) qs.append("product_name", params.product_name);
+    if (params.product_code) qs.append("product_code", params.product_code);
+    return request<any>(`${BUSINESS_API_URL}/api/v1/assembly/bom/by-product?${qs.toString()}`);
+  },
+
+  async getBOM(id: string): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/assembly/bom/${encodeURIComponent(id)}`);
+  },
+
+  async createBOM(data: {
+    product_name: string;
+    product_code?: string | null;
+    description?: string | null;
+    created_by?: string;
+    items: Array<{
+      material_id?: string | null;
+      material_code: string;
+      material_name: string;
+      variant_code?: string | null;
+      quantity_per_unit: number;
+      uom?: string;
+      notes?: string | null;
+    }>;
+  }): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/assembly/bom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateBOM(id: string, data: any): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/assembly/bom/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
   async getFinishedGoodsRequests(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-requests`);
   },
@@ -1864,6 +1954,7 @@ export const api = {
     uom?: string;
     required_date?: string;
     requested_by?: string;
+    requested_date?: string;
     bom_attachment_url?: string | null;
     bom_attachment_name?: string | null;
     remarks?: string | null;

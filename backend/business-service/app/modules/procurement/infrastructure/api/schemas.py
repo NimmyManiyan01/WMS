@@ -336,6 +336,7 @@ class CreateAsnRequest(ApiModel):
     replacement_request_id: Optional[str] = None
     status: Optional[str] = "SUBMITTED"
     documents: List[AsnDocumentSchema] = []
+    logistics: Optional[List[dict]] = None
 
 
 class AsnResponse(ApiModel):
@@ -361,6 +362,7 @@ class AsnResponse(ApiModel):
     challan_number: Optional[str] = None
     challan_date: Optional[date] = None
     documents: List[AsnDocumentSchema] = []
+    logistics: Optional[List[dict]] = None
     warehouse_status: Optional[str] = None
     warehouse_status_updated_at: Optional[datetime] = None
     assigned_dock_id: Optional[str] = None
@@ -721,6 +723,24 @@ class SupplierLoginResponse(ApiModel):
     username: str
 
 
+class MagicLoginRequest(ApiModel):
+    token: str
+
+
+class MagicLoginResponse(ApiModel):
+    token: str
+    supplier_id: str
+    supplierId: str
+    username: str
+    must_change_password: bool
+    roles: List[str] = ["SUPPLIER"]
+    rfq_id: Optional[str] = None
+    po_id: Optional[str] = None
+    link_type: Optional[str] = "RFQ"
+    email: Optional[str] = None
+    expires_in_hours: Optional[float] = None
+
+
 class ChangePasswordRequest(ApiModel):
     username: str
     old_password: str
@@ -779,6 +799,7 @@ class CreateFinishedGoodsRequestSchema(ApiModel):
     uom: Optional[str] = "PCS"
     required_date: Optional[date] = None
     requested_by: Optional[str] = None
+    requested_date: Optional[date] = None
     bom_attachment_url: Optional[str] = None
     bom_attachment_name: Optional[str] = None
     remarks: Optional[str] = None
@@ -797,6 +818,7 @@ class FinishedGoodsRequestResponse(ApiModel):
     uom: str
     required_date: Optional[str] = None
     requested_by: str
+    requested_date: Optional[str] = None
     created_by: str
     status: str
     bom_attachment_url: Optional[str] = None

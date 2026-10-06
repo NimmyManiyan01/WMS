@@ -39,6 +39,8 @@ import { cn } from "@/lib/utils";
 
 type POSearch = {
   poId?: string;
+  code?: string;
+  token?: string;
 };
 
 export const Route = createFileRoute("/purchase-order")({
@@ -54,20 +56,24 @@ export const Route = createFileRoute("/purchase-order")({
   validateSearch: (search: Record<string, unknown>): POSearch => {
     return {
       poId: (search.poId as string) || undefined,
+      code: (search.code as string) || undefined,
+      token: (search.token as string) || undefined,
     };
   },
   component: PurchaseOrder,
 });
 
 function PurchaseOrder() {
-  const { poId } = Route.useSearch();
+  const { poId, code, token } = Route.useSearch();
+  const [resolvedPoId, setResolvedPoId] = useState<string | undefined>(poId);
+  const effectivePoId = poId || resolvedPoId;
   const [poData, setPoData] = useState<any>(null);
   const [damagedGoodsData, setDamagedGoodsData] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showAmendModal, setShowAmendModal] = useState(false);
   const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!!poId);
+  const [loading, setLoading] = useState(!!(poId || code || token));
   const [sending, setSending] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
   const [amending, setAmending] = useState(false);
@@ -82,14 +88,41 @@ function PurchaseOrder() {
   });
   const navigate = useNavigate();
 
-  const fetchPo = async () => {
+  useEffect(() => {
+    const magicCode = code || token;
+    if (magicCode) {
+      api
+        .magicLogin(magicCode)
+        .then((authData) => {
+          if (authData?.po_id) {
+            setResolvedPoId(authData.po_id);
+          }
+        })
+        .catch((err) => {
+          console.error("Magic login failed in PO route:", err);
+        });
+    }
+  }, [code, token]);
+
+  useEffect(() => {
+    if (poId) {
+      setResolvedPoId(poId);
+    }
+  }, [poId]);
+
+  const fetchPo = async (targetId?: string) => {
+    const idToFetch = targetId || effectivePoId;
+    if (!idToFetch) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const data = await api.getPurchaseOrder(poId as string);
+      const data = await api.getPurchaseOrder(idToFetch);
       setPoData(data);
-      if (data?.poNumber || poId) {
+      if (data?.poNumber || idToFetch) {
         try {
-          const dmg = await api.getPoDamagedGoods(data?.poNumber || poId);
+          const dmg = await api.getPoDamagedGoods(data?.poNumber || idToFetch);
           setDamagedGoodsData(dmg);
         } catch {
           setDamagedGoodsData(null);
@@ -104,13 +137,15 @@ function PurchaseOrder() {
   };
 
   useEffect(() => {
-    if (poId) fetchPo();
-  }, [poId]);
+    if (effectivePoId) {
+      fetchPo(effectivePoId);
+    }
+  }, [effectivePoId]);
 
   const handleSendToSupplier = async () => {
     try {
       setSending(true);
-      const result = await api.sendPoToSupplier(poId as string);
+      const result = await api.sendPoToSupplier((effectivePoId || poData?.id) as string);
       toast.success(
         result.message ||
           (result.resent ? "Purchase Order resent successfully." : "Purchase Order sent successfully."),
@@ -152,7 +187,7 @@ function PurchaseOrder() {
   const handleAcknowledge = async () => {
     try {
       setAcknowledging(true);
-      await api.acknowledgePurchaseOrder(poId as string);
+      await api.acknowledgePurchaseOrder((effectivePoId || poData?.id) as string);
       toast.success("Purchase Order acknowledged");
       fetchPo();
     } catch (e: any) {
@@ -182,7 +217,7 @@ function PurchaseOrder() {
 
     try {
       setAmending(true);
-      await api.amendPurchaseOrder(poId as string, {
+      await api.amendPurchaseOrder((effectivePoId || poData?.id) as string, {
         reason: amendmentForm.reason,
         changes: {
           expected_delivery_date: amendmentForm.expectedDeliveryDate || null,
