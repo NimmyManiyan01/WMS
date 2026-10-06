@@ -31,8 +31,10 @@ def upgrade() -> None:
         column["name"]
         for column in inspector.get_columns("notification")
     }
+    if "details" not in notification_cols:
         op.add_column(
             "notification",
+            sa.Column("details", sa.JSON(), nullable=True)
         )
 
 

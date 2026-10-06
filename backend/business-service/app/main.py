@@ -162,6 +162,12 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        # Ensure finished_goods_request has requested_date
+        try:
+            await run_ddl("ALTER TABLE finished_goods_request ADD COLUMN IF NOT EXISTS requested_date DATE DEFAULT CURRENT_DATE")
+        except Exception:
+            pass
+
         # Ensure gate_entry has exited_at and exited_by
         for col in [
             ("exited_at", "TIMESTAMP WITH TIME ZONE"),
@@ -847,6 +853,42 @@ async def lifespan(app: FastAPI):
             logger.debug("Ensured finished_goods_request table and columns exist")
         except Exception as e:
             logger.warning(f"Failed to create finished_goods_request table: {e}")
+
+        # Create bill_of_materials and bill_of_materials_item tables
+        try:
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS bill_of_materials (
+                    id UUID PRIMARY KEY,
+                    bom_number VARCHAR(64) UNIQUE NOT NULL,
+                    product_code VARCHAR(64),
+                    product_name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+                    created_by VARCHAR(128) NOT NULL DEFAULT 'Assembly',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("""
+                CREATE TABLE IF NOT EXISTS bill_of_materials_item (
+                    id UUID PRIMARY KEY,
+                    bom_id UUID NOT NULL REFERENCES bill_of_materials(id) ON DELETE CASCADE,
+                    material_id UUID,
+                    material_code VARCHAR(64) NOT NULL,
+                    material_name VARCHAR(255) NOT NULL,
+                    variant_code VARCHAR(128),
+                    quantity_per_unit NUMERIC(18, 4) NOT NULL,
+                    uom VARCHAR(32) NOT NULL DEFAULT 'PCS',
+                    notes TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await run_ddl("CREATE INDEX IF NOT EXISTS ix_bom_product_code ON bill_of_materials(product_code)")
+            await run_ddl("CREATE INDEX IF NOT EXISTS ix_bom_product_name ON bill_of_materials(product_name)")
+            await run_ddl("CREATE INDEX IF NOT EXISTS ix_bom_item_bom_id ON bill_of_materials_item(bom_id)")
+            logger.debug("Ensured bill_of_materials and bill_of_materials_item tables exist")
+        except Exception as e:
+            logger.warning(f"Failed to create BOM tables: {e}")
 
         # Create arrival_notification table
         try:
@@ -1568,6 +1610,16 @@ def create_app() -> FastAPI:
     import os
     os.makedirs("media_uploads", exist_ok=True)
     app.mount("/media", StaticFiles(directory="media_uploads"), name="media")
+
+    @app.get("/q/{code}")
+    async def redirect_short_link_root(code: str):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:8080/q/{code}", status_code=307)
+
+    @app.get("/po/{code}")
+    async def redirect_po_short_link_root(code: str):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:8080/po/{code}", status_code=307)
 
     @app.get("/health", tags=["ops"])
     async def health() -> dict:

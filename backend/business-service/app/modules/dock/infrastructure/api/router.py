@@ -297,9 +297,24 @@ async def create_dock(
     uow: UnitOfWork = Depends(get_uow),
 ):
     dock_code = req.dock_code.strip().upper()
-    existing = await uow.session.scalar(select(DockMasterModel).where(DockMasterModel.dock_code == dock_code))
-    if existing:
-        raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists")
+    import re
+    
+    match = re.match(r"^([A-Z]+)-?(\d+)$", dock_code)
+    prefix = ""
+    num = 0
+    if match:
+        prefix = match.group(1)
+        num = int(match.group(2))
+        
+    while True:
+        existing = await uow.session.scalar(select(DockMasterModel).where(DockMasterModel.dock_code == dock_code))
+        if not existing:
+            break
+        if prefix:
+            num += 1
+            dock_code = f"{prefix}-{num:02d}"
+        else:
+            raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists")
     dock = DockMasterModel(
         dock_code=dock_code,
         dock_name=req.dock_name.strip(),
@@ -315,7 +330,7 @@ async def create_dock(
     except IntegrityError as exc:
         await uow.session.rollback()
         raise HTTPException(status_code=409, detail=f"Dock code '{dock_code}' already exists") from exc
-    return await get_dock_by_id(dock.id, uow)
+    return await get_dock_by_id(dock.id, user=user, uow=uow)
 
 
 @router.get("/docks/{dock_id}", response_model=DockMasterResponse)

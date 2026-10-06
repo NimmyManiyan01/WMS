@@ -263,11 +263,17 @@ function GateEntry() {
         freshGateEntry?.assignedDock ||
         freshGateEntry?.assigned_dock_id ||
         freshGateEntry?.assignedDockId;
-      const dockAllocationStatus =
-        allocation?.status ||
-        freshGateEntry?.dockAllocationStatus ||
-        freshGateEntry?.status ||
-        (assignedDock ? "DOCK_ASSIGNED" : "AWAITING_DOCK");
+      
+      let dockAllocationStatus = "AWAITING_DOCK";
+      if (assignedDock) {
+        dockAllocationStatus = "DOCK_ASSIGNED";
+      } else {
+        dockAllocationStatus =
+          allocation?.status ||
+          freshGateEntry?.dockAllocationStatus ||
+          freshGateEntry?.status ||
+          "AWAITING_DOCK";
+      }
 
       setLastCreatedEntry((current) => {
         if (!current || current.id !== entry.id) return current;
@@ -385,22 +391,31 @@ function GateEntry() {
       // Gate Entry API returns its persisted records in snake_case. Normalize
       // once at the boundary so the live queue/history renders backend data.
       setEntries(
-        (records || []).map((record: any) => ({
-          ...record,
-          poNumber: record.poNumber ?? record.po_number ?? "",
-          poStatus: record.poStatus ?? record.po_status,
-          asnNumber: record.asnNumber ?? record.asn_number,
-          asnStatus: record.asnStatus ?? record.asn_status,
-          vehiclePlate: record.vehiclePlate ?? record.vehicle_plate ?? record.vehicle_number ?? "",
-          driverName: record.driverName ?? record.driver_name ?? "",
-          assignedDock: record.assignedDock ?? record.assigned_dock_id,
-          dockAllocationStatus: record.dockAllocationStatus ?? record.dock_allocation_status,
-          verificationStatus: record.verificationStatus ?? record.verification_status,
-          truckPhotoBase64: record.truckPhotoBase64 ?? record.truck_photo_base64,
-          verificationResult: record.verificationResult ?? record.verification_result,
-          exitedAt: record.exitedAt ?? record.exited_at ?? record.exit_time,
-          exitedBy: record.exitedBy ?? record.exited_by,
-        })),
+        (records || []).map((record: any) => {
+          const assignedDock = record.assignedDock ?? record.assigned_dock_id;
+          let dockAllocationStatus = "AWAITING_DOCK";
+          if (assignedDock) {
+            dockAllocationStatus = "DOCK_ASSIGNED";
+          } else {
+            dockAllocationStatus = record.dockAllocationStatus ?? record.dock_allocation_status;
+          }
+          return {
+            ...record,
+            poNumber: record.poNumber ?? record.po_number ?? "",
+            poStatus: record.poStatus ?? record.po_status,
+            asnNumber: record.asnNumber ?? record.asn_number,
+            asnStatus: record.asnStatus ?? record.asn_status,
+            vehiclePlate: record.vehiclePlate ?? record.vehicle_plate ?? record.vehicle_number ?? "",
+            driverName: record.driverName ?? record.driver_name ?? "",
+            assignedDock,
+            dockAllocationStatus,
+            verificationStatus: record.verificationStatus ?? record.verification_status,
+            truckPhotoBase64: record.truckPhotoBase64 ?? record.truck_photo_base64,
+            verificationResult: record.verificationResult ?? record.verification_result,
+            exitedAt: record.exitedAt ?? record.exited_at ?? record.exit_time,
+            exitedBy: record.exitedBy ?? record.exited_by,
+          };
+        }),
       );
     } catch (error) {
       if (!quiet)

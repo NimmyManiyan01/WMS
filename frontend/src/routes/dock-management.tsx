@@ -1665,15 +1665,10 @@ function DockManagement() {
                 Dock Code{" "}
                 <span className="text-muted-foreground font-normal">(Auto-generated)</span>
               </Label>
-              <Input
-                id="create_dock_code"
-                name="dock_code"
-                value={createDockCode}
-                onChange={(e) => setCreateDockCode(e.target.value)}
-                placeholder="e.g. RM-01, CH-01, EC-02"
-                required
-                className="mt-1.5 h-10 rounded-xl bg-background font-mono font-semibold"
-              />
+              <div className="mt-1.5 h-10 rounded-xl bg-muted/50 border border-transparent px-3 flex items-center text-muted-foreground font-mono font-semibold">
+                {createDockCode}
+              </div>
+              <input type="hidden" name="dock_code" value={createDockCode} />
             </div>
 
             <div>

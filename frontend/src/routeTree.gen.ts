@@ -69,6 +69,7 @@ import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AssemblyFinishedGoodsRequestsRouteImport } from './routes/assembly.finished-goods-requests'
 import { Route as AssemblyRequestsRouteImport } from './routes/assembly.requests'
 import { Route as FinanceApprovalsRouteImport } from './routes/finance.approvals'
+import { Route as PoCodeRouteImport } from './routes/po.$code'
 import { Route as ProcurementAsnsRouteImport } from './routes/procurement.asns'
 import { Route as ProcurementFinishedGoodsRouteImport } from './routes/procurement.finished-goods'
 import { Route as ProcurementMaterialRequestsRouteImport } from './routes/procurement.material-requests'
@@ -78,6 +79,7 @@ import { Route as ProcurementQualityIssuesRouteImport } from './routes/procureme
 import { Route as ProcurementQuotationsRouteImport } from './routes/procurement.quotations'
 import { Route as ProcurementReportsRouteImport } from './routes/procurement.reports'
 import { Route as ProcurementRfqsRouteImport } from './routes/procurement.rfqs'
+import { Route as QCodeRouteImport } from './routes/q.$code'
 import { Route as SupplierSupplierIdRouteImport } from './routes/supplier.$supplierId'
 import { Route as SupplierQualityIssuesRouteImport } from './routes/supplier.quality-issues'
 import { Route as WarehouseAssemblyRequisitionsRouteImport } from './routes/warehouse.assembly-requisitions'
@@ -402,6 +404,11 @@ const FinanceApprovalsRoute = FinanceApprovalsRouteImport.update({
   path: '/finance/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PoCodeRoute = PoCodeRouteImport.update({
+  id: '/po/$code',
+  path: '/po/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProcurementAsnsRoute = ProcurementAsnsRouteImport.update({
   id: '/procurement/asns',
   path: '/procurement/asns',
@@ -449,6 +456,11 @@ const ProcurementReportsRoute = ProcurementReportsRouteImport.update({
 const ProcurementRfqsRoute = ProcurementRfqsRouteImport.update({
   id: '/procurement/rfqs',
   path: '/procurement/rfqs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QCodeRoute = QCodeRouteImport.update({
+  id: '/q/$code',
+  path: '/q/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupplierSupplierIdRoute = SupplierSupplierIdRouteImport.update({
@@ -600,6 +612,7 @@ export interface FileRoutesByFullPath {
   '/assembly/finished-goods-requests': typeof AssemblyFinishedGoodsRequestsRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
+  '/po/$code': typeof PoCodeRoute
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -609,6 +622,7 @@ export interface FileRoutesByFullPath {
   '/procurement/quotations': typeof ProcurementQuotationsRoute
   '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
+  '/q/$code': typeof QCodeRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
@@ -686,6 +700,7 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/assembly/finished-goods-requests': typeof AssemblyFinishedGoodsRequestsRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
+  '/po/$code': typeof PoCodeRoute
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
   '/procurement/new-rfq': typeof ProcurementNewRfqRoute
@@ -694,6 +709,7 @@ export interface FileRoutesByTo {
   '/procurement/quotations': typeof ProcurementQuotationsRoute
   '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
+  '/q/$code': typeof QCodeRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
@@ -773,6 +789,7 @@ export interface FileRoutesById {
   '/assembly/finished-goods-requests': typeof AssemblyFinishedGoodsRequestsRoute
   '/assembly/requests': typeof AssemblyRequestsRoute
   '/finance/approvals': typeof FinanceApprovalsRouteWithChildren
+  '/po/$code': typeof PoCodeRoute
   '/procurement/asns': typeof ProcurementAsnsRouteWithChildren
   '/procurement/finished-goods': typeof ProcurementFinishedGoodsRoute
   '/procurement/material-requests': typeof ProcurementMaterialRequestsRoute
@@ -782,6 +799,7 @@ export interface FileRoutesById {
   '/procurement/quotations': typeof ProcurementQuotationsRoute
   '/procurement/reports': typeof ProcurementReportsRoute
   '/procurement/rfqs': typeof ProcurementRfqsRoute
+  '/q/$code': typeof QCodeRoute
   '/supplier/$supplierId': typeof SupplierSupplierIdRoute
   '/supplier/quality-issues': typeof SupplierQualityIssuesRoute
   '/warehouse/assembly-requisitions': typeof WarehouseAssemblyRequisitionsRoute
@@ -862,6 +880,7 @@ export interface FileRouteTypes {
     | '/assembly/finished-goods-requests'
     | '/assembly/requests'
     | '/finance/approvals'
+    | '/po/$code'
     | '/procurement/asns'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -871,6 +890,7 @@ export interface FileRouteTypes {
     | '/procurement/quotations'
     | '/procurement/reports'
     | '/procurement/rfqs'
+    | '/q/$code'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
     | '/warehouse/assembly-requisitions'
@@ -948,6 +968,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/assembly/finished-goods-requests'
     | '/assembly/requests'
+    | '/po/$code'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
     | '/procurement/new-rfq'
@@ -956,6 +977,7 @@ export interface FileRouteTypes {
     | '/procurement/quotations'
     | '/procurement/reports'
     | '/procurement/rfqs'
+    | '/q/$code'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
     | '/warehouse/assembly-requisitions'
@@ -1034,6 +1056,7 @@ export interface FileRouteTypes {
     | '/assembly/finished-goods-requests'
     | '/assembly/requests'
     | '/finance/approvals'
+    | '/po/$code'
     | '/procurement/asns'
     | '/procurement/finished-goods'
     | '/procurement/material-requests'
@@ -1043,6 +1066,7 @@ export interface FileRouteTypes {
     | '/procurement/quotations'
     | '/procurement/reports'
     | '/procurement/rfqs'
+    | '/q/$code'
     | '/supplier/$supplierId'
     | '/supplier/quality-issues'
     | '/warehouse/assembly-requisitions'
@@ -1122,6 +1146,7 @@ export interface RootRouteChildren {
   AssemblyFinishedGoodsRequestsRoute: typeof AssemblyFinishedGoodsRequestsRoute
   AssemblyRequestsRoute: typeof AssemblyRequestsRoute
   FinanceApprovalsRoute: typeof FinanceApprovalsRouteWithChildren
+  PoCodeRoute: typeof PoCodeRoute
   ProcurementAsnsRoute: typeof ProcurementAsnsRouteWithChildren
   ProcurementFinishedGoodsRoute: typeof ProcurementFinishedGoodsRoute
   ProcurementMaterialRequestsRoute: typeof ProcurementMaterialRequestsRoute
@@ -1131,6 +1156,7 @@ export interface RootRouteChildren {
   ProcurementQuotationsRoute: typeof ProcurementQuotationsRoute
   ProcurementReportsRoute: typeof ProcurementReportsRoute
   ProcurementRfqsRoute: typeof ProcurementRfqsRoute
+  QCodeRoute: typeof QCodeRoute
   SupplierSupplierIdRoute: typeof SupplierSupplierIdRoute
   SupplierQualityIssuesRoute: typeof SupplierQualityIssuesRoute
   WarehouseAssemblyRequisitionsRoute: typeof WarehouseAssemblyRequisitionsRoute
@@ -1566,6 +1592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FinanceApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/po/$code': {
+      id: '/po/$code'
+      path: '/po/$code'
+      fullPath: '/po/$code'
+      preLoaderRoute: typeof PoCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/procurement/asns': {
       id: '/procurement/asns'
       path: '/procurement/asns'
@@ -1627,6 +1660,13 @@ declare module '@tanstack/react-router' {
       path: '/procurement/rfqs'
       fullPath: '/procurement/rfqs'
       preLoaderRoute: typeof ProcurementRfqsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/q/$code': {
+      id: '/q/$code'
+      path: '/q/$code'
+      fullPath: '/q/$code'
+      preLoaderRoute: typeof QCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/supplier/$supplierId': {
@@ -1834,6 +1874,7 @@ const rootRouteChildren: RootRouteChildren = {
   AssemblyFinishedGoodsRequestsRoute: AssemblyFinishedGoodsRequestsRoute,
   AssemblyRequestsRoute: AssemblyRequestsRoute,
   FinanceApprovalsRoute: FinanceApprovalsRouteWithChildren,
+  PoCodeRoute: PoCodeRoute,
   ProcurementAsnsRoute: ProcurementAsnsRouteWithChildren,
   ProcurementFinishedGoodsRoute: ProcurementFinishedGoodsRoute,
   ProcurementMaterialRequestsRoute: ProcurementMaterialRequestsRoute,
@@ -1843,6 +1884,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProcurementQuotationsRoute: ProcurementQuotationsRoute,
   ProcurementReportsRoute: ProcurementReportsRoute,
   ProcurementRfqsRoute: ProcurementRfqsRoute,
+  QCodeRoute: QCodeRoute,
   SupplierSupplierIdRoute: SupplierSupplierIdRoute,
   SupplierQualityIssuesRoute: SupplierQualityIssuesRoute,
   WarehouseAssemblyRequisitionsRoute: WarehouseAssemblyRequisitionsRoute,

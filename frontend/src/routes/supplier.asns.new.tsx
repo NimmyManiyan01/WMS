@@ -73,6 +73,16 @@ function NewAsn() {
   const [lines, setLines] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [logisticsList, setLogisticsList] = useState<any[]>([
+    {
+      transporter: "",
+      vehicle_number: "",
+      number_of_packages: "",
+      package_type: "",
+      driver_name: "",
+      driver_contact: "",
+    },
+  ]);
 
   useEffect(() => {
     async function init() {
@@ -228,6 +238,30 @@ function NewAsn() {
     );
   };
 
+  const handleLogisticsChange = (index: number, field: string, value: string) => {
+    setLogisticsList((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+    );
+  };
+
+  const addLogistics = () => {
+    setLogisticsList((prev) => [
+      ...prev,
+      {
+        transporter: "",
+        vehicle_number: "",
+        number_of_packages: "",
+        package_type: "",
+        driver_name: "",
+        driver_contact: "",
+      },
+    ]);
+  };
+
+  const removeLogistics = (index: number) => {
+    setLogisticsList((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!poId) {
@@ -247,6 +281,23 @@ function NewAsn() {
         setSubmitting(false);
         return;
       }
+
+      if (po?.expectedDeliveryDate) {
+        const expectedTime = new Date(po.expectedDeliveryDate).getTime();
+        
+        if (new Date(formData.shipment_date).getTime() > expectedTime) {
+          toast.error("Invalid Shipment Date", { description: "Shipment Date cannot be later than the PO's Expected Delivery Date." });
+          setSubmitting(false);
+          return;
+        }
+
+        if (new Date(formData.expected_arrival_date).getTime() > expectedTime) {
+          toast.error("Invalid Arrival Date", { description: "Expected Arrival Date cannot be later than the PO's Expected Delivery Date." });
+          setSubmitting(false);
+          return;
+        }
+      }
+
       // Validate quantities before submission
       const overShippedItems = lines.filter(
         (l) => l.shipped_quantity + l.already_shipped_quantity > l.ordered_quantity,
@@ -259,6 +310,7 @@ function NewAsn() {
         return;
       }
 
+      const firstLogistics = logisticsList[0] || {};
       const payload = {
         po_id: poId || null,
         po_number: String(po?.poNumber || poNumberFromSearch || ""),
@@ -267,12 +319,12 @@ function NewAsn() {
         expected_arrival_at: formData.expected_arrival_date
           ? new Date(formData.expected_arrival_date).toISOString()
           : null,
-        vehicle_number: String(formData.vehicle_number || ""),
-        driver_name: String(formData.driver_name || ""),
-        driver_contact: String(formData.driver_contact || ""),
-        transporter: String(formData.transporter || ""),
-        number_of_packages: parseInt(formData.number_of_packages) || 0,
-        package_type: String(formData.package_type || ""),
+        vehicle_number: String(firstLogistics.vehicle_number || ""),
+        driver_name: String(firstLogistics.driver_name || ""),
+        driver_contact: String(firstLogistics.driver_contact || ""),
+        transporter: String(firstLogistics.transporter || ""),
+        number_of_packages: parseInt(firstLogistics.number_of_packages) || 0,
+        package_type: String(firstLogistics.package_type || ""),
         invoice_number: String(formData.invoice_number || ""),
         invoice_date: formData.invoice_date || null,
         challan_number: String(formData.challan_number || ""),
@@ -288,6 +340,7 @@ function NewAsn() {
         replacement_request_id: replacementRequestId || null,
         status: "SUBMITTED",
         documents: documents,
+        logistics: logisticsList,
         lines: lines.map((l) => ({
           item_code: String(l.item_code),
           shipped_quantity: parseFloat(l.shipped_quantity as any) || 0,
@@ -442,11 +495,18 @@ function NewAsn() {
                     name="shipment_date"
                     type="date"
                     min={new Date().toISOString().split("T")[0]}
+                    max={po?.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toISOString().split("T")[0] : undefined}
                     className={inputClass}
                     value={formData.shipment_date}
                     onChange={handleInputChange}
                     required
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>PO Expected Date</Label>
+                  <div className="h-11 flex items-center px-4 rounded-xl bg-muted/50 border border-border font-medium text-sm text-muted-foreground">
+                    {po?.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString() : "Not Specified"}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="expected_arrival_date">Expected Arrival Date</Label>
@@ -455,6 +515,7 @@ function NewAsn() {
                     name="expected_arrival_date"
                     type="date"
                     min={new Date().toISOString().split("T")[0]}
+                    max={po?.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toISOString().split("T")[0] : undefined}
                     className={inputClass}
                     value={formData.expected_arrival_date}
                     onChange={handleInputChange}
@@ -669,77 +730,96 @@ function NewAsn() {
           <div className="space-y-6">
             <SectionCard title="Logistics Details" icon={Truck}>
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="transporter">Transporter</Label>
-                  <Input
-                    id="transporter"
-                    name="transporter"
-                    placeholder="e.g. Blue Dart, DHL"
-                    className={inputClass}
-                    value={formData.transporter}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="vehicle_number">Vehicle Number</Label>
-                  <Input
-                    id="vehicle_number"
-                    name="vehicle_number"
-                    placeholder="e.g. MH-12-PQ-1234"
-                    className={cn(inputClass, "uppercase")}
-                    value={formData.vehicle_number}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="number_of_packages">Number of Packages</Label>
-                    <Input
-                      id="number_of_packages"
-                      name="number_of_packages"
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      className={inputClass}
-                      value={formData.number_of_packages}
-                      onChange={handleInputChange}
-                    />
+                {logisticsList.map((logisticsItem, index) => (
+                  <div key={index} className="space-y-4 rounded-xl border border-border/50 p-4 bg-muted/10 relative">
+                    {logisticsList.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-2 top-2 size-6 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeLogistics(index)}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    )}
+                    <h4 className="text-xs font-bold text-muted-foreground uppercase mb-2">Vehicle {index + 1}</h4>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`transporter_${index}`}>Transporter</Label>
+                      <Input
+                        id={`transporter_${index}`}
+                        placeholder="e.g. Blue Dart, DHL"
+                        className={inputClass}
+                        value={logisticsItem.transporter}
+                        onChange={(e) => handleLogisticsChange(index, "transporter", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`vehicle_number_${index}`}>Vehicle Number</Label>
+                      <Input
+                        id={`vehicle_number_${index}`}
+                        placeholder="e.g. MH-12-PQ-1234"
+                        className={cn(inputClass, "uppercase")}
+                        value={logisticsItem.vehicle_number}
+                        onChange={(e) => handleLogisticsChange(index, "vehicle_number", e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`number_of_packages_${index}`}>Number of Packages</Label>
+                        <Input
+                          id={`number_of_packages_${index}`}
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          className={inputClass}
+                          value={logisticsItem.number_of_packages}
+                          onChange={(e) => handleLogisticsChange(index, "number_of_packages", e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`package_type_${index}`}>Package Type</Label>
+                        <Input
+                          id={`package_type_${index}`}
+                          placeholder="e.g. Boxes, Pallets"
+                          className={inputClass}
+                          value={logisticsItem.package_type}
+                          onChange={(e) => handleLogisticsChange(index, "package_type", e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`driver_name_${index}`}>Driver Name</Label>
+                      <Input
+                        id={`driver_name_${index}`}
+                        placeholder="Full Name"
+                        className={inputClass}
+                        value={logisticsItem.driver_name}
+                        onChange={(e) => handleLogisticsChange(index, "driver_name", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`driver_contact_${index}`}>Driver Contact</Label>
+                      <Input
+                        id={`driver_contact_${index}`}
+                        placeholder="+91 XXXXX XXXXX"
+                        className={inputClass}
+                        value={logisticsItem.driver_contact}
+                        onChange={(e) => handleLogisticsChange(index, "driver_contact", e.target.value)}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="package_type">Package Type</Label>
-                    <Input
-                      id="package_type"
-                      name="package_type"
-                      placeholder="e.g. Boxes, Pallets"
-                      className={inputClass}
-                      value={formData.package_type}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="driver_name">Driver Name</Label>
-                  <Input
-                    id="driver_name"
-                    name="driver_name"
-                    placeholder="Full Name"
-                    className={inputClass}
-                    value={formData.driver_name}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="driver_contact">Driver Contact</Label>
-                  <Input
-                    id="driver_contact"
-                    name="driver_contact"
-                    placeholder="+91 XXXXX XXXXX"
-                    className={inputClass}
-                    value={formData.driver_contact}
-                    onChange={handleInputChange}
-                  />
-                </div>
+                ))}
+                
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full rounded-xl border-dashed"
+                  onClick={addLogistics}
+                >
+                  <Plus className="mr-2 size-4" /> Add Another Vehicle
+                </Button>
 
                 <div className="pt-4 border-t border-border mt-4">
                   <div className="rounded-xl bg-primary-soft/10 border border-primary/20 p-4">

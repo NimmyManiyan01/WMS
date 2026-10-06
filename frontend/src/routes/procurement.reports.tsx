@@ -51,14 +51,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
-import { requireRole } from "@/lib/auth-utils";
+import { requireRole, getUserInfo } from "@/lib/auth-utils";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/procurement/reports")({
-  beforeLoad: () => requireRole("PROCUREMENT"),
+  beforeLoad: () => requireRole(["PROCUREMENT", "FINANCE"]),
   head: () => ({
     meta: [
-      { title: "Procurement Reports · NexusWMS" },
+      { title: "Finance Reports · NexusWMS" },
       {
         name: "description",
         content: "Analytics and reporting across purchase spend, supplier performance, RFQs, and ASNs.",
@@ -88,6 +88,9 @@ function ProcurementReports() {
   const [activeTab, setActiveTab] = useState<ReportTab>("spend");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const user = getUserInfo();
+  const isFinanceOnly = user?.roles?.includes("FINANCE") && !user?.roles?.includes("PROCUREMENT");
 
   // Dynamic API Data
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -328,26 +331,28 @@ function ProcurementReports() {
     <AppShell
       title={
         <div className="flex items-center gap-2">
-          <span>Procurement Reports</span>
+          <span>Finance Reports</span>
           <TooltipProvider>
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label="Procurement Reports Info"
+                  aria-label="Reports Info"
                   className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
                 >
                   <Info className="size-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-xs text-xs">
-                Comprehensive analytics across vendor spend, supplier performance, RFQ quotes, and receiving compliance.
+                {isFinanceOnly
+                  ? "Financial analytics for purchase order spend and RFQ savings."
+                  : "Comprehensive analytics across vendor spend, supplier performance, RFQ quotes, and receiving compliance."}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
       }
-      subtitle="Analyze purchase order spend, supplier ratings, quotation bidding, and receiving compliance"
+      subtitle={isFinanceOnly ? "Analyze purchase order spend and quotation bidding" : "Analyze purchase order spend, supplier ratings, quotation bidding, and receiving compliance"}
       actions={
         <div className="flex items-center gap-2">
           <Button
@@ -411,7 +416,7 @@ function ProcurementReports() {
           { id: "rfq-analytics", label: "RFQ & Quotation Analytics", icon: FileQuestion },
           { id: "asns-compliance", label: "ASN & Inbound Compliance", icon: Truck },
           { id: "material-requests", label: "Demand & Requests", icon: ClipboardList },
-        ].map((tab) => {
+        ].filter(t => isFinanceOnly ? (t.id === "spend" || t.id === "rfq-analytics") : true).map((tab) => {
           const IconComp = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -508,7 +513,7 @@ function ProcurementReports() {
         {loading ? (
           <div className="flex h-72 items-center justify-center gap-2">
             <Loader2 className="size-6 animate-spin text-primary" />
-            <p className="text-sm font-medium text-muted-foreground">Loading procurement reports...</p>
+            <p className="text-sm font-medium text-muted-foreground">Loading finance reports...</p>
           </div>
         ) : (
           <>

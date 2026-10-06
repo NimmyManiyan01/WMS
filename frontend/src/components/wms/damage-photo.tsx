@@ -8,19 +8,21 @@ type Props = {
     damagedQuantity: number;
     reason?: string;
     onSuccess?: (evidence: { evidenceId: string; fileName?: string; filePath?: string; file?: File }) => void;
+    initialPreviewUrl?: string;
+    initialFile?: File;
 };
 
-// Reset photo/save state when the material, quantity or reason changes.
+// Do not reset photo state when reason or quantity changes, only when the line changes.
 export function DamagePhoto(props: Props) {
     return (
         <PhotoEditor
-            key={`${props.lineId ?? "unsaved"}:${props.damagedQuantity}:${props.reason ?? ""}`}
+            key={props.lineId ?? "unsaved"}
             {...props}
         />
     );
 }
 
-function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess }: Props) {
+function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess, initialPreviewUrl, initialFile }: Props) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const mounted = useRef(false);
     const uploadLock = useRef(false);
@@ -28,11 +30,11 @@ function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess }: Props) {
 
     const [cameraOpen, setCameraOpen] = useState(false);
     const [ready, setReady] = useState(false);
-    const [file, setFile] = useState<File | null>(null);
-    const [preview, setPreview] = useState("");
+    const [file, setFile] = useState<File | null>(initialFile || null);
+    const [preview, setPreview] = useState(initialPreviewUrl || "");
     const [uploading, setUploading] = useState(false);
     const [capturing, setCapturing] = useState(false);
-    const [saved, setSaved] = useState(false);
+    const [saved, setSaved] = useState(!!initialPreviewUrl || !!initialFile);
     const [error, setError] = useState("");
 
     const validLine = Boolean(lineId?.trim());
@@ -56,7 +58,11 @@ function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess }: Props) {
 
     useEffect(() => {
         if (!file) {
-            setPreview("");
+            if (initialPreviewUrl) {
+                setPreview(initialPreviewUrl);
+            } else {
+                setPreview("");
+            }
             return;
         }
 
@@ -64,7 +70,7 @@ function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess }: Props) {
         setPreview(url);
 
         return () => URL.revokeObjectURL(url);
-    }, [file]);
+    }, [file, initialPreviewUrl]);
 
     useEffect(() => {
         if (!cameraOpen) return;

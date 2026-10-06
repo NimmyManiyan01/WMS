@@ -151,10 +151,10 @@ const storeManagerNav = [
 
 const assemblyNav = [
   { label: "Dashboard", to: "/assembly-dashboard", icon: LayoutDashboard },
-  { label: "Assembly Orders", to: "/assembly-orders", icon: Factory },
   { label: "Finished Goods Requests", to: "/assembly/finished-goods-requests", icon: PackageCheck },
   { label: "Material Requests", to: "/assembly/requests", icon: ClipboardList },
   { label: "Material/Pickup Status", to: "/assembly-material-issues", icon: PackageCheck },
+  { label: "Assembly Orders", to: "/assembly-orders", icon: Factory },
   { label: "Production", to: "/assembly-progress", icon: ListOrdered },
   { label: "Finished Goods", to: "/assembly-finished-goods", icon: Boxes },
   { label: "Genealogy", to: "/assembly-genealogy", icon: GitFork },
@@ -185,7 +185,8 @@ const procurementNav = [
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
-  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
+  { label: "Damage Claims", to: "/damage-claims", icon: ShieldAlert },
+  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const supplierNav = [
@@ -197,7 +198,7 @@ const supplierNav = [
 const financeNav = [
   { label: "Dashboard", to: "/finance-dashboard", icon: LayoutDashboard },
   { label: "Pending Approvals", to: "/finance/approvals", icon: FileCheck2 },
-  { label: "Reports", to: "/reports", icon: BarChart3 },
+  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const managerNav = [
@@ -227,7 +228,7 @@ const adminNav = [
   { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
   { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
   { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
-  { label: "Reports", to: "/reports", icon: BarChart3 },
+  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const ICON_MAP: Record<string, any> = {
@@ -351,15 +352,14 @@ export function AppShell({
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
+    setUser(getUserInfo());
   }, []);
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
   const searchStr = location.searchStr || "";
   const fullHref = path + searchStr;
   const navigate = useNavigate();
-  const [user, setUser] = useState<UserInfo | null>(() =>
-    typeof window !== "undefined" ? getUserInfo() : null,
-  );
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -481,7 +481,7 @@ export function AppShell({
     (path.startsWith("/supplier/") && !path.startsWith("/supplier/asns/"));
   const isSupplierRoute = path === "/supplier-dashboard" || path === "/submit-quotation";
   const isFinanceUser = mounted && user?.roles?.includes("FINANCE");
-  const isSharedFinanceRoute = path.startsWith("/reports");
+  const isSharedFinanceRoute = path === "/procurement/reports";
   const isFinanceRoute =
     path === "/finance-dashboard" ||
     path.startsWith("/finance/") ||
@@ -851,12 +851,15 @@ export function AppShell({
                 )}
               </Link>
               <div className="group relative ml-1 flex items-center gap-2.5 rounded-xl border border-border bg-card py-1.5 pl-1.5 pr-3 transition-colors hover:bg-accent/50">
-                <span className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">
+                <span
+                  suppressHydrationWarning
+                  className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground"
+                >
                   {getUserInitials(user)}
                 </span>
                 <div className="hidden leading-tight lg:block">
-                  <p className="text-xs font-semibold">{getUserDisplayName(user)}</p>
-                  <p className="text-[10px] text-muted-foreground">{getUserRoleLabel(user)}</p>
+                  <p suppressHydrationWarning className="text-xs font-semibold">{getUserDisplayName(user)}</p>
+                  <p suppressHydrationWarning className="text-[10px] text-muted-foreground">{getUserRoleLabel(user)}</p>
                 </div>
                 <button
                   suppressHydrationWarning
@@ -965,10 +968,19 @@ export function StatusBadge({ status }: { status: string }) {
     DELIVERED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
     CLOSED: "bg-muted text-muted-foreground border-border",
     CANCELLED: "bg-destructive/15 text-destructive border-destructive/30",
+    SENT_TO_ASSEMBLY: "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
+    "SENT TO ASSEMBLY": "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
+    IN_PROGRESS: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    "IN PROGRESS": "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    ASSEMBLY_IN_PROGRESS: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    "ASSEMBLY IN PROGRESS": "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    SHORTAGE_DETECTED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-bold",
+    READY: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-bold",
+    PENDING: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
     RETURNED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
     DELAYED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
   };
-  const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active"].includes(status);
+  const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active", "SENT_TO_ASSEMBLY", "IN_PROGRESS", "ASSEMBLY_IN_PROGRESS"].includes(status);
   let displayLabel = status.replace(/_/g, " ");
   if (displayLabel.toUpperCase() === "OCCUPIED") {
     displayLabel = "AT DOCK";
@@ -994,7 +1006,7 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function parseDockAllocationDetails(n: any) {
+function parseDockAllocationDetails(n: any) {
   const msg = n?.message || "";
 
   const gatePass =

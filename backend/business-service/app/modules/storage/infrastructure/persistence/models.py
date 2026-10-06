@@ -34,7 +34,7 @@ class StorageLocationModel(Base):
 
 class PutawayTaskModel(Base):
     __tablename__ = "putaway_task"
-    __table_args__ = (UniqueConstraint("grn_id", "item_code", name="uq_putaway_task_grn_item"),)
+    __table_args__ = (UniqueConstraint("grn_id", "item_code", "batch_number", name="uq_putaway_task_grn_item_batch"),)
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     task_number: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
@@ -44,6 +44,7 @@ class PutawayTaskModel(Base):
     handling_unit_id: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("handling_unit.id", ondelete="RESTRICT"), nullable=True, unique=True, index=True)
 
     item_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    batch_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     material_name: Mapped[str] = mapped_column(String(256), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     uom: Mapped[str] = mapped_column(String(32), nullable=False)

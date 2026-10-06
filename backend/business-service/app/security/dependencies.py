@@ -99,6 +99,11 @@ async def get_current_user(
             token_payload = token.removeprefix("supplier-mock-token-")
             user_id = token_payload[:36]
             supplier_id = token_payload[37:] if len(token_payload) > 37 else None
+            
+            # Prevent literal "None" string from breaking _authenticated_supplier_id
+            if supplier_id == "None":
+                supplier_id = None
+                
             return CurrentUser(
                 subject=user_id or "supplier",
                 username="supplier",
@@ -169,6 +174,14 @@ async def get_current_user(
                 roles=["ADMIN"],
                 permissions=["gate:read", "gate:entry:create", "gate:entry:read", "gate:entry:verify", "gate:write", "warehouse:write"],
                 raw_claims={},
+            )
+        elif token == "mock-jwt-supplier-token":
+            return CurrentUser(
+                subject="supplier",
+                username="supplier_partner",
+                roles=["SUPPLIER"],
+                permissions=[],
+                raw_claims={"supplier_id": "sup-00001"},
             )
         elif token == "mock-jwt-warehouse-token":
             return CurrentUser(

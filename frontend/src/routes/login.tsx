@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
-import { Warehouse, Loader2, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Warehouse, Loader2, Eye, EyeOff, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api-client";
@@ -40,23 +40,50 @@ function LoginPage() {
   const [showPassword, setShowPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [rememberMe, setRememberMe] = React.useState(false);
+  const [linkError, setLinkError] = React.useState<string | null>(null);
+  const [verifyingMagicLink, setVerifyingMagicLink] = React.useState(false);
 
-  // Handle auto-login via magic token
+  // Handle auto-login via magic token with 24h expiration check
   React.useEffect(() => {
-    if (magicToken && !isLoading) {
+    if (magicToken && !isLoading && !verifyingMagicLink) {
       const performAutoLogin = async () => {
         setIsLoading(true);
+        setVerifyingMagicLink(true);
+        setLinkError(null);
         try {
-          // magicToken is a base64 string of "username:password_hash"
-          const decoded = atob(magicToken);
-          const [u, p] = decoded.split(":");
-          const data = await api.login(u, p);
-          completeAuthentication(data);
-        } catch (error) {
-          console.error("Auto-login failed", error);
-          toast.error("Magic link expired or invalid. Please login manually.");
+          let data: any;
+          // If token has '.' or is not base64 "u:p", call magicLogin
+          if (magicToken.includes(".") || !magicToken.includes(":")) {
+            data = await api.magicLogin(magicToken);
+          } else {
+            try {
+              const decoded = atob(magicToken);
+              const [u, p] = decoded.split(":");
+              data = await api.login(u, p);
+            } catch {
+              data = await api.magicLogin(magicToken);
+            }
+          }
+          toast.success("Access link verified! Opening quotation portal...");
+          const target = data?.rfq_id
+            ? `/submit-quotation?rfqId=${data.rfq_id}`
+            : redirectPath || "/supplier-dashboard";
+          
+          setTimeout(() => {
+            navigate({ to: target as any });
+          }, 300);
+        } catch (error: any) {
+          console.error("Auto-login failed:", error);
+          const rawMsg = error?.message || error?.detail || "";
+          const isExpired = rawMsg.toLowerCase().includes("expired") || error?.status === 410;
+          const userMsg = isExpired
+            ? "This quotation invitation link has expired after 24 hours. For security, please contact procurement for a new access link."
+            : (rawMsg || "This quotation access link is invalid or expired. Please contact procurement.");
+          setLinkError(userMsg);
+          toast.error(userMsg);
         } finally {
           setIsLoading(false);
+          setVerifyingMagicLink(false);
         }
       };
       void performAutoLogin();
@@ -165,6 +192,28 @@ function LoginPage() {
               Enter your credentials to access the management console.
             </p>
           </div>
+
+          {verifyingMagicLink && (
+            <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
+              <Loader2 className="size-5 animate-spin shrink-0" />
+              <div>
+                <p className="font-semibold">Verifying secure quotation link...</p>
+                <p className="text-xs text-muted-foreground">Authenticating and opening supplier workspace.</p>
+              </div>
+            </div>
+          )}
+
+          {linkError && (
+            <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              <div className="flex items-center gap-2 font-semibold">
+                <Clock className="size-4 shrink-0" /> Quotation Link Expired or Invalid
+              </div>
+              <p className="mt-1 text-xs leading-relaxed">{linkError}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Quotation links expire 24 hours after issuance. You can still log in manually below if you have portal credentials.
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">

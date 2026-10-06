@@ -193,3 +193,4 @@ class CreateAsnCommand:
     status: str = "SUBMITTED"
     documents: List[AsnDocumentCommand] = field(default_factory=list)
     supplier_id: Optional[str] = None
+    logistics: Optional[List[dict]] = None

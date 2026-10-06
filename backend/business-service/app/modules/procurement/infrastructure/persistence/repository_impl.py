@@ -671,6 +671,7 @@ class SqlAlchemyAsnRepository(AsnRepository):
         model.number_of_packages = asn.number_of_packages
         model.package_type = asn.package_type
         model.shipping_method = asn.shipping_method
+        model.logistics = asn.logistics
         if asn.supplier_id:
             model.supplier_id = asn.supplier_id
 
@@ -745,6 +746,7 @@ class SqlAlchemyAsnRepository(AsnRepository):
             ],
             created_at=model.created_at,
             supplier_id=str(model.supplier_id) if model.supplier_id else None,
+            logistics=model.logistics,
         )
 
     async def get_by_id(self, asn_id: AsnId) -> Optional[ASN]:

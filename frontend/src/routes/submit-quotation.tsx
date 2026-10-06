@@ -19,6 +19,7 @@ import {
   X,
   Eye,
   ArrowRight,
+  Clock,
 } from "lucide-react";
 import { AppShell } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -36,7 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { getUserInfo, requireRole } from "@/lib/auth-utils";
+import { getUserInfo, storeAuthSession, requireRole } from "@/lib/auth-utils";
 import {
   Select,
   SelectContent,
@@ -60,20 +61,14 @@ const getItemKey = (item: any, idx: number) =>
   String(idx);
 
 function SubmitQuotation() {
-  if (typeof window === "undefined") {
-    return (
-      <div className="flex h-screen items-center justify-center gap-3 bg-background">
-        <Loader2 className="size-8 animate-spin text-primary" />
-        <span className="text-sm text-muted-foreground">Loading quotation portal...</span>
-      </div>
-    );
-  }
-
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as any;
   const rfqId = search.rfqId || "";
+  const token = search.token || search.q || search.t || "";
 
   const [loading, setLoading] = useState(true);
+  const [tokenExpired, setTokenExpired] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [rfq, setRfq] = useState<any | null>(null);
   const [existingQuote, setExistingQuote] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -109,36 +104,60 @@ function SubmitQuotation() {
   >([]);
 
   useEffect(() => {
-    let userInfo = getUserInfo();
-    if (!userInfo) {
-      userInfo = {
-        token: "mock-jwt-supplier-token",
-        username: "supplier_partner",
-        roles: ["SUPPLIER"],
-        supplierId: "sup-00001",
-      };
-      try {
-        localStorage.setItem("nexus_wms_user", JSON.stringify(userInfo));
-        localStorage.setItem("nexus_wms_token", userInfo.token);
-      } catch {}
-    }
+    const initializePortal = async () => {
+      let userInfo = getUserInfo();
+      let effectiveRfqId = rfqId;
 
-    setSupplierId(userInfo.supplierId || "sup-00001");
-    setUsername(userInfo.username || "supplier_partner");
-    setSupplierName(userInfo.username || "Supplier Partner");
+      // If a magic token/short code is provided in the URL, verify and auto-authenticate with 24h expiration check
+      if (token) {
+        try {
+          const authData = await api.magicLogin(token);
+          userInfo = authData;
+          if (!effectiveRfqId && authData?.rfq_id) {
+            effectiveRfqId = authData.rfq_id;
+          }
+          toast.success("Quotation access link verified!");
+        } catch (tokenErr: any) {
+          console.error("Magic token error:", tokenErr);
+          const raw = tokenErr?.message || tokenErr?.detail || "";
+          const isExp = raw.toLowerCase().includes("expired") || tokenErr?.status === 410;
+          setTokenExpired(true);
+          setTokenError(
+            isExp
+              ? "This quotation invitation link has expired after 24 hours. For security, please contact procurement for a new access link."
+              : (raw || "Invalid quotation access link.")
+          );
+          setLoading(false);
+          return;
+        }
+      }
 
-    if (!rfqId) {
-      setLoading(false);
-      return;
-    }
+      if (!userInfo) {
+        userInfo = {
+          token: "mock-jwt-supplier-token",
+          username: "supplier_partner",
+          roles: ["SUPPLIER"],
+          supplierId: "sup-00001",
+        };
+        try {
+          storeAuthSession(userInfo, true);
+        } catch {}
+      }
 
-    // Fetch RFQ details and check for existing quotations
-    const fetchRfqAndQuotation = async () => {
+      setSupplierId(userInfo.supplierId || "sup-00001");
+      setUsername(userInfo.username || "supplier_partner");
+      setSupplierName(userInfo.username || "Supplier Partner");
+
+      if (!effectiveRfqId) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const sid = userInfo.supplierId || "";
         const [rfqData, quotesList] = await Promise.all([
-          api.getRfq(rfqId),
-          api.getQuotations(rfqId, sid),
+          api.getRfq(effectiveRfqId),
+          api.getQuotations(effectiveRfqId, sid),
         ]);
 
         setRfq(rfqData);
@@ -239,8 +258,8 @@ function SubmitQuotation() {
       }
     };
 
-    fetchRfqAndQuotation();
-  }, [rfqId]);
+    void initializePortal();
+  }, [rfqId, token]);
 
   const handleItemChange = (key: string, field: "unitPrice" | "availableQty", value: string) => {
     if (isLocked) return;
@@ -507,6 +526,29 @@ function SubmitQuotation() {
         <Loader2 className="size-8 animate-spin text-primary" />
         <span className="text-sm text-muted-foreground">Loading bidding portal...</span>
       </div>
+    );
+  }
+
+  if (tokenExpired) {
+    return (
+      <AppShell title="Quotation Workspace" subtitle="Access Link Expired">
+        <div className="mx-auto mt-12 max-w-lg rounded-2xl border border-destructive/20 bg-card p-8 text-center shadow-soft">
+          <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-destructive/10 text-destructive">
+            <Clock className="size-7" />
+          </div>
+          <h2 className="text-xl font-bold text-foreground">Quotation Link Expired</h2>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            {tokenError || "This quotation invitation link was valid for 24 hours and has now expired."}
+          </p>
+          <div className="mt-4 rounded-xl border border-border bg-muted/40 p-4 text-xs text-muted-foreground text-left">
+            <p className="font-semibold text-foreground mb-1">Why did this happen?</p>
+            For commercial confidentiality and security, quotation access links expire automatically after 24 hours. Please contact the procurement team to request a fresh quotation invitation link.
+          </div>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={() => navigate({ to: "/login" })}>Go to Login</Button>
+          </div>
+        </div>
+      </AppShell>
     );
   }
 
