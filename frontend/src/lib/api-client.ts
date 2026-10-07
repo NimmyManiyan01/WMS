@@ -2895,7 +2895,12 @@ export const api = {
     return request<any>(`${BUSINESS_API_URL}/api/dispatches/${id}/return`, { method: "POST" });
   },
   async getDispatchesReadyForGateExit(): Promise<any[]> {
-    return request<any[]>(`${BUSINESS_API_URL}/api/dispatches/ready-for-gate-exit`, { cache: "no-store" });
+    try {
+      const res = await request<any[]>(`${BUSINESS_API_URL}/api/dispatches/ready-for-gate-exit`, { cache: "no-store" });
+      return Array.isArray(res) ? res : [];
+    } catch {
+      return [];
+    }
   },
   async getDispatchKpis(): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/dispatches/kpis`, { cache: "no-store" });

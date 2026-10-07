@@ -417,6 +417,7 @@ async def lifespan(app: FastAPI):
             ("destination_zone_id", "UUID"),
             ("destination_bin_id", "UUID"),
             ("finished_goods_id", "UUID"),
+            ("batch_number", "VARCHAR(128)"),
         ]:
             try:
                 await run_ddl(f"ALTER TABLE putaway_task ADD COLUMN IF NOT EXISTS {col[0]} {col[1]}")
@@ -1085,6 +1086,7 @@ async def lifespan(app: FastAPI):
                     grn_number VARCHAR(64),
                     handling_unit_id UUID,
                     item_code VARCHAR(64) NOT NULL,
+                    batch_number VARCHAR(128),
                     material_name VARCHAR(256),
                     quantity NUMERIC(18, 4) NOT NULL,
                     uom VARCHAR(32),
@@ -1118,6 +1120,7 @@ async def lifespan(app: FastAPI):
             """)
         except Exception: pass
         for column, column_type in [
+            ("batch_number", "VARCHAR(128)"),
             ("handling_unit_id", "UUID"),
             ("destination_store_id", "UUID"),
             ("destination_zone_id", "UUID"),

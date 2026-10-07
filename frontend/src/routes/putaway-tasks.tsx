@@ -54,7 +54,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/putaway-tasks")({
   head: () => ({
     meta: [
-      { title: "Putaway Execution & Tracking · NexusWMS" },
+      { title: "Putaway Execution & Tracking · KaizenX" },
       {
         name: "description",
         content:

@@ -61,21 +61,44 @@ function AsnTracking() {
   );
 
   const beginEditing = () => {
+    let rawLogistics = asn.logistics;
+    if (typeof rawLogistics === "string") {
+      try {
+        rawLogistics = JSON.parse(rawLogistics);
+      } catch {
+        rawLogistics = null;
+      }
+    }
+    const initialLogistics =
+      Array.isArray(rawLogistics) && rawLogistics.length > 0
+        ? rawLogistics
+        : [
+            {
+              transporter: asn.transporter || "",
+              vehicle_number: asn.vehicleNumber || asn.vehicle_number || "",
+              number_of_packages: asn.numberOfPackages ?? asn.number_of_packages ?? "",
+              package_type: asn.packageType || asn.package_type || "",
+              driver_name: asn.driverName || asn.driver_name || "",
+              driver_contact: asn.driverContact || asn.driver_contact || "",
+            },
+          ];
+
     setEditData({
       shipment_date: asn.shipmentDate || "",
       expected_arrival_at: asn.expectedArrivalAt
         ? new Date(asn.expectedArrivalAt).toISOString().slice(0, 16)
         : "",
-      vehicle_number: asn.vehicleNumber || "",
-      driver_name: asn.driverName || "",
-      driver_contact: asn.driverContact || "",
-      transporter: asn.transporter || "",
-      number_of_packages: asn.numberOfPackages ?? "",
-      package_type: asn.packageType || "",
+      vehicle_number: initialLogistics[0]?.vehicle_number || asn.vehicleNumber || "",
+      driver_name: initialLogistics[0]?.driver_name || asn.driverName || "",
+      driver_contact: initialLogistics[0]?.driver_contact || asn.driverContact || "",
+      transporter: initialLogistics[0]?.transporter || asn.transporter || "",
+      number_of_packages: initialLogistics[0]?.number_of_packages ?? asn.numberOfPackages ?? "",
+      package_type: initialLogistics[0]?.package_type || asn.packageType || "",
       invoice_number: asn.invoiceNumber || "",
       invoice_date: asn.invoiceDate || "",
       challan_number: asn.challanNumber || "",
       challan_date: asn.challanDate || "",
+      logistics: initialLogistics,
       lines: (asn.lines || []).map((line: any) => ({
         item_code: line.itemCode,
         material_name: line.materialName,
@@ -87,25 +110,27 @@ function AsnTracking() {
   };
 
   const handleResubmit = async () => {
-    if (!editData.expected_arrival_at || !editData.vehicle_number) {
+    const firstVehicle = editData.logistics?.[0]?.vehicle_number || editData.vehicle_number;
+    if (!editData.expected_arrival_at || !firstVehicle) {
       toast.error("Vehicle number and expected arrival are required");
       return;
     }
 
     setSaving(true);
     try {
+      const firstLogistics = editData.logistics?.[0] || editData;
       const updated = await api.updateAsn(asnId, {
         asn_number: asn.asnNumber,
         po_id: asn.poId,
         po_number: asn.poNumber,
         shipment_date: editData.shipment_date || null,
         expected_arrival_at: new Date(editData.expected_arrival_at).toISOString(),
-        vehicle_number: editData.vehicle_number,
-        driver_name: editData.driver_name,
-        driver_contact: editData.driver_contact,
-        transporter: editData.transporter,
-        number_of_packages: parseInt(editData.number_of_packages) || 0,
-        package_type: editData.package_type,
+        vehicle_number: firstLogistics.vehicle_number || editData.vehicle_number,
+        driver_name: firstLogistics.driver_name || editData.driver_name,
+        driver_contact: firstLogistics.driver_contact || editData.driver_contact,
+        transporter: firstLogistics.transporter || editData.transporter,
+        number_of_packages: parseInt(firstLogistics.number_of_packages || editData.number_of_packages) || 0,
+        package_type: firstLogistics.package_type || editData.package_type,
         invoice_number: editData.invoice_number,
         invoice_date: editData.invoice_date || null,
         challan_number: editData.challan_number,
@@ -118,6 +143,7 @@ function AsnTracking() {
           uploaded_by: document.uploadedBy,
           uploaded_at: document.uploadedAt,
         })),
+        logistics: editData.logistics && editData.logistics.length > 0 ? editData.logistics : asn.logistics || null,
         lines: editData.lines,
       });
       setAsn(updated);
@@ -247,14 +273,44 @@ function AsnTracking() {
   ];
 
   const isSupplier = user?.roles?.includes("SUPPLIER");
+  let rawLogistics = asn.logistics;
+  if (typeof rawLogistics === "string") {
+    try {
+      rawLogistics = JSON.parse(rawLogistics);
+    } catch {
+      rawLogistics = null;
+    }
+  }
+
+  const logisticsEntries =
+    Array.isArray(rawLogistics) && rawLogistics.length > 0
+      ? rawLogistics
+      : [
+          {
+            transporter: asn.transporter,
+            vehicle_number: asn.vehicleNumber || asn.vehicle_number,
+            number_of_packages: asn.numberOfPackages ?? asn.number_of_packages,
+            package_type: asn.packageType || asn.package_type,
+            driver_name: asn.driverName || asn.driver_name,
+            driver_contact: asn.driverContact || asn.driver_contact,
+          },
+        ];
+
+  const transporterSummary =
+    logisticsEntries
+      .map((entry: any) => entry.transporter)
+      .filter(Boolean)
+      .join(", ") ||
+    asn.transporter ||
+    "Standard Freight";
 
   return (
     <AppShell
       title={isSupplier ? `ASN Details: ${asn.asnNumber}` : `Tracking Shipment: ${asn.asnNumber}`}
       subtitle={
         isSupplier
-          ? `PO Ref: ${asn.poNumber} · ${asn.transporter || "Standard Freight"}`
-          : `Supplier: ${asn.supplierName || "N/A"} · PO Ref: ${asn.poNumber} · ${asn.transporter || "Standard Freight"}`
+          ? `PO Ref: ${asn.poNumber} · ${transporterSummary}`
+          : `Supplier: ${asn.supplierName || "N/A"} · PO Ref: ${asn.poNumber} · ${transporterSummary}`
       }
       actions={
         <div className="flex items-center gap-2">
@@ -422,43 +478,109 @@ function AsnTracking() {
 
         {/* Right Column: Logistics & Driver */}
         <div className="space-y-6">
-          <SectionCard title="Logistics Carrier" icon={Truck}>
+          <SectionCard title={logisticsEntries.length > 1 ? "Logistics Carriers" : "Logistics Carrier"} icon={Truck}>
             <div className="space-y-4">
               {editing ? (
                 <>
-                  {(
-                    [
-                      ["Transporter", "transporter", "text"],
-                      ["Vehicle Number", "vehicle_number", "text"],
-                      ["Package Count", "number_of_packages", "number"],
-                      ["Package Type", "package_type", "text"],
-                    ] as const
-                  ).map(([label, field, type]) => (
-                    <div className="space-y-1.5" key={field}>
-                      <Label>{label}</Label>
-                      <Input
-                        type={type}
-                        value={editData[field]}
-                        onChange={(event) =>
-                          setEditData({ ...editData, [field]: event.target.value })
-                        }
-                      />
+                  {(editData.logistics || [editData]).map((item: any, idx: number) => (
+                    <div key={idx} className={cn("space-y-3", idx > 0 && "border-t border-border/60 pt-4")}>
+                      {(editData.logistics?.length || 0) > 1 && (
+                        <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                          Vehicle {idx + 1}
+                        </p>
+                      )}
+                      <div className="space-y-1.5">
+                        <Label>Transporter</Label>
+                        <Input
+                          value={item.transporter || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditData((prev: any) => {
+                              const updated = [...(prev.logistics || [prev])];
+                              updated[idx] = { ...updated[idx], transporter: val };
+                              return { ...prev, logistics: updated, transporter: updated[0]?.transporter || prev.transporter };
+                            });
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Vehicle Number</Label>
+                        <Input
+                          value={item.vehicle_number || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditData((prev: any) => {
+                              const updated = [...(prev.logistics || [prev])];
+                              updated[idx] = { ...updated[idx], vehicle_number: val };
+                              return { ...prev, logistics: updated, vehicle_number: updated[0]?.vehicle_number || prev.vehicle_number };
+                            });
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label>Pkg Count</Label>
+                          <Input
+                            type="number"
+                            value={item.number_of_packages ?? ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditData((prev: any) => {
+                                const updated = [...(prev.logistics || [prev])];
+                                updated[idx] = { ...updated[idx], number_of_packages: val };
+                                return { ...prev, logistics: updated, number_of_packages: updated[0]?.number_of_packages ?? prev.number_of_packages };
+                              });
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Pkg Type</Label>
+                          <Input
+                            value={item.package_type || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditData((prev: any) => {
+                                const updated = [...(prev.logistics || [prev])];
+                                updated[idx] = { ...updated[idx], package_type: val };
+                                return { ...prev, logistics: updated, package_type: updated[0]?.package_type || prev.package_type };
+                              });
+                            }}
+                          />
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </>
               ) : (
-                <>
-                  <Field
-                    label="Transporter"
-                    value={asn.transporter || "Not Specified"}
-                    icon={Building2}
-                  />
-                  <Field label="Vehicle Number" value={asn.vehicleNumber} mono icon={Navigation} />
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <Field label="Pkg Count" value={asn.numberOfPackages || "0"} />
-                    <Field label="Pkg Type" value={asn.packageType || "-"} />
+                logisticsEntries.map((logistics: any, index: number) => (
+                  <div
+                    key={`${logistics.vehicle_number || logistics.vehicleNumber || "carrier"}-${index}`}
+                    className={cn(index > 0 && "border-t border-border/60 pt-4")}
+                  >
+                    {logisticsEntries.length > 1 && (
+                      <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Vehicle {index + 1}
+                      </p>
+                    )}
+                    <Field
+                      label="Transporter"
+                      value={logistics.transporter || "Not Specified"}
+                      icon={Building2}
+                    />
+                    <div className="mt-4">
+                      <Field
+                        label="Vehicle Number"
+                        value={logistics.vehicle_number || logistics.vehicleNumber || "Not Specified"}
+                        mono
+                        icon={Navigation}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-4">
+                      <Field label="Pkg Count" value={logistics.number_of_packages ?? logistics.numberOfPackages ?? "0"} />
+                      <Field label="Pkg Type" value={logistics.package_type || logistics.packageType || "-"} />
+                    </div>
                   </div>
-                </>
+                ))
               )}
             </div>
           </SectionCard>
@@ -467,44 +589,65 @@ function AsnTracking() {
             <div className="space-y-4">
               {editing ? (
                 <>
-                  <div className="space-y-1.5">
-                    <Label>Driver Name</Label>
-                    <Input
-                      value={editData.driver_name}
-                      onChange={(event) =>
-                        setEditData({ ...editData, driver_name: event.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Driver Contact</Label>
-                    <Input
-                      value={editData.driver_contact}
-                      onChange={(event) =>
-                        setEditData({ ...editData, driver_contact: event.target.value })
-                      }
-                    />
-                  </div>
+                  {(editData.logistics || [editData]).map((item: any, idx: number) => (
+                    <div key={idx} className={cn("space-y-3", idx > 0 && "border-t border-border/60 pt-4")}>
+                      {(editData.logistics?.length || 0) > 1 && (
+                        <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                          Driver {idx + 1}
+                        </p>
+                      )}
+                      <div className="space-y-1.5">
+                        <Label>Driver Name</Label>
+                        <Input
+                          value={item.driver_name || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditData((prev: any) => {
+                              const updated = [...(prev.logistics || [prev])];
+                              updated[idx] = { ...updated[idx], driver_name: val };
+                              return { ...prev, logistics: updated, driver_name: updated[0]?.driver_name || prev.driver_name };
+                            });
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Driver Contact</Label>
+                        <Input
+                          value={item.driver_contact || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditData((prev: any) => {
+                              const updated = [...(prev.logistics || [prev])];
+                              updated[idx] = { ...updated[idx], driver_contact: val };
+                              return { ...prev, logistics: updated, driver_contact: updated[0]?.driver_contact || prev.driver_contact };
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </>
               ) : (
-                <>
-                  <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/20 border border-border/40">
-                    <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                      <User className="size-6" />
+                logisticsEntries.map((logistics: any, index: number) => (
+                  <div key={`${logistics.driver_contact || logistics.driverContact || "driver"}-${index}`} className="space-y-3">
+                    <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/20 border border-border/40">
+                      <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                        <User className="size-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-foreground">
+                          {logistics.driver_name || logistics.driverName || "Unknown Driver"}
+                        </p>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Phone className="size-3" /> {logistics.driver_contact || logistics.driverContact || "No Contact"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-foreground">
-                        {asn.driverName || "Unknown Driver"}
-                      </p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Phone className="size-3" /> {asn.driverContact || "No Contact"}
-                      </p>
-                    </div>
+                    <Button className="w-full rounded-xl bg-success hover:bg-success/90 h-11 font-bold">
+                      <Phone className="size-4 mr-2" /> Call Driver {logisticsEntries.length > 1 ? index + 1 : ""}
+                    </Button>
                   </div>
-                  <Button className="w-full rounded-xl bg-success hover:bg-success/90 h-11 font-bold">
-                    <Phone className="size-4 mr-2" /> Call Driver
-                  </Button>
-                </>
+                ))
               )}
             </div>
           </SectionCard>

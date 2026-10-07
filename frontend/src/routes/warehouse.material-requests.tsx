@@ -122,6 +122,7 @@ function MaterialMasterSearchCombobox({
   value,
   onSelect,
   masterMaterials,
+  unavailableMaterialIds = [],
   placeholder = "Pick Material Master",
   className,
   size = "md",
@@ -129,6 +130,8 @@ function MaterialMasterSearchCombobox({
   value: string;
   onSelect: (val: string) => void;
   masterMaterials: any[];
+  /** Material master records selected on other request lines. */
+  unavailableMaterialIds?: string[];
   placeholder?: string;
   className?: string;
   size?: "sm" | "md";
@@ -139,9 +142,16 @@ function MaterialMasterSearchCombobox({
   const selectedMaterial = masterMaterials.find((m) => m.id === value || m.material_code === value);
 
   const filteredMaterials = useMemo(() => {
-    if (!search.trim()) return masterMaterials;
+    // Keep the current row's material visible, but do not offer materials that
+    // have already been selected on another row of this request.
+    const availableMaterials = masterMaterials.filter(
+      (material) =>
+        material.id === value || !unavailableMaterialIds.includes(material.id),
+    );
+
+    if (!search.trim()) return availableMaterials;
     const q = search.toLowerCase();
-    return masterMaterials.filter(
+    return availableMaterials.filter(
       (m) =>
         m.material_code?.toLowerCase().includes(q) ||
         m.material_name?.toLowerCase().includes(q) ||
@@ -154,7 +164,7 @@ function MaterialMasterSearchCombobox({
             v.grade?.toLowerCase().includes(q),
         ),
     );
-  }, [masterMaterials, search]);
+  }, [masterMaterials, search, unavailableMaterialIds, value]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1059,6 +1069,10 @@ function WarehouseMaterialRequests() {
                               <td className="p-2 min-w-0">
                                 <MaterialMasterSearchCombobox
                                   value={item.material_id || "CUSTOM"}
+                                  unavailableMaterialIds={items
+                                    .filter((otherItem, otherIdx) => otherIdx !== idx)
+                                    .map((otherItem) => otherItem.material_id)
+                                    .filter(Boolean)}
                                   onSelect={(val) => {
                                     if (val === "CUSTOM") {
                                       setItems(

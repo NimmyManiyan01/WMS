@@ -3,12 +3,7 @@ import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Info, type LucideIcon } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function StatCard({
   label,
@@ -53,7 +48,14 @@ export function StatCard({
           <ArrowRight className="size-3 -translate-x-1 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
         )}
       </div>
-      <p className={cn("font-bold tracking-tight tabular-nums", compact ? "mt-2 text-xl" : "mt-3 text-2xl")}>{value}</p>
+      <p
+        className={cn(
+          "font-bold tracking-tight tabular-nums",
+          compact ? "mt-2 text-xl" : "mt-3 text-2xl",
+        )}
+      >
+        {value}
+      </p>
       <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
         <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
         {infoTooltip && (

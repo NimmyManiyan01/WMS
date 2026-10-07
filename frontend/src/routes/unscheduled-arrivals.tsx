@@ -12,7 +12,7 @@ import { requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/unscheduled-arrivals")({
   beforeLoad: () => requireRole("GATE_SECURITY"),
-  head: () => ({ meta: [{ title: "Unscheduled Arrivals · NexusWMS" }] }),
+  head: () => ({ meta: [{ title: "Unscheduled Arrivals · KaizenX" }] }),
   component: UnscheduledArrivals,
 });
 

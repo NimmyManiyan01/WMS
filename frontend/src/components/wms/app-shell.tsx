@@ -43,6 +43,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api-client";
+import logoUrl from "@/assets/Logo.png";
 import { toast } from "sonner";
 import { getUserInfo, type UserInfo } from "@/lib/auth-utils";
 import { SecureAssistant } from "@/components/wms/secure-assistant";
@@ -58,7 +59,10 @@ function getUserDisplayName(user: UserInfo | null): string {
 function getUserInitials(user: UserInfo | null): string {
   const name = getUserDisplayName(user);
   if (!name || name === "User") return "U";
-  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  const parts = name
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean);
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
@@ -125,19 +129,13 @@ const grnNav = [
 const dispatchNav = [
   { label: "Dashboard", to: "/dispatch", icon: LayoutDashboard },
   { label: "Dispatch Orders", to: "/dispatch-orders", icon: ClipboardList },
-  { label: "Finished Goods Store", to: "/warehouse/finished-goods-store", icon: PackageCheck },
-  { label: "Warehouse Inventory", to: "/inventory", icon: Boxes },
-  { label: "Finished Goods Requests", to: "/procurement/finished-goods", icon: FileText },
-  { label: "Procurement Dashboard", to: "/procurement-dashboard", icon: Building2 },
   { label: "Picking & Packing", to: "/dispatch-picking-packing", icon: PackageCheck },
   { label: "Transport Allocation", to: "/dispatch-transport-allocation", icon: Truck },
   { label: "Driver Master", to: "/dispatch-drivers", icon: Users },
   { label: "Vehicle Master", to: "/dispatch-vehicles", icon: Warehouse },
   { label: "Loading", to: "/dispatch-loading", icon: Navigation },
   { label: "Gate Out", to: "/dispatch-gate-out", icon: DoorOpen },
-  { label: "Gate Exit", to: "/dispatch-gate-exit", icon: LogOut },
   { label: "In Transit", to: "/dispatch-transit", icon: MapPin },
-  { label: "Delivery / POD", to: "/dispatch-pod", icon: CheckCircle2 },
   { label: "Exceptions", to: "/dispatch-exceptions", icon: AlertTriangle },
   { label: "Reports", to: "/dispatch-reports", icon: BarChart3 },
 ];
@@ -298,7 +296,8 @@ function getNotificationRole(user: { username?: string; roles?: string[] } | nul
   if (hasUserRole(user, "PROCUREMENT")) return "PROCUREMENT";
   if (hasUserRole(user, "MANAGER")) return "MANAGER";
   if (hasUserRole(user, "GATE_SECURITY")) return "GATE_SECURITY";
-  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "ASSEMBLY_MANAGER";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER"))
+    return "ASSEMBLY_MANAGER";
   if (isDispatchSession(user)) return "DISPATCH";
   if (isGrnSession(user)) return "GRN";
   return "WAREHOUSE";
@@ -327,7 +326,8 @@ function getRoleLabel(user: { username?: string; roles?: string[] } | null): str
   if (hasUserRole(user, "MANAGER")) return "Manager";
   if (hasUserRole(user, "FINANCE")) return "Finance Manager";
   if (hasUserRole(user, "GATE_SECURITY")) return "Security Officer";
-  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER")) return "Assembly Manager";
+  if (hasUserRole(user, "ASSEMBLY") || hasUserRole(user, "ASSEMBLY_MANAGER"))
+    return "Assembly Manager";
   if (hasUserRole(user, "STORE_MANAGER")) return "Store Manager";
   if (hasUserRole(user, "STORE_KEEPER")) return "Store Keeper";
   if (isDispatchSession(user)) return "Dispatch Manager";
@@ -402,30 +402,24 @@ export function AppShell({
       const u = getUserInfo();
       setUser(u);
       if (u) {
-        const role = u.roles?.includes("SUPPLIER")
-          ? "SUPPLIER"
-          : u.roles?.includes("FINANCE")
-            ? "FINANCE"
-            : u.roles?.includes("PROCUREMENT")
-              ? "PROCUREMENT"
-              : "WAREHOUSE";
+        const notifRole = getNotificationRole(u);
         const fetchNotifications = async () => {
           try {
-            if (role === "WAREHOUSE" || role === "GRN" || isGrnUser) {
+            if (notifRole === "WAREHOUSE" || notifRole === "GRN" || isGrnUser) {
               const [arrivals, general] = await Promise.all([
                 api.getArrivalNotifications().catch(() => []),
                 api.getNotifications("GRN").catch(() => []),
               ]);
               const unreadArrivals = Array.isArray(arrivals)
                 ? arrivals.filter((n) => String(n?.status || "").toUpperCase() !== "ACKNOWLEDGED")
-                  .length
+                    .length
                 : 0;
               const unreadGeneral = Array.isArray(general)
                 ? general.filter((n) => !(n?.is_read ?? n?.isRead)).length
                 : 0;
               setUnreadNotifications(unreadArrivals + unreadGeneral);
             } else {
-              const data = await api.getNotifications(role);
+              const data = await api.getNotifications(notifRole);
               setUnreadNotifications(
                 Array.isArray(data) ? data.filter((n) => !(n?.is_read ?? n?.isRead)).length : 0,
               );
@@ -467,12 +461,9 @@ export function AppShell({
     path === "/assembly-genealogy" ||
     path === "/assembly-reports";
   const isStoreUser =
-    mounted &&
-    (user?.roles?.includes("STORE_MANAGER") || user?.roles?.includes("STORE_KEEPER"));
+    mounted && (user?.roles?.includes("STORE_MANAGER") || user?.roles?.includes("STORE_KEEPER"));
   const isStoreRoute = path === "/my-store" || path.startsWith("/my-store");
-  const isGrnRoute =
-    path === "/grn" ||
-    path.startsWith("/grn");
+  const isGrnRoute = path === "/grn" || path.startsWith("/grn");
   const isProcurementRoute =
     path === "/procurement-dashboard" ||
     path.startsWith("/procurement/") ||
@@ -487,38 +478,31 @@ export function AppShell({
     path.startsWith("/finance/") ||
     (isFinanceUser && isSharedFinanceRoute);
   const isGateSecurityUser =
-    mounted &&
-    (user?.roles?.includes("GATE_SECURITY") || user?.roles?.includes("GATE_OPERATOR"));
+    mounted && (user?.roles?.includes("GATE_SECURITY") || user?.roles?.includes("GATE_OPERATOR"));
   const isDispatchUser =
     mounted &&
     (user?.roles?.includes("DISPATCH") ||
       user?.roles?.includes("DISPATCH_MANAGER") ||
       user?.username?.toLowerCase() === "dispatch");
   const isDispatchRoute =
-    !isGateSecurityUser &&
-    (path === "/dispatch" || path.startsWith("/dispatch-") || path.startsWith("/dispatch/"));
+    path === "/dispatch" || path.startsWith("/dispatch-") || path.startsWith("/dispatch/");
   const isAdminUser =
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
   const isNotificationsRoute = path.startsWith("/notifications");
   const isAdminRoute = path.startsWith("/admin/");
-  const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-exit"].some(
-    (route) => path.startsWith(route),
+  const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-exit"].some((route) =>
+    path.startsWith(route),
   );
   const isWarehouseRoute =
     isSharedOperationsRoute ||
     path.startsWith("/warehouse") ||
-    [
-      "/inventory",
-      "/dock-management",
-      "/receiving",
-      "/putaway-tasks",
-      "/reports",
-    ].some((p) => path.startsWith(p));
+    ["/inventory", "/dock-management", "/receiving", "/putaway-tasks", "/reports"].some((p) =>
+      path.startsWith(p),
+    );
   const isGateSecurityRoute =
     [
       "/gate-entry",
       "/vehicle-queue",
-      "/dispatch-gate-exit",
       "/vehicle-exit",
       "/gate-dashboard",
       "/accept-arrival",
@@ -527,7 +511,7 @@ export function AppShell({
       "/dock-assignment",
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
-      (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
+    (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
@@ -602,7 +586,13 @@ export function AppShell({
       }
       return fullHref === to || (searchStr ? fullHref.startsWith(to) : to === "/grn?tab=dashboard");
     }
-    return path === to || (to !== "/dashboard" && path.startsWith(to));
+    return (
+      path === to ||
+      (to !== "/dashboard" &&
+        to !== "/dispatch" &&
+        to !== "/gate" &&
+        (path.startsWith(to + "/") || path.startsWith(to + "?")))
+    );
   };
   const desktopSidebarCollapsed = !sidebarHovered;
 
@@ -623,7 +613,7 @@ export function AppShell({
                   <Warehouse className="size-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-tight">NexusWMS</p>
+                  <p className="truncate text-sm font-semibold tracking-tight">KaizenX</p>
                   <p className="truncate text-[11px] text-muted-foreground">Pune DC - Plant 1200</p>
                 </div>
               </div>
@@ -647,7 +637,12 @@ export function AppShell({
                 return (
                   <Link
                     key={`${item.label}-${item.to}`}
-                    to={item.to}
+                    to={item.to as any}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMobileSidebarOpen(false);
+                      void navigate({ to: item.to as any });
+                    }}
                     title={item.label}
                     className={cn(
                       "group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground transition-all",
@@ -698,18 +693,30 @@ export function AppShell({
           {!desktopSidebarCollapsed ? (
             <>
               <div className="flex items-center gap-3 min-w-0">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-                  <Warehouse className="size-5" />
+                <div className="relative flex h-10 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
+                  <img
+                    src={logoUrl}
+                    alt="KGS Logo"
+                    className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
+                  />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-tight">NexusWMS</p>
-                  <p className="truncate text-[11px] text-muted-foreground">Pune DC · Plant 1200</p>
+                  <p className="truncate text-sm font-bold tracking-wider uppercase bg-gradient-to-r from-primary via-blue-600 to-teal bg-clip-text text-transparent">
+                    KaizenX
+                  </p>
+                  <p className="truncate text-[10px] font-mono text-muted-foreground font-semibold">
+                    Pune DC · Plant 1200
+                  </p>
                 </div>
               </div>
             </>
           ) : (
-            <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-              <Warehouse className="size-5" />
+            <div className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
+              <img
+                src={logoUrl}
+                alt="KGS Logo"
+                className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
+              />
             </div>
           )}
         </div>
@@ -724,7 +731,11 @@ export function AppShell({
             return (
               <Link
                 key={`${item.label}-${item.to}`}
-                to={item.to}
+                to={item.to as any}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void navigate({ to: item.to as any });
+                }}
                 title={item.label}
                 className={cn(
                   "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-all",
@@ -830,18 +841,10 @@ export function AppShell({
             </div>
 
             <div className="ml-auto flex items-center gap-1.5">
-              <button
-                suppressHydrationWarning
-                onClick={() => setDark((d) => !d)}
-                aria-label="Toggle dark mode"
-                className="grid size-10 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                {dark ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
-              </button>
               <Link
                 to="/notifications"
                 aria-label="Notifications"
-                className="relative grid size-10 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="relative grid size-10 place-items-center rounded-xl bg-transparent text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus:bg-transparent focus-visible:outline-none"
               >
                 <Bell className="size-[18px]" />
                 {unreadNotifications > 0 && (
@@ -858,8 +861,12 @@ export function AppShell({
                   {getUserInitials(user)}
                 </span>
                 <div className="hidden leading-tight lg:block">
-                  <p suppressHydrationWarning className="text-xs font-semibold">{getUserDisplayName(user)}</p>
-                  <p suppressHydrationWarning className="text-[10px] text-muted-foreground">{getUserRoleLabel(user)}</p>
+                  <p suppressHydrationWarning className="text-xs font-semibold">
+                    {getUserDisplayName(user)}
+                  </p>
+                  <p suppressHydrationWarning className="text-[10px] text-muted-foreground">
+                    {getUserRoleLabel(user)}
+                  </p>
                 </div>
                 <button
                   suppressHydrationWarning
@@ -956,31 +963,48 @@ export function StatusBadge({ status }: { status: string }) {
     STOCK_RESERVED: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30",
     PICKING_IN_PROGRESS: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
     PICKED: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
-    PACKING_IN_PROGRESS: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
+    PACKING_IN_PROGRESS:
+      "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
     PACKED: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
     DRIVER_ALLOCATED: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
     VEHICLE_ALLOCATED: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
     ROUTE_ASSIGNED: "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30",
     LOADING_STARTED: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
     LOADING_VERIFIED: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
-    READY_FOR_GATE_EXIT: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    READY_FOR_GATE_EXIT:
+      "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
     GATE_OUT: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
     DELIVERED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
     CLOSED: "bg-muted text-muted-foreground border-border",
     CANCELLED: "bg-destructive/15 text-destructive border-destructive/30",
-    SENT_TO_ASSEMBLY: "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
-    "SENT TO ASSEMBLY": "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
+    SENT_TO_ASSEMBLY:
+      "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
+    "SENT TO ASSEMBLY":
+      "bg-blue-600/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-bold",
     IN_PROGRESS: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
-    "IN PROGRESS": "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
-    ASSEMBLY_IN_PROGRESS: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
-    "ASSEMBLY IN PROGRESS": "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
-    SHORTAGE_DETECTED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-bold",
-    READY: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-bold",
+    "IN PROGRESS":
+      "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    ASSEMBLY_IN_PROGRESS:
+      "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    "ASSEMBLY IN PROGRESS":
+      "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
+    SHORTAGE_DETECTED:
+      "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-bold",
+    READY:
+      "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-bold",
     PENDING: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold",
     RETURNED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
     DELAYED: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
   };
-  const isLive = ["PO_VERIFIED", "APPROVED", "Receiving", "Active", "SENT_TO_ASSEMBLY", "IN_PROGRESS", "ASSEMBLY_IN_PROGRESS"].includes(status);
+  const isLive = [
+    "PO_VERIFIED",
+    "APPROVED",
+    "Receiving",
+    "Active",
+    "SENT_TO_ASSEMBLY",
+    "IN_PROGRESS",
+    "ASSEMBLY_IN_PROGRESS",
+  ].includes(status);
   let displayLabel = status.replace(/_/g, " ");
   if (displayLabel.toUpperCase() === "OCCUPIED") {
     displayLabel = "AT DOCK";

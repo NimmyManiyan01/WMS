@@ -43,7 +43,7 @@ export const Route = createFileRoute("/procurement-dashboard")({
   beforeLoad: () => requireRole("PROCUREMENT"),
   head: () => ({
     meta: [
-      { title: "Procurement Dashboard · NexusWMS" },
+      { title: "Procurement Dashboard · KaizenX" },
       {
         name: "description",
         content: "Manage suppliers, purchase orders, and procurement workflows.",

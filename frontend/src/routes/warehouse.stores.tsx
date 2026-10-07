@@ -68,7 +68,7 @@ export const Route = createFileRoute("/warehouse/stores")({
   beforeLoad: () => requireRole(["ADMIN", "WAREHOUSE", "WAREHOUSE_MANAGER", "SUPERUSER"]),
   head: () => ({
     meta: [
-      { title: "Store Master, Zones & Bins · NexusWMS" },
+      { title: "Store Master, Zones & Bins · KaizenX" },
       {
         name: "description",
         content:

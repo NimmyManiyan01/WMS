@@ -95,6 +95,8 @@ class SupplierResponse(ApiModel):
     performance_score: Optional[Decimal] = None
     purchase_order_count: int = 0
     purchase_value: Decimal = Decimal("0")
+    last_po_number: Optional[str] = None
+    last_po_date: Optional[date] = None
     address: Optional[SupplierAddressResponse] = None
     contact: Optional[SupplierContactResponse] = None
     bank_info: Optional[SupplierBankInfoResponse] = None

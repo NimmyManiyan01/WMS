@@ -50,7 +50,7 @@ export const Route = createFileRoute("/vehicle-exit")({
   // immediately redirect the user away.
   beforeLoad: () =>
     requireRole(["WAREHOUSE", "WAREHOUSE_MANAGER", "GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"]),
-  head: () => ({ meta: [{ title: "Vehicle Exit · Outbound Gate Security · NexusWMS" }] }),
+  head: () => ({ meta: [{ title: "Vehicle Exit · Outbound Gate Security · KaizenX" }] }),
   component: VehicleExit,
 });
 

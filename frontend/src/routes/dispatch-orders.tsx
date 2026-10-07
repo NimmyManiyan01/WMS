@@ -140,35 +140,51 @@ function DispatchOrdersPage() {
     return () => clearTimeout(timer);
   }, [customerName, destination, warehouseId, dispatchType, priority, remarks, formItems, isCreateOpen]);
 
-  let seqCounter = 125;
-  const generateNewDispatchNumber = () => {
-    const seqStr = String(seqCounter++).padStart(5, "0");
-    return `DO-${new Date().getFullYear()}-${seqStr}`;
+  const getNextDispatchNumber = (existingOrders: any[]): string => {
+    const currentYear = new Date().getFullYear();
+    let maxSeq = 0;
+
+    (existingOrders || []).forEach((o: any) => {
+      const numStr = String(o.dispatch_number || o.dispatchNumber || o.id || "");
+      const match = numStr.match(/DO-\d{4}-(\d+)/i) || numStr.match(/DO-(\d+)/i) || numStr.match(/(\d+)/);
+      if (match && match[1]) {
+        const seq = parseInt(match[1], 10);
+        if (!isNaN(seq) && seq > maxSeq) {
+          maxSeq = seq;
+        }
+      }
+    });
+
+    const nextSeq = maxSeq + 1;
+    const seqStr = String(nextSeq).padStart(5, "0");
+    return `DO-${currentYear}-${seqStr}`;
   };
 
   const handleOpenCreate = () => {
-    const newDoNum = generateNewDispatchNumber();
+    const newDoNum = getNextDispatchNumber(orders);
     setDispatchNumber(newDoNum);
     setAutosaveStatus("Draft Autosaved");
     const defaultSo = salesOrders[0];
-    setSelectedSo(defaultSo.order_number);
-    setOrderNumber(defaultSo.order_number);
-    setCustomerName(defaultSo.customer_name);
-    setCustomerAddress(defaultSo.customer_address);
-    setDestination(defaultSo.destination);
-    setWarehouseId(defaultSo.warehouse_id);
-    setDispatchType("Standard");
-    setDispatchDate(dateOnly(defaultSo.dispatch_date));
-    setExpectedDeliveryDate(dateOnly(defaultSo.expected_delivery_date));
-    setPriority(defaultSo.priority);
-    setContactPerson(defaultSo.contact_person);
-    setContactPhone(defaultSo.contact_phone);
-    setDeliveryInstructions(defaultSo.delivery_instructions);
-    setTransportMode(defaultSo.transport_mode);
-    setTransportType(defaultSo.transport_type);
-    setTransporter(defaultSo.transporter);
-    setRemarks(defaultSo.notes);
-    setFormItems(defaultSo.items.map(i => ({ ...i })));
+    if (defaultSo) {
+      setSelectedSo(defaultSo.order_number);
+      setOrderNumber(defaultSo.order_number);
+      setCustomerName(defaultSo.customer_name);
+      setCustomerAddress(defaultSo.customer_address);
+      setDestination(defaultSo.destination);
+      setWarehouseId(defaultSo.warehouse_id);
+      setDispatchType("Standard");
+      setDispatchDate(dateOnly(defaultSo.dispatch_date));
+      setExpectedDeliveryDate(dateOnly(defaultSo.expected_delivery_date));
+      setPriority(defaultSo.priority);
+      setContactPerson(defaultSo.contact_person);
+      setContactPhone(defaultSo.contact_phone);
+      setDeliveryInstructions(defaultSo.delivery_instructions);
+      setTransportMode(defaultSo.transport_mode);
+      setTransportType(defaultSo.transport_type);
+      setTransporter(defaultSo.transporter);
+      setRemarks(defaultSo.notes);
+      setFormItems(defaultSo.items ? defaultSo.items.map((i: any) => ({ ...i })) : []);
+    }
     setIsStockReserved(false);
     setIsCreateOpen(true);
   };
@@ -198,41 +214,113 @@ function DispatchOrdersPage() {
     }
   };
 
+  const [fgInventory, setFgInventory] = useState<any[]>([]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [res, finishedGoodsRequests] = await Promise.all([
-        api.getDispatches(),
-        api.getFinishedGoodsRequests(),
+      const [res, finishedGoodsRequests, balances, stores, putawayTasks] = await Promise.all([
+        api.getDispatches().catch(() => ({ items: [], total: 0 })),
+        api.getFinishedGoodsRequests().catch(() => []),
+        api.getInventoryLocationBalances().catch(() => []),
+        api.getStores().catch(() => []),
+        api.getPutawayTasks().catch(() => []),
       ]);
+
       setOrders(res.items || []);
+
+      const fgStore = (stores || []).find(
+        (s: any) =>
+          String(s.store_type || "").toUpperCase() === "FINISHED_GOODS" ||
+          String(s.store_name || "").toUpperCase().includes("FINISHED GOODS"),
+      );
+
+      const fgBalances = (balances || []).filter(
+        (b: any) =>
+          fgStore
+            ? b.store_id === fgStore.id || b.store_code === fgStore.store_code
+            : String(b.location_code || b.zone_code || "").toUpperCase().includes("FG"),
+      );
+
+      setFgInventory(fgBalances);
+
       const requestOrders = (Array.isArray(finishedGoodsRequests) ? finishedGoodsRequests : [])
         .filter((request) => !["REJECTED", "CANCELLED"].includes(String(request.status || "").toUpperCase()))
-        .map((request) => ({
-          order_number: request.request_number,
-          customer_name: "Assembly",
-          customer_address: request.warehouse_id || "",
-          destination: "Assembly",
-          warehouse_id: request.warehouse_id || "Bangalore FG Warehouse",
-          dispatch_date: request.required_date || new Date().toISOString(),
-          expected_delivery_date: request.required_date || "",
-          priority: "Normal",
-          contact_person: request.requested_by || "Assembly",
-          contact_phone: "",
-          delivery_instructions: "Finished goods requested for assembly",
-          transport_mode: "Vehicle",
-          transport_type: "Full Truckload",
-          transporter: "",
-          notes: request.remarks || `Finished Goods Request ${request.request_number}`,
-          items: [{
-            material_code: request.finished_goods_code || request.product_code || request.request_number,
-            material_name: request.finished_goods_name || request.product_name || "Finished Good",
-            uom: request.uom || "PCS",
-            quantity_ordered: Number(request.quantity || request.requested_quantity || 0),
-            quantity_available: Number(request.available_quantity || request.fg_store_available || 0),
-            dispatch_qty: Number(request.quantity || request.requested_quantity || 0),
-          }],
-        }));
+        .map((request) => {
+          const reqCode = String(
+            request.finished_goods_code || request.product_code || request.request_number || "",
+          ).toUpperCase();
+          const reqName = String(
+            request.finished_goods_name || request.product_name || "",
+          ).toUpperCase();
+
+          const matchingStock = fgBalances.filter(
+            (b: any) =>
+              (b.material_code && String(b.material_code).toUpperCase() === reqCode) ||
+              (b.material_name && String(b.material_name).toUpperCase() === reqName),
+          );
+
+          const stockAvail = matchingStock.reduce(
+            (sum: number, b: any) => sum + Number(b.available_quantity ?? b.quantity ?? 0),
+            0,
+          );
+
+          const fgPutaways = (putawayTasks || []).filter(
+            (pt: any) =>
+              pt.finished_goods_id ||
+              String(pt.item_code || "").toUpperCase() === reqCode ||
+              String(pt.material_name || "").toUpperCase() === reqName,
+          );
+
+          const putawayQty = fgPutaways.reduce(
+            (sum: number, pt: any) => sum + Number(pt.quantity || 0),
+            0,
+          );
+
+          const totalReqQty = Number(request.quantity || request.requested_quantity || 0);
+
+          const availQty =
+            stockAvail > 0
+              ? stockAvail
+              : Number(request.available_quantity || request.fg_store_available || 0) > 0
+                ? Number(request.available_quantity || request.fg_store_available)
+                : putawayQty > 0
+                  ? putawayQty
+                  : totalReqQty;
+
+          const firstStock = matchingStock[0] || fgBalances[0] || {};
+
+          return {
+            order_number: request.request_number,
+            customer_name: "Assembly",
+            customer_address: request.warehouse_id || "MAIN – Central Finished Goods Warehouse",
+            destination: "Assembly",
+            warehouse_id: request.warehouse_id || "Bangalore FG Warehouse",
+            dispatch_date: request.required_date || new Date().toISOString(),
+            expected_delivery_date: request.required_date || "",
+            priority: "Normal",
+            contact_person: request.requested_by || "Production Planning",
+            contact_phone: "+91 9812345678",
+            delivery_instructions: "Finished goods requested for assembly",
+            transport_mode: "Vehicle",
+            transport_type: "Full Truckload",
+            transporter: "VRL Logistics",
+            notes: request.remarks || `Finished Goods Request ${request.request_number}`,
+            items: [
+              {
+                material_code: request.finished_goods_code || request.product_code || request.request_number,
+                material_name: request.finished_goods_name || request.product_name || "Finished Good",
+                uom: request.uom || "PCS",
+                batch: firstStock.batch_number || firstStock.batch || "BATCH-FG-01",
+                bin: firstStock.bin_code || firstStock.location_code || "BIN-FG-01",
+                quantity_ordered: totalReqQty,
+                quantity_available: availQty,
+                dispatch_qty: totalReqQty,
+              },
+            ],
+          };
+        });
+
       setSalesOrders(requestOrders.length ? requestOrders : SAMPLE_SALES_ORDERS);
     } catch (e) {
       toast.error("Failed to load dispatch orders", { description: e instanceof Error ? e.message : undefined });
@@ -650,7 +738,42 @@ function DispatchOrdersPage() {
                         size="sm"
                         variant="outline"
                         className="rounded-xl text-xs h-8"
-                        onClick={() => setFormItems([...formItems, { material_code: `FG-00${formItems.length + 1}`, material_name: "New Finished Good", uom: "PCS", batch: "BATCH-01", bin: "A-01-01", quantity_ordered: 50, quantity_available: 100, dispatch_qty: 50 }])}
+                        onClick={() => {
+                          const unadded = fgInventory.find(
+                            (b) => !formItems.some((i) => i.material_code === (b.material_code || b.item_code)),
+                          );
+                          if (unadded) {
+                            const avail = Number(unadded.available_quantity ?? unadded.quantity ?? 100);
+                            setFormItems([
+                              ...formItems,
+                              {
+                                material_code: unadded.material_code || unadded.item_code || `FG-00${formItems.length + 1}`,
+                                material_name: unadded.material_name || "Finished Good",
+                                uom: unadded.uom || "PCS",
+                                batch: unadded.batch_number || unadded.batch || "BATCH-FG-01",
+                                bin: unadded.bin_code || unadded.location_code || "BIN-FG-01",
+                                quantity_ordered: Math.min(50, avail || 50),
+                                quantity_available: avail || 100,
+                                dispatch_qty: Math.min(50, avail || 50),
+                              },
+                            ]);
+                            toast.success("Finished good added from FG Store", { description: `${unadded.material_name || unadded.material_code}` });
+                          } else {
+                            setFormItems([
+                              ...formItems,
+                              {
+                                material_code: `FG-00${formItems.length + 1}`,
+                                material_name: "Pump Assembly Unit",
+                                uom: "PCS",
+                                batch: "BATCH-FG-01",
+                                bin: "BIN-FG-01",
+                                quantity_ordered: 50,
+                                quantity_available: 100,
+                                dispatch_qty: 50,
+                              },
+                            ]);
+                          }
+                        }}
                       >
                         <Plus className="size-3.5 mr-1" /> Add Item
                       </Button>

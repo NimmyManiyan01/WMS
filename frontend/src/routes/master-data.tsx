@@ -19,13 +19,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/master-data")({
   head: () => ({
     meta: [
-      { title: "Master Data · NexusWMS" },
+      { title: "Master Data · KaizenX" },
       {
         name: "description",
         content:
           "Maintain supplier master records used across procurement and receiving workflows.",
       },
-      { property: "og:title", content: "Master Data · NexusWMS" },
+      { property: "og:title", content: "Master Data · KaizenX" },
       { property: "og:description", content: "Supplier master records for procurement." },
     ],
   }),
@@ -37,6 +37,7 @@ function MasterData() {
   const currentModule = routeParams.get("module");
   const routeStatus = routeParams.get("status");
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [procurementStats, setProcurementStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -49,15 +50,17 @@ function MasterData() {
     setLoading(true);
     setError(null);
     try {
-      const [supplierData, requestData, statsData] = await Promise.all([
+      const [supplierData, requestData, statsData, poData] = await Promise.all([
         api.getSuppliers(),
         api.getMaterialRequests().catch(() => []),
         api.getProcurementStats().catch(() => null),
+        api.getPurchaseOrders().catch(() => []),
       ]);
       const fallbackPendingRequests = requestData.filter(
         (request) => request.status === "Pending Approval",
       ).length;
       setSuppliers(supplierData);
+      setPurchaseOrders(poData || []);
       setProcurementStats(statsData);
       setPendingRequests(Number(statsData?.pendingMaterialRequests ?? fallbackPendingRequests));
     } catch (err) {
@@ -418,10 +421,19 @@ function MasterData() {
                   {filteredSuppliers.map((supplier) => {
                     const phone =
                       supplier.contact?.phone || supplier.phone || supplier.contactPhone || "—";
+                    const suppPos = purchaseOrders.filter(
+                      (p: any) =>
+                        (p.supplierId && String(p.supplierId) === String(supplier.supplierId || supplier.id)) ||
+                        (p.supplier_id && String(p.supplier_id) === String(supplier.supplierId || supplier.id)) ||
+                        (p.supplierName && String(p.supplierName).toLowerCase() === String(supplier.supplierName || supplier.supplier_name || "").toLowerCase()),
+                    );
+                    const latestPoFromList = suppPos[0]?.poNumber || suppPos[0]?.po_number;
+
                     const lastPo =
                       supplier.lastPoNumber ||
                       supplier.last_po_number ||
                       supplier.latestPoNumber ||
+                      latestPoFromList ||
                       "—";
                     return (
                       <tr

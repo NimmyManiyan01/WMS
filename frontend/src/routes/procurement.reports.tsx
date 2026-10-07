@@ -58,7 +58,7 @@ export const Route = createFileRoute("/procurement/reports")({
   beforeLoad: () => requireRole(["PROCUREMENT", "FINANCE"]),
   head: () => ({
     meta: [
-      { title: "Finance Reports · NexusWMS" },
+      { title: "Finance Reports · KaizenX" },
       {
         name: "description",
         content: "Analytics and reporting across purchase spend, supplier performance, RFQs, and ASNs.",

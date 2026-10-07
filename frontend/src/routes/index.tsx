@@ -37,27 +37,33 @@ function HomePage() {
           <button
             type="button"
             onClick={goToDashboard}
-            className="flex items-center gap-3 text-left group cursor-pointer focus:outline-none"
+            className="flex items-center gap-3.5 text-left group cursor-pointer focus:outline-none"
           >
-            <span className={`grid h-10 w-28 shrink-0 place-items-center overflow-hidden rounded-xl p-1 ring-1 transition-transform group-hover:scale-105 ${isDarkMode ? "bg-white/10 ring-white/20" : "bg-slate-100 ring-slate-300"}`}>
-              <img src={logoUrl} alt="Logo" className={`h-full w-full object-contain ${isDarkMode ? "brightness-0 invert" : ""}`} />
-            </span>
-            <div>
-              <span className={`block text-xs font-bold tracking-tight ${isDarkMode ? "text-white" : "text-slate-950"}`}>NexusWMS</span>
-              <span className="block text-[10px] text-cyan-600 dark:text-cyan-400 font-mono tracking-wider">3D Warehouse Journey</span>
+            <div className="relative flex items-center justify-center h-11 px-3.5 rounded-2xl bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-indigo-500/10 border border-cyan-500/30 backdrop-blur-md shadow-[0_0_20px_rgba(6,182,212,0.25)] transition-all duration-300 group-hover:scale-105 group-hover:border-cyan-400/60 group-hover:shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-sm -z-10" />
+              <img
+                src={logoUrl}
+                alt="Kaizentrix Logo"
+                className="h-8 w-auto object-contain drop-shadow-[0_2px_8px_rgba(6,182,212,0.45)]"
+              />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-black tracking-wider uppercase bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 dark:from-cyan-300 dark:via-blue-400 dark:to-indigo-300 bg-clip-text text-transparent">
+                  KaizenX
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[9px] font-mono font-bold text-cyan-600 dark:text-cyan-300">
+                  <span className="size-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  3D OS
+                </span>
+              </div>
+              <span className="text-[10px] font-mono tracking-widest text-slate-500 dark:text-slate-400 uppercase font-bold mt-0.5">
+                Kaizentrix Logistics OS
+              </span>
             </div>
           </button>
 
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              className={`rounded-xl size-9 ${isDarkMode ? "border-white/20 bg-white/10 text-white hover:bg-white/20" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-            >
-              {isDarkMode ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-slate-700" />}
-            </Button>
             <Button
               variant="ghost"
               onClick={() => navigate({ to: "/login" })}
@@ -127,7 +133,7 @@ function HomePage() {
       {/* Footer */}
       <footer className={`border-t py-10 text-center text-xs transition-colors duration-300 relative z-10 ${isDarkMode ? "border-white/10 bg-slate-950 text-slate-500" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
         <div className="mx-auto max-w-7xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© 2026 Kaizentrix Global Solutions. NexusWMS Enterprise Logistics OS.</p>
+          <p>© 2026 Kaizentrix Global Solutions. KaizenX Enterprise Logistics OS.</p>
           <p className="font-mono text-cyan-600 dark:text-cyan-500/60">Continuous 3D Logistics Lifecycle • Gate to Exit</p>
         </div>
       </footer>

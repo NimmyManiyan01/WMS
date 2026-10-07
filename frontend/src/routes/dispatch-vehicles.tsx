@@ -141,10 +141,10 @@ function DispatchVehiclesPage() {
                 <p className="text-xs text-muted-foreground mt-0.5">Enterprise vehicle master intake with document uploads & compliance checks</p>
               </DialogHeader>
               <form onSubmit={handleRegister} className="space-y-6 mt-4 text-sm">
-                {/* 1. Vehicle Information */}
+                {/* 1. Vehicle Information & Capacity */}
                 <div className="p-4 rounded-2xl border bg-muted/20 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Vehicle Information</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Vehicle Information & Capacity</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-xs font-semibold uppercase text-muted-foreground">Vehicle Number / Plate *</Label>
                       <Input
@@ -160,7 +160,7 @@ function DispatchVehiclesPage() {
                       <select
                         value={newVehicle.vehicle_type}
                         onChange={(e) => setNewVehicle({ ...newVehicle, vehicle_type: e.target.value })}
-                        className="mt-1.5 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs shadow-sm font-semibold"
+                        className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-xs shadow-sm font-semibold"
                       >
                         <option value="Truck">Truck</option>
                         <option value="Container">Container</option>
@@ -173,20 +173,13 @@ function DispatchVehiclesPage() {
                       <select
                         value={newVehicle.ownership_type}
                         onChange={(e) => setNewVehicle({ ...newVehicle, ownership_type: e.target.value })}
-                        className="mt-1.5 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs shadow-sm font-semibold"
+                        className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-xs shadow-sm font-semibold"
                       >
                         <option value="Owned">Company Owned</option>
                         <option value="Leased">Leased</option>
                         <option value="Contract">Contract Vendor</option>
                       </select>
                     </div>
-                  </div>
-                </div>
-
-                {/* 2. Capacity */}
-                <div className="p-4 rounded-2xl border bg-muted/20 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Capacity</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs font-semibold uppercase text-muted-foreground">Capacity (Tons) *</Label>
                       <Input
@@ -201,10 +194,10 @@ function DispatchVehiclesPage() {
                   </div>
                 </div>
 
-                {/* 3. Vehicle Identification (RC & Chassis only) */}
+                {/* 2. Vehicle Identification (RC & Chassis) */}
                 <div className="p-4 rounded-2xl border bg-muted/20 space-y-4">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Vehicle Identification</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-xs font-semibold uppercase text-muted-foreground">RC Number</Label>
                       <Input
@@ -226,7 +219,7 @@ function DispatchVehiclesPage() {
                   </div>
                 </div>
 
-                {/* 4. Compliance & Documents (Uploads only) */}
+                {/* 3. Compliance & Document Uploads */}
                 <div className="p-4 rounded-2xl border bg-muted/20 space-y-4">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Compliance & Document Uploads</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -277,21 +270,6 @@ function DispatchVehiclesPage() {
                         className="rounded-xl text-xs file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-primary file:text-primary-foreground cursor-pointer"
                       />
                     </div>
-                  </div>
-                </div>
-
-                {/* 5. Vehicle Status */}
-                <div className="p-4 rounded-2xl border bg-muted/20 space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-primary">Vehicle Status</h3>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="is_active_veh"
-                      checked={newVehicle.is_active}
-                      onChange={(e) => setNewVehicle({ ...newVehicle, is_active: e.target.checked })}
-                      className="rounded size-4 text-primary"
-                    />
-                    <Label htmlFor="is_active_veh" className="text-xs font-semibold cursor-pointer">Active Vehicle (Eligible for transport allocation)</Label>
                   </div>
                 </div>
 

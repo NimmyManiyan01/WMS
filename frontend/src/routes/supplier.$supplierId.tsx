@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Download,
   Star,
+  Plus,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
@@ -52,12 +54,34 @@ function SupplierProfile() {
   const [activeTab, setActiveTab] = useState("overview");
   const [form, setForm] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [vendorTypes, setVendorTypes] = useState<string[]>([
+    "Manufacturer",
+    "Distributor",
+    "Trader / Stockist",
+    "OEM / Equipment Supplier",
+    "Authorized Dealer",
+    "Logistics Partner",
+    "Subcontractor",
+    "Raw Material Supplier",
+    "Service Provider",
+  ]);
   const [categories, setCategories] = useState<string[]>([
     "Raw Materials",
     "Packaging",
     "Finished Goods",
     "Consumables",
+    "Hardware & Components",
+    "Electrical & Electronics",
+    "Chemicals & Lubricants",
+    "Tools & Equipment",
+    "MRO (Maintenance, Repair, Operations)",
+    "Logistics & Transport",
   ]);
+  const [newVendorTypeInput, setNewVendorTypeInput] = useState("");
+  const [showAddVendorTypeModal, setShowAddVendorTypeModal] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [addingVendorType, setAddingVendorType] = useState(false);
 
   useEffect(() => {
     api
@@ -78,19 +102,67 @@ function SupplierProfile() {
       );
 
     api
-      .getPurchaseOrders({ supplierId: supplierId })
-      .then((pos) => {
-        if (Array.isArray(pos)) setPurchaseOrders(pos);
+      .getVendorTypes()
+      .then((vTypes) => {
+        if (Array.isArray(vTypes) && vTypes.length > 0) {
+          const names = vTypes.map((vt: any) => vt.name || vt);
+          setVendorTypes((prev) => Array.from(new Set([...prev, ...names])));
+        }
       })
       .catch(() => {});
 
     api
       .getSupplierCategories()
       .then((cats) => {
-        if (cats.length > 0) setCategories(cats.map((c: any) => c.name));
+        if (Array.isArray(cats) && cats.length > 0) {
+          const names = cats.map((c: any) => c.name || c);
+          setCategories((prev) => Array.from(new Set([...prev, ...names])));
+        }
       })
       .catch((err) => console.warn("Failed to fetch categories", err));
   }, [supplierId]);
+
+  const handleAddVendorType = async () => {
+    const trimmed = newVendorTypeInput.trim();
+    if (!trimmed) return;
+    try {
+      setAddingVendorType(true);
+      await api.createVendorType(trimmed).catch(() => {});
+      setVendorTypes((prev) => Array.from(new Set([...prev, trimmed])));
+      if (form) {
+        updateForm("root", "vendorType", trimmed);
+      }
+      setNewVendorTypeInput("");
+      setShowAddVendorTypeModal(false);
+      toast.success("Vendor type added", { description: `${trimmed} added and selected` });
+    } catch {
+      toast.error("Failed to add vendor type");
+    } finally {
+      setAddingVendorType(false);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    const trimmed = newCategoryInput.trim();
+    if (!trimmed) return;
+    try {
+      setAddingCategory(true);
+      await api.createSupplierCategory(trimmed).catch(() => {});
+      setCategories((prev) => Array.from(new Set([...prev, trimmed])));
+      if (form) {
+        const current = Array.isArray(form.category) ? form.category : [];
+        if (!current.includes(trimmed)) {
+          updateForm("root", "category", [...current, trimmed]);
+        }
+      }
+      setNewCategoryInput("");
+      toast.success("Category added", { description: `${trimmed} added and selected` });
+    } catch {
+      toast.error("Failed to add category");
+    } finally {
+      setAddingCategory(false);
+    }
+  };
 
   const title = supplier?.supplierName || "Supplier profile";
   const openEditor = () => {
@@ -317,10 +389,10 @@ function SupplierProfile() {
           </div>
           <div style="margin-top: 30px; padding: 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;">
             <p style="font-size: 12px; font-weight: bold; color: #065f46; margin: 0;">Verified Compliance Record</p>
-            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in NexusWMS platform master data.</p>
+            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in KaizenX platform master data.</p>
           </div>
           <div class="footer">
-            Generated automatically by NexusWMS Procurement Portal · ${new Date().toLocaleString("en-IN")}
+            Generated automatically by KaizenX Procurement Portal · ${new Date().toLocaleString("en-IN")}
           </div>
         </body>
         </html>
@@ -442,9 +514,26 @@ function SupplierProfile() {
                   }}
                 />
                 <div className="space-y-1.5">
-                  <Label>Vendor type</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Vendor type</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowAddVendorTypeModal(true)}
+                      className="h-5 px-1.5 text-[10px] font-bold text-primary hover:bg-primary/10 rounded-md"
+                    >
+                      <Plus className="size-3 mr-0.5" /> Add Type
+                    </Button>
+                  </div>
                   <Select
-                    onValueChange={(v) => updateForm("root", "vendorType", v)}
+                    onValueChange={(v) => {
+                      if (v === "__ADD_NEW_VENDOR_TYPE__") {
+                        setShowAddVendorTypeModal(true);
+                      } else {
+                        updateForm("root", "vendorType", v);
+                      }
+                    }}
                     value={form.vendorType}
                   >
                     <SelectTrigger
@@ -455,11 +544,14 @@ function SupplierProfile() {
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["Manufacturer", "Distributor", "Service Provider"].map((type) => (
+                      {vendorTypes.map((type) => (
                         <SelectItem key={type} value={type}>
                           {type}
                         </SelectItem>
                       ))}
+                      <SelectItem value="__ADD_NEW_VENDOR_TYPE__" className="text-primary font-bold">
+                        + Add Custom Vendor Type...
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   {errors.vendorType && (
@@ -489,12 +581,12 @@ function SupplierProfile() {
                         <ChevronRight className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[300px] p-0 rounded-xl" align="start">
-                      <div className="p-2 space-y-1 max-h-[300px] overflow-y-auto">
+                    <PopoverContent className="w-[320px] p-0 rounded-xl shadow-xl" align="start">
+                      <div className="p-2 space-y-1 max-h-[250px] overflow-y-auto border-b">
                         {categories.map((cat) => (
                           <div
                             key={cat}
-                            className="flex items-center space-x-2 p-2 hover:bg-muted rounded-lg cursor-pointer"
+                            className="flex items-center space-x-2 p-2 hover:bg-muted/60 rounded-lg cursor-pointer transition-colors"
                             onClick={() => {
                               const current = Array.isArray(form.category) ? form.category : [];
                               const updated = current.includes(cat)
@@ -516,12 +608,38 @@ function SupplierProfile() {
                             />
                             <Label
                               htmlFor={`edit-cat-${cat}`}
-                              className="text-sm cursor-pointer w-full"
+                              className="text-sm cursor-pointer w-full font-medium"
                             >
                               {cat}
                             </Label>
                           </div>
                         ))}
+                      </div>
+                      <div className="p-3 bg-muted/20 space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Add Custom Category</p>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="e.g. Precision Castings"
+                            value={newCategoryInput}
+                            onChange={(e) => setNewCategoryInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void handleAddCategory();
+                              }
+                            }}
+                            className="h-8 rounded-lg text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!newCategoryInput.trim() || addingCategory}
+                            onClick={() => void handleAddCategory()}
+                            className="h-8 rounded-lg text-xs font-bold shrink-0"
+                          >
+                            <Plus className="size-3.5 mr-1" /> Add
+                          </Button>
+                        </div>
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -840,7 +958,6 @@ function SupplierProfile() {
               { id: "bank", label: "Bank Details", icon: ReceiptText },
               { id: "documents", label: "Documents", icon: FileText },
               { id: "purchases", label: "Purchase History", icon: ReceiptText },
-              { id: "performance", label: "Performance", icon: ShieldCheck },
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -1185,53 +1302,6 @@ function SupplierProfile() {
             </SectionCard>
           )}
 
-          {/* TAB CONTENT 7: PERFORMANCE */}
-          {activeTab === "performance" && (
-            <SectionCard
-              title="Supplier Performance & Scorecard"
-              description="Evaluation metrics, on-time delivery, and quality score"
-              icon={ShieldCheck}
-            >
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                <Field
-                  label="Supplier Rating"
-                  value={
-                    supplier.rating !== undefined && supplier.rating !== null
-                      ? `${Number(supplier.rating).toFixed(1)} / 5.0`
-                      : "4.8 / 5.0"
-                  }
-                />
-                <Field
-                  label="Performance Score"
-                  value={
-                    supplier.performanceScore !== undefined && supplier.performanceScore !== null
-                      ? `${Number(supplier.performanceScore).toFixed(0)}%`
-                      : "98.5%"
-                  }
-                />
-                <Field
-                  label="Purchase Orders Executed"
-                  value={
-                    purchaseOrders.length
-                      ? String(purchaseOrders.length)
-                      : supplier.purchaseOrderCount
-                        ? String(supplier.purchaseOrderCount)
-                        : "0"
-                  }
-                />
-                <Field
-                  label="Total Purchase Value"
-                  value={
-                    purchaseOrders.length > 0
-                      ? `₹ ${purchaseOrders.reduce((sum, p) => sum + Number(p.totalAmount || 0), 0).toLocaleString("en-IN")}`
-                      : supplier.purchaseValue
-                        ? `₹ ${Number(supplier.purchaseValue).toLocaleString("en-IN")}`
-                        : "₹ 0"
-                  }
-                />
-              </div>
-            </SectionCard>
-          )}
           {supplier.remarks && (
             <SectionCard title="Remarks" icon={Mail}>
               <p className="text-sm text-muted-foreground">{supplier.remarks}</p>
@@ -1239,6 +1309,49 @@ function SupplierProfile() {
           )}
         </div>
       )}
+
+      {/* Add Custom Vendor Type Modal */}
+      <Dialog open={showAddVendorTypeModal} onOpenChange={setShowAddVendorTypeModal}>
+        <DialogContent className="rounded-2xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">Add Custom Vendor Type</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Enter a custom vendor type to add it to master data and select it for this supplier.
+            </p>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Vendor Type Name</Label>
+              <Input
+                placeholder="e.g. Custom Logistics Partner"
+                value={newVendorTypeInput}
+                onChange={(e) => setNewVendorTypeInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAddVendorType();
+                  }
+                }}
+                className="mt-1.5 rounded-xl text-xs font-semibold"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" className="rounded-xl text-xs" onClick={() => setShowAddVendorTypeModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={!newVendorTypeInput.trim() || addingVendorType}
+                onClick={() => void handleAddVendorType()}
+                className="rounded-xl text-xs font-bold shadow-glow"
+              >
+                {addingVendorType ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Plus className="size-3.5 mr-1" />}
+                Add Vendor Type
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

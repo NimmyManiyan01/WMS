@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/inventory")({
   head: () => ({
     meta: [
-      { title: "Authoritative Inventory Matrix · NexusWMS" },
+      { title: "Authoritative Inventory Matrix · KaizenX" },
       {
         name: "description",
         content:

@@ -8,12 +8,12 @@ export const Route = createFileRoute("/settings")({
   beforeLoad: () => requireAuth(),
   head: () => ({
     meta: [
-      { title: "Settings · NexusWMS" },
+      { title: "Settings · KaizenX" },
       {
         name: "description",
         content: "Notification rules, escalation matrix, shift configuration and user preferences.",
       },
-      { property: "og:title", content: "Settings · NexusWMS" },
+      { property: "og:title", content: "Settings · KaizenX" },
       {
         property: "og:description",
         content: "Escalation matrix, shift configuration and notification preferences.",

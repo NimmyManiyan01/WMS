@@ -40,7 +40,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
     meta: [
-      { title: "User Management · NexusWMS" },
+      { title: "User Management · KaizenX" },
       {
         name: "description",
         content:
@@ -469,7 +469,7 @@ function AddUserDialog({
     form.store_id,
   );
   const normalizedEmail = (
-    form.email.trim() || `${form.username.trim().toLowerCase()}@nexuswms.local`
+    form.email.trim() || `${form.username.trim().toLowerCase()}@kaizenx.local`
   ).toLowerCase();
   const duplicateField = existingUsers.find(
     (user) =>
@@ -489,7 +489,7 @@ function AddUserDialog({
         full_name: form.full_name,
         employee_id: form.employee_id,
         username: form.username,
-        email: form.email.trim() || `${form.username.trim().toLowerCase()}@nexuswms.local`,
+        email: form.email.trim() || `${form.username.trim().toLowerCase()}@kaizenx.local`,
         password: form.password,
         store_id: form.store_id,
         status: form.status,

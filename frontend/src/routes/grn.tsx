@@ -2114,7 +2114,7 @@ function GrnPageWorkflow() {
         <body>
           <div class="header">
             <div>
-              <div class="brand">NEXUS WMS • GOODS RECEIPT NOTE</div>
+              <div class="brand">KAIZENX • GOODS RECEIPT NOTE</div>
               <p style="margin:2px 0 0;font-size:11px;color:#64748b;">Official Material Inbound Quality & Stock Entry Certificate</p>
             </div>
             <div class="tag">GRN NO: ${grnNum}</div>
@@ -5944,7 +5944,7 @@ function GrnPageWorkflow() {
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 Dispatches an official damage report email to the supplier ({header.supplier_name})
-                and alerts the internal Procurement team in NexusWMS.
+                and alerts the internal Procurement team in KaizenX.
               </DialogDescription>
             </DialogHeader>
 

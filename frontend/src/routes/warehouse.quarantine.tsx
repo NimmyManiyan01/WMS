@@ -51,7 +51,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/warehouse/quarantine")({
   head: () => ({
     meta: [
-      { title: "Quarantine Management · NexusWMS" },
+      { title: "Quarantine Management · KaizenX" },
       {
         name: "description",
         content: "Warehouse Quarantine and Damaged Goods Disposition Review Console.",

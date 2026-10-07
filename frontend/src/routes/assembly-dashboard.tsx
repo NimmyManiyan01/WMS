@@ -46,7 +46,7 @@ import { requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/assembly-dashboard")({
   beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ASSEMBLY", "ADMIN", "SUPERUSER"]),
-  head: () => ({ meta: [{ title: "Assembly Dashboard · NexusWMS" }] }),
+  head: () => ({ meta: [{ title: "Assembly Dashboard · KaizenX" }] }),
   component: AssemblyDashboard,
 });
 

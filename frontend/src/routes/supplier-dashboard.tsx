@@ -54,8 +54,8 @@ function SupplierDashboard() {
         supplierId: "sup-00001",
       };
       try {
-        localStorage.setItem("nexus_wms_user", JSON.stringify(userInfo));
-        localStorage.setItem("nexus_wms_token", userInfo.token);
+        localStorage.setItem("kaizen_x_user", JSON.stringify(userInfo));
+        localStorage.setItem("kaizen_x_token", userInfo.token);
       } catch {}
     }
 

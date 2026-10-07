@@ -427,6 +427,22 @@ function Asns() {
             const poReference = getPoReference(asn);
             const poColor = poColorClasses[getPoColorIndex(poReference)];
 
+            let rawLog = asn.logistics;
+            if (typeof rawLog === "string") {
+              try {
+                rawLog = JSON.parse(rawLog);
+              } catch {
+                rawLog = null;
+              }
+            }
+            const logList = Array.isArray(rawLog) && rawLog.length > 0 ? rawLog : null;
+            const displayTransporter = logList
+              ? logList.map((l: any) => l.transporter).filter(Boolean).join(", ") || asn.transporter || "N/A"
+              : asn.transporter || "N/A";
+            const displayVehicles = logList
+              ? logList.map((l: any) => l.vehicle_number || l.vehicleNumber).filter(Boolean).join(", ") || asn.vehicleNumber || "N/A"
+              : asn.vehicleNumber || "N/A";
+
             return (
               <Card
                 key={asn.id}
@@ -452,13 +468,13 @@ function Asns() {
                       <span className="flex items-center gap-1.5">
                         Transporter:{" "}
                         <span className="text-foreground font-bold">
-                          {asn.transporter || "N/A"}
+                          {displayTransporter}
                         </span>
                       </span>
                       <span className="flex items-center gap-1.5">
                         Vehicle:{" "}
                         <span className="text-foreground font-bold">
-                          {asn.vehicleNumber || "N/A"}
+                          {displayVehicles}
                         </span>
                       </span>
                       <span className="flex items-center gap-1.5">

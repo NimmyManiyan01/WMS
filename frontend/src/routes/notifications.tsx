@@ -31,7 +31,8 @@ export function extractGrnPayload(n: any) {
   const grnNumber = parsedJson?.grn_number || n.grn_number || n.grnNumber || (n.message ? (n.message.match(/GRN:\s*([^\s|\n]+)/i)?.[1] || n.message.match(/(GRN-[A-Za-z0-9-]+)/i)?.[1]) : null) || "";
   const poNumber = parsedJson?.po_number || n.po_number || n.poNumber || (n.message ? (n.message.match(/PO:\s*([^\s|\n]+)/i)?.[1] || n.message.match(/(PO-[A-Za-z0-9-]+)/i)?.[1]) : null) || "";
   const supplierName = parsedJson?.supplier_name || n.supplier_name || n.supplierName || (n.message ? n.message.match(/Supplier:\s*([^|\n]+)/i)?.[1]?.trim() : null) || "Supplier";
-  const vehicleNumber = parsedJson?.vehicle_number || n.vehicle_number || n.vehicleNumber || (n.message ? n.message.match(/vehicle:\s*([^\s|\n,]+)/i)?.[1]?.trim() : null) || "Vehicle";
+  const rawVeh = parsedJson?.vehicle_number || n.vehicle_number || n.vehicleNumber || (n.message ? n.message.match(/vehicle:\s*([^\s|\n,]+)/i)?.[1]?.trim() : null) || "";
+  const vehicleNumber = rawVeh && rawVeh.toLowerCase() !== "vehicle" ? rawVeh : "";
   const warehouseName = parsedJson?.warehouse_name || n.warehouse_name || n.warehouseName || (n.message ? n.message.match(/Warehouse:\s*([^|\n]+)/i)?.[1]?.trim() : null) || "Main Warehouse";
   const dockCode = parsedJson?.dock_number || n.dock_code || n.dockCode || (n.message ? n.message.match(/Dock:\s*([^\s|\n]+)/i)?.[1]?.trim() : null) || "DOCK-01";
   const poStatus = parsedJson?.po_status || (n.title?.includes("Completed") ? "FULLY RECEIVED" : "PARTIALLY RECEIVED");
@@ -251,15 +252,20 @@ function Notifications() {
         ? "FINANCE"
         : roles.includes("PROCUREMENT")
           ? "PROCUREMENT"
-          : roles.includes("GRN") ||
-              roles.includes("GRN_MANAGER") ||
-              roles.includes("OPERATIONS_MANAGER") ||
-              roles.includes("OPERATIONS") ||
-              roles.includes("RECEIVING") ||
-              username === "grn" ||
-              username.includes("grn")
-            ? "GRN"
-            : "WAREHOUSE";
+          : roles.includes("DISPATCH") ||
+              roles.includes("DISPATCH_MANAGER") ||
+              username === "dispatch" ||
+              username.includes("dispatch")
+            ? "DISPATCH"
+            : roles.includes("GRN") ||
+                roles.includes("GRN_MANAGER") ||
+                roles.includes("OPERATIONS_MANAGER") ||
+                roles.includes("OPERATIONS") ||
+                roles.includes("RECEIVING") ||
+                username === "grn" ||
+                username.includes("grn")
+              ? "GRN"
+              : "WAREHOUSE";
     setUserRole(role);
     void fetchData(role, false);
     const timer = window.setInterval(() => void fetchData(role, true), 2000);
@@ -625,19 +631,71 @@ function Notifications() {
                         >
                           {n.title}
                         </h3>
-                        {isDamage ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">
-                            DAMAGE & REPLACEMENT REQUIRED
-                          </span>
-                        ) : payloadData?.poStatus === "FULLY_RECEIVED" ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            FULLY RECEIVED
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-300">
-                            PARTIAL SHIPMENT
-                          </span>
-                        )}
+                        {(() => {
+                          const titleUpper = String(n.title || "").toUpperCase();
+                          const msgUpper = String(n.message || "").toUpperCase();
+                          let badgeText = "PROCUREMENT ALERT";
+                          let badgeColor = "bg-slate-100 text-slate-800 border-slate-300";
+
+                          if (isDamage || titleUpper.includes("DAMAGE") || msgUpper.includes("DAMAGE")) {
+                            badgeText = "DAMAGE & REPLACEMENT REQUIRED";
+                            badgeColor = "bg-rose-100 text-rose-800 border-rose-300";
+                          } else if (titleUpper.includes("GATE OUT") || titleUpper.includes("GATE EXIT")) {
+                            badgeText = "GATE OUT APPROVED";
+                            badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300";
+                          } else if (titleUpper.includes("IN TRANSIT")) {
+                            badgeText = "IN TRANSIT";
+                            badgeColor = "bg-blue-100 text-blue-800 border-blue-300";
+                          } else if (titleUpper.includes("DELIVERY COMPLETED") || titleUpper.includes("DELIVERED")) {
+                            badgeText = "DELIVERED";
+                            badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300";
+                          } else if (titleUpper.includes("LOADING")) {
+                            badgeText = "LOADING VERIFIED";
+                            badgeColor = "bg-amber-100 text-amber-800 border-amber-300";
+                          } else if (titleUpper.includes("PICKING") || titleUpper.includes("PACKING")) {
+                            badgeText = "PICK & PACK";
+                            badgeColor = "bg-indigo-100 text-indigo-800 border-indigo-300";
+                          } else if (titleUpper.includes("TRANSPORT") || titleUpper.includes("DRIVER") || titleUpper.includes("VEHICLE")) {
+                            badgeText = "FLEET ALLOCATION";
+                            badgeColor = "bg-cyan-100 text-cyan-800 border-cyan-300";
+                          } else if (titleUpper.includes("DISPATCH")) {
+                            badgeText = "DISPATCH ORDER";
+                            badgeColor = "bg-blue-100 text-blue-800 border-blue-300";
+                          } else if (titleUpper.includes("ASN") || titleUpper.includes("SHIPMENT")) {
+                            badgeText = "SHIPMENT DISPATCHED";
+                            badgeColor = "bg-blue-100 text-blue-800 border-blue-300";
+                          } else if (titleUpper.includes("PO APPROVED") || titleUpper.includes("APPROVED BY FINANCE")) {
+                            badgeText = "PO APPROVED";
+                            badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300";
+                          } else if (titleUpper.includes("PO PROPOSAL") || titleUpper.includes("PURCHASE ORDER") || titleUpper.includes("PO ")) {
+                            badgeText = "PURCHASE ORDER";
+                            badgeColor = "bg-indigo-100 text-indigo-800 border-indigo-300";
+                          } else if (titleUpper.includes("SUPPLIER")) {
+                            badgeText = "SUPPLIER UPDATE";
+                            badgeColor = "bg-teal-100 text-teal-800 border-teal-300";
+                          } else if (titleUpper.includes("RFQ")) {
+                            badgeText = "RFQ ALERT";
+                            badgeColor = "bg-purple-100 text-purple-800 border-purple-300";
+                          } else if (titleUpper.includes("QUOTATION")) {
+                            badgeText = "QUOTATION";
+                            badgeColor = "bg-amber-100 text-amber-800 border-amber-300";
+                          } else if (titleUpper.includes("FINISHED GOODS") || titleUpper.includes("MATERIAL REQUEST") || titleUpper.includes("REQUISITION")) {
+                            badgeText = "REQUISITION";
+                            badgeColor = "bg-sky-100 text-sky-800 border-sky-300";
+                          } else if (payloadData?.poStatus === "FULLY_RECEIVED" || titleUpper.includes("RECEIVING COMPLETED")) {
+                            badgeText = "FULLY RECEIVED";
+                            badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300";
+                          } else if (payloadData?.poStatus === "PARTIALLY_RECEIVED" || titleUpper.includes("GRN")) {
+                            badgeText = "GRN RECORDED";
+                            badgeColor = "bg-blue-100 text-blue-800 border-blue-300";
+                          }
+
+                          return (
+                            <span className={cn("px-2 py-0.5 rounded text-[10px] font-extrabold border", badgeColor)}>
+                              {badgeText}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <span className="text-[10px] text-muted-foreground font-medium">
                         {notificationDate && !Number.isNaN(new Date(notificationDate).getTime())
@@ -663,7 +721,7 @@ function Notifications() {
                           Supplier: {payloadData.supplierName}
                         </span>
                       )}
-                      {payloadData?.vehicleNumber && (
+                      {payloadData?.vehicleNumber && payloadData.vehicleNumber !== "Vehicle" && (
                         <span className="px-2.5 py-0.5 rounded-md bg-muted text-muted-foreground font-mono">
                           Vehicle: {payloadData.vehicleNumber}
                         </span>

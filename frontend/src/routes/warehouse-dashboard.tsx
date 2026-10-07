@@ -34,7 +34,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/warehouse-dashboard")({
   head: () => ({
     meta: [
-      { title: "Warehouse Control Center · NexusWMS" },
+      { title: "Warehouse Control Center · KaizenX" },
       {
         name: "description",
         content:

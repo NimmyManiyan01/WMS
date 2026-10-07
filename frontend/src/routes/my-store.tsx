@@ -124,7 +124,7 @@ export const Route = createFileRoute("/my-store")({
   },
   head: () => ({
     meta: [
-      { title: "My Store · NexusWMS" },
+      { title: "My Store · KaizenX" },
       {
         name: "description",
         content:

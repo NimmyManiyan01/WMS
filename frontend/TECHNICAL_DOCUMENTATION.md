@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-The `frontend` directory contains the NexusWMS browser application for warehouse, gate-security, procurement, supplier, and finance users. It provides dashboards and guided workflows over the FastAPI business service.
+The `frontend` directory contains the KaizenX browser application for warehouse, gate-security, procurement, supplier, and finance users. It provides dashboards and guided workflows over the FastAPI business service.
 
 Routes under `src/routes` define screens; `src/lib/api-client.ts` is the central backend integration.
 

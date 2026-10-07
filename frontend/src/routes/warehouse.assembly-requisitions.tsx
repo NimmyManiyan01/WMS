@@ -48,7 +48,7 @@ import { getUserInfo } from "@/lib/auth-utils";
 export const Route = createFileRoute("/warehouse/assembly-requisitions")({
   head: () => ({
     meta: [
-      { title: "Assembly Material Requisitions · NexusWMS" },
+      { title: "Assembly Material Requisitions · KaizenX" },
       {
         name: "description",
         content:

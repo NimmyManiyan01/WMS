@@ -994,7 +994,7 @@ async def notify_vendor_damage(
         items_title="Damaged & Rejected Materials Breakdown",
         col_headers=("Material Code & Name", "Damaged Qty", "Damage Reason"),
         custom_html=photos_html_gallery,
-        signoff="NexusWMS Receiving & Quality Control Team",
+        signoff="KaizenX Receiving & Quality Control Team",
     )
 
     os.makedirs(os.path.join("media_uploads", "emails"), exist_ok=True)
@@ -1104,7 +1104,7 @@ async def notify_vendor_damage(
     )
     if body.custom_remarks:
         procurement_intro += f"Inspector Remarks: {body.custom_remarks}\n\n"
-    procurement_intro += f"Please review the damaged/rejected goods record in NexusWMS."
+    procurement_intro += f"Please review the damaged/rejected goods record in KaizenX."
 
     procurement_html = render_premium_email(
         eyebrow="PROCUREMENT DAMAGE ALERT",
@@ -1116,7 +1116,7 @@ async def notify_vendor_damage(
         items_title="Damaged & Rejected Materials Breakdown",
         col_headers=("Material Code & Name", "Damaged Qty", "Damage Reason"),
         custom_html=photos_html_gallery,
-        signoff="NexusWMS Inbound Receiving & Quality Team",
+        signoff="KaizenX Inbound Receiving & Quality Team",
     )
 
     if procurement_email and email_regex.match(procurement_email):

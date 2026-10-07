@@ -1,10 +1,12 @@
-from __future__ import annotations
+import uuid
+import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.modules.procurement.infrastructure.persistence.models import NotificationModel
 from app.modules.dispatch.application.commands import (
     CreateDispatchCommand,
     PickItemsCommand,
@@ -237,6 +239,14 @@ async def create_dispatch(
     uc = _get_use_cases(db)
     try:
         order = await uc.create_dispatch(cmd)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Dispatch Order Created",
+            message=f"New Dispatch Order {order.dispatch_number} created for {order.customer_name} (Order Ref: {order.order_number}).",
+            link="/dispatch-orders",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:
@@ -267,6 +277,14 @@ async def reserve_dispatch_stock(
     uc = _get_use_cases(db)
     try:
         order = await uc.reserve_stock(dispatch_id)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Stock Reserved",
+            message=f"Stock reserved successfully for Dispatch Order {order.dispatch_number}.",
+            link="/dispatch-orders",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:
@@ -416,6 +434,14 @@ async def verify_dispatch_loading(
     uc = _get_use_cases(db)
     try:
         order = await uc.verify_loading(dispatch_id)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Loading Verified",
+            message=f"Loading verified for Dispatch Order {order.dispatch_number}. Ready for Gate Exit.",
+            link="/dispatch-loading",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:
@@ -448,6 +474,14 @@ async def dispatch_order(
     uc = _get_use_cases(db)
     try:
         order = await uc.dispatch_order(dispatch_id)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Gate Out Approved",
+            message=f"Outbound gate exit authorized for Dispatch Order {order.dispatch_number}.",
+            link="/dispatch-gate-out",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:
@@ -464,6 +498,14 @@ async def transit_order(
     uc = _get_use_cases(db)
     try:
         order = await uc.transit_order(dispatch_id)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Shipment In Transit",
+            message=f"Shipment {order.dispatch_number} is now In Transit to {order.destination}.",
+            link="/dispatch-transit",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:
@@ -480,6 +522,14 @@ async def deliver_order(
     uc = _get_use_cases(db)
     try:
         order = await uc.deliver_order(dispatch_id)
+        db.add(NotificationModel(
+            id=uuid.uuid4(),
+            user_role="DISPATCH",
+            title="Delivery Completed",
+            message=f"Shipment {order.dispatch_number} delivered to {order.customer_name}.",
+            link="/dispatch-transit",
+            created_at=datetime.datetime.now(),
+        ))
         await db.commit()
         return _to_dispatch_dto(order)
     except ValueError as e:

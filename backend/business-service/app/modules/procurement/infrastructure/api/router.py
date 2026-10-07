@@ -1186,7 +1186,11 @@ def _is_rel_loaded(entity, attr_name: str) -> bool:
         return False
 
 
-def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
+def _response_from_entity(
+    entity: SupplierModel,
+    last_po_number: Optional[str] = None,
+    last_po_date: Optional[date] = None,
+) -> SupplierResponse:
     """
     Safely maps a Supplier domain object to a SupplierResponse.
     """
@@ -1212,6 +1216,8 @@ def _response_from_entity(entity: SupplierModel) -> SupplierResponse:
             credit_period_days=getattr(entity, 'credit_period_days', None),
             rating=getattr(entity, 'rating', None),
             performance_score=getattr(entity, 'performance_score', None),
+            last_po_number=last_po_number or getattr(entity, 'last_po_number', None),
+            last_po_date=last_po_date or getattr(entity, 'last_po_date', None),
             address=SupplierAddressResponse(
                 registered_address=getattr(addr, 'registered_address', None),
                 city=getattr(addr, 'city', None),
@@ -1410,6 +1416,17 @@ async def create_supplier(
             entity.credit_period_days = request.credit_period_days
             entity.status = "Pending Approval"
             await repo.save(entity)
+
+            uow.session.add(
+                NotificationModel(
+                    id=uuid.uuid4(),
+                    user_role="PROCUREMENT",
+                    title="New Supplier Registered",
+                    message=f"Supplier {entity.supplier_name or 'N/A'} registered (Vendor Type: {entity.vendor_type or 'N/A'}).",
+                    link=f"/supplier/{supplier_id}",
+                    created_at=datetime.now(),
+                )
+            )
             await uow.commit()
         return _response_from_entity(entity)
     except DomainRuleViolationException as exc:
@@ -1457,10 +1474,29 @@ async def list_suppliers(
         result = await uow.session.execute(stmt.order_by(SupplierModel.supplier_name))
         entities = result.scalars().unique().all()
 
+        # Query latest Purchase Order for each supplier
+        po_stmt = (
+            select(
+                PurchaseOrderModel.supplier_id,
+                PurchaseOrderModel.po_number,
+                PurchaseOrderModel.po_date,
+            )
+            .order_by(PurchaseOrderModel.po_date.desc(), PurchaseOrderModel.created_at.desc())
+        )
+        po_res = await uow.session.execute(po_stmt)
+        latest_po_by_supplier = {}
+        for supp_id, po_num, po_dt in po_res.all():
+            if supp_id and str(supp_id) not in latest_po_by_supplier:
+                latest_po_by_supplier[str(supp_id)] = (po_num, po_dt)
+
         responses = []
         for e in entities:
             try:
-                responses.append(_response_from_entity(e))
+                e_id_str = str(getattr(e, "id", ""))
+                po_info = latest_po_by_supplier.get(e_id_str)
+                last_po_num = po_info[0] if po_info else None
+                last_po_dt = po_info[1] if po_info else None
+                responses.append(_response_from_entity(e, last_po_number=last_po_num, last_po_date=last_po_dt))
             except Exception as err:
                 logger.error(f"Error mapping supplier {getattr(e, 'id', 'unknown')}: {err}")
         return responses
@@ -1491,7 +1527,19 @@ async def get_supplier(
         if not entity:
             raise HTTPException(status_code=404, detail="Supplier not found")
 
-        response = _response_from_entity(entity)
+        # Query latest Purchase Order for this supplier
+        po_latest_stmt = (
+            select(PurchaseOrderModel.po_number, PurchaseOrderModel.po_date)
+            .where(PurchaseOrderModel.supplier_id == supplier_id)
+            .order_by(PurchaseOrderModel.po_date.desc(), PurchaseOrderModel.created_at.desc())
+            .limit(1)
+        )
+        po_latest_res = await uow.session.execute(po_latest_stmt)
+        latest_po_row = po_latest_res.one_or_none()
+        last_po_num = latest_po_row[0] if latest_po_row else None
+        last_po_dt = latest_po_row[1] if latest_po_row else None
+
+        response = _response_from_entity(entity, last_po_number=last_po_num, last_po_date=last_po_dt)
         history_stmt = select(
             func.count(PurchaseOrderModel.id),
             func.coalesce(func.sum(PurchaseOrderModel.total_amount), Decimal("0")),
@@ -1548,6 +1596,18 @@ async def update_supplier(
                 model.payment_terms = request.payment_terms
             if request.credit_period_days is not None:
                 model.credit_period_days = request.credit_period_days
+
+            cats = ", ".join(model.category) if isinstance(model.category, list) else (model.category or "N/A")
+            uow.session.add(
+                NotificationModel(
+                    id=uuid.uuid4(),
+                    user_role="PROCUREMENT",
+                    title="Supplier Master Updated",
+                    message=f"Supplier {model.supplier_name or 'N/A'} profile updated (Vendor Type: {model.vendor_type or 'N/A'}, Category: {cats}).",
+                    link=f"/supplier/{id}",
+                    created_at=datetime.now(),
+                )
+            )
         await uow.commit()
 
 
@@ -1607,6 +1667,17 @@ async def update_supplier_status(
         entity.updated_by = _user.username
         if request.remarks:
             entity.remarks = request.remarks
+
+        uow.session.add(
+            NotificationModel(
+                id=uuid.uuid4(),
+                user_role="PROCUREMENT",
+                title="Supplier Status Changed",
+                message=f"Supplier {entity.supplier_name or 'N/A'} status updated to {canonical_status}.",
+                link=f"/supplier/{id}",
+                created_at=datetime.now(),
+            )
+        )
         await uow.commit()
         await uow.session.refresh(entity)
         return _response_from_entity(entity)
@@ -1933,7 +2004,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
                     f"{portal_link}\n\n"
                     f"Note: This link is valid for 24 hours and will expire automatically for security. No password is required.\n\n"
                     f"Regards,\n"
-                    f"NexusWMS Procurement Team\n"
+                    f"KaizenX Procurement Team\n"
                 )
 
                 html_body = (
@@ -1956,7 +2027,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
                     f"  </p>\n"
                     f"  <p style='margin-top:24px;color:#334155;'>\n"
                     f"    Regards,<br>\n"
-                    f"    <strong>NexusWMS Procurement Team</strong>\n"
+                    f"    <strong>KaizenX Procurement Team</strong>\n"
                     f"  </p>\n"
                     f"</body>\n"
                     f"</html>"
@@ -2431,7 +2502,7 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         Table(
             [
                 [Paragraph("PURCHASE ORDER", title_style)],
-                [Paragraph(f"NexusWMS Procurement | {po.po_number}", subtitle_style)],
+                [Paragraph(f"KaizenX Procurement | {po.po_number}", subtitle_style)],
             ],
             colWidths=[180 * mm],
             style=TableStyle([
@@ -2534,7 +2605,7 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         ),
         Spacer(1, 5 * mm),
         Paragraph(
-            "This purchase order is generated from backend procurement records. Amounts reflect the approved PO values stored in NexusWMS.",
+            "This purchase order is generated from backend procurement records. Amounts reflect the approved PO values stored in KaizenX.",
             small_style,
         ),
     ])
@@ -2790,7 +2861,7 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"{portal_link}\n\n"
             f"Note: This link is valid for 24 hours and will expire automatically for security. No password is required.\n\n"
             f"Regards,\n"
-            f"NexusWMS Procurement Team\n"
+            f"KaizenX Procurement Team\n"
         )
 
         html_body = (
@@ -2813,7 +2884,7 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"  </p>\n"
             f"  <p style='margin-top:24px;color:#334155;'>\n"
             f"    Regards,<br>\n"
-            f"    <strong>NexusWMS Procurement Team</strong>\n"
+            f"    <strong>KaizenX Procurement Team</strong>\n"
             f"  </p>\n"
             f"</body>\n"
             f"</html>"
@@ -4394,6 +4465,8 @@ async def resubmit_asn(
         asn.number_of_packages = request.number_of_packages
         asn.package_type = request.package_type
         asn.shipping_method = request.shipping_method
+        if request.logistics is not None:
+            asn.logistics = request.logistics
         asn.invoice_number = request.invoice_number
         asn.invoice_date = request.invoice_date
         asn.challan_number = request.challan_number
@@ -4548,6 +4621,8 @@ async def list_notifications(role: str = Query(...), uow: UnitOfWork = Depends(g
         roles_to_match = ["GRN", "RECEIVING", "WAREHOUSE", "STORE_MANAGER"]
     elif normalized_role == "WAREHOUSE":
         roles_to_match = ["WAREHOUSE", "GRN", "RECEIVING", "STORE_MANAGER", "QUALITY_INSPECTOR"]
+    elif normalized_role in ("DISPATCH", "DISPATCH_MANAGER"):
+        roles_to_match = ["DISPATCH", "DISPATCH_MANAGER"]
     elif normalized_role == "STORE_MANAGER":
         roles_to_match = ["STORE_MANAGER", "WAREHOUSE", "GRN", "RECEIVING"]
     elif normalized_role == "QUALITY_INSPECTOR":

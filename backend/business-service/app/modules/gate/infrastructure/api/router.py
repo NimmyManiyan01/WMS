@@ -779,7 +779,8 @@ async def create_gate_entry(
     if request.total_quantity is None or request.total_quantity <= 0:
         raise DomainRuleViolationException("Total quantity is mandatory and must be greater than 0.")
 
-    # 1. Active duplicate check (PO only; vehicle duplicates are allowed)
+    # 1. Block only a duplicate arrival for the same PO and vehicle. A single
+    # PO can have multiple ASN shipments and therefore multiple vehicles.
     active_result = await uow.session.execute(
         select(GateEntryModel).where(
             GateEntryModel.po_number == po_num,
@@ -787,7 +788,7 @@ async def create_gate_entry(
         )
     )
     active_entries = [_gate_entry_from_model(model) for model in active_result.scalars().all()]
-    GateVerificationService.check_duplicate_active_entry(active_entries, po_num)
+    GateVerificationService.check_duplicate_active_entry(active_entries, po_num, plate)
 
     # 2. Dynamic OCR processing or extraction
     ocr_res: Optional[OcrResult] = None
@@ -869,6 +870,49 @@ async def create_gate_entry(
     document_data = base64.b64decode(request.document_image_base64) if request.document_image_base64 else None
     await _save_gate_entry(uow.session, entry, document_data=document_data)
 
+    # A PO with multiple planned ASN vehicles is complete at the gate only when
+    # every planned vehicle has an approved arrival entry. This is intentionally
+    # based on persisted records rather than UI checkboxes so it remains correct
+    # for concurrent gate operators and page refreshes.
+    po_completed_at_gate = False
+    if po_record:
+        planned_result = await uow.session.execute(
+            select(AsnModel.vehicle_number).where(
+                func.upper(AsnModel.po_number) == po_num.upper(),
+                AsnModel.vehicle_number.isnot(None),
+                AsnModel.vehicle_number != "",
+            )
+        )
+        planned_vehicles = {
+            str(number).strip().upper()
+            for number in planned_result.scalars().all()
+            if str(number).strip()
+        }
+        if len(planned_vehicles) > 1:
+            arrived_result = await uow.session.execute(
+                select(GateEntryModel.vehicle_number).where(
+                    func.upper(GateEntryModel.po_number) == po_num.upper(),
+                    GateEntryModel.status.notin_(
+                        [GateEntryStatus.REJECTED.value, GateEntryStatus.DENIED_ENTRY.value]
+                    ),
+                )
+            )
+            arrived_vehicles = {
+                str(number).strip().upper()
+                for number in arrived_result.scalars().all()
+                if str(number).strip()
+            }
+            if planned_vehicles.issubset(arrived_vehicles):
+                po_model_result = await uow.session.execute(
+                    select(PurchaseOrderModel).where(
+                        func.upper(PurchaseOrderModel.po_number) == po_num.upper()
+                    )
+                )
+                po_model = po_model_result.scalars().first()
+                if po_model:
+                    po_model.status = "COMPLETED"
+                    po_completed_at_gate = True
+
     try:
         from app.modules.dock.application.service import DockAllocationService
         await DockAllocationService.auto_create_allocation_request(
@@ -884,7 +928,7 @@ async def create_gate_entry(
 
     return _to_gate_entry_response(
         entry,
-        po_status=po_record.status if po_record else None,
+        po_status="COMPLETED" if po_completed_at_gate else (po_record.status if po_record else None),
         asn_status=asn.status if asn else None,
     )
 

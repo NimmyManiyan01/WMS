@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/assembly-orders")({
   beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ASSEMBLY", "ASSEMBLY_OPERATOR", "ADMIN", "SUPERUSER"]),
-  head: () => ({ meta: [{ title: "Assembly Orders · NexusWMS" }] }),
+  head: () => ({ meta: [{ title: "Assembly Orders · KaizenX" }] }),
   component: AssemblyOrders,
 });
 

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -18,15 +18,11 @@ import {
   Send,
   ClipboardCheck,
   Paperclip,
-  SquarePen,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -46,7 +42,7 @@ type POSearch = {
 export const Route = createFileRoute("/purchase-order")({
   head: () => ({
     meta: [
-      { title: "Purchase Order Details · NexusWMS" },
+      { title: "Purchase Order Details · KaizenX" },
       {
         name: "description",
         content: "Comprehensive Purchase Order details and supplier communication.",
@@ -71,21 +67,10 @@ function PurchaseOrder() {
   const [damagedGoodsData, setDamagedGoodsData] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [showAmendModal, setShowAmendModal] = useState(false);
   const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(!!(poId || code || token));
   const [sending, setSending] = useState(false);
-  const [acknowledging, setAcknowledging] = useState(false);
-  const [amending, setAmending] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [amendmentForm, setAmendmentForm] = useState({
-    expectedDeliveryDate: "",
-    paymentTerms: "",
-    deliveryTerms: "",
-    warranty: "",
-    notes: "",
-    reason: "",
-  });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -184,58 +169,6 @@ function PurchaseOrder() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const handleAcknowledge = async () => {
-    try {
-      setAcknowledging(true);
-      await api.acknowledgePurchaseOrder((effectivePoId || poData?.id) as string);
-      toast.success("Purchase Order acknowledged");
-      fetchPo();
-    } catch (e: any) {
-      toast.error("Failed to acknowledge PO: " + e.message);
-    } finally {
-      setAcknowledging(false);
-    }
-  };
-  const openAmendment = () => {
-    setAmendmentForm({
-      expectedDeliveryDate: poData.expectedDeliveryDate || "",
-      paymentTerms: poData.paymentTerms || "",
-      deliveryTerms: poData.deliveryTerms || "",
-      warranty: poData.warranty || "",
-      notes: poData.notes || poData.procurementComments || "",
-      reason: "",
-    });
-    setShowAmendModal(true);
-  };
-
-  const submitAmendment = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!amendmentForm.reason.trim()) {
-      toast.error("Revision reason is required");
-      return;
-    }
-
-    try {
-      setAmending(true);
-      await api.amendPurchaseOrder((effectivePoId || poData?.id) as string, {
-        reason: amendmentForm.reason,
-        changes: {
-          expected_delivery_date: amendmentForm.expectedDeliveryDate || null,
-          payment_terms: amendmentForm.paymentTerms,
-          delivery_terms: amendmentForm.deliveryTerms,
-          warranty: amendmentForm.warranty,
-          notes: amendmentForm.notes,
-        },
-      });
-      toast.success("PO revision recorded");
-      setShowAmendModal(false);
-      fetchPo();
-    } catch (e: any) {
-      toast.error("Failed to amend PO: " + e.message);
-    } finally {
-      setAmending(false);
-    }
-  };
   const selectedQuotation = poData.quotation || null;
   const quotedLines = Array.isArray(selectedQuotation?.lines) ? selectedQuotation.lines : [];
   const quotationSubtotal = quotedLines.reduce((sum: number, line: any) => {
@@ -315,26 +248,6 @@ function PurchaseOrder() {
                 <Send className="size-4 mr-2" />
               )}
               Resend to Supplier
-            </Button>
-          )}
-          {poData.status === "SENT" && (
-            <Button
-              className="rounded-xl bg-success text-white hover:bg-success/90"
-              onClick={handleAcknowledge}
-              disabled={acknowledging}
-            >
-              {acknowledging ? (
-                <Loader2 className="size-4 animate-spin mr-2" />
-              ) : (
-                <ClipboardCheck className="size-4 mr-2" />
-              )}
-              Acknowledge
-            </Button>
-          )}
-          {!["CLOSED", "CANCELLED", "FULLY_RECEIVED"].includes(poData.status) && (
-            <Button variant="outline" className="rounded-xl" onClick={openAmendment}>
-              <SquarePen className="size-4 mr-2" />
-              Amend PO
             </Button>
           )}
           <Button
@@ -640,78 +553,6 @@ function PurchaseOrder() {
           </SectionCard>
         </div>
       </div>
-
-      <Dialog open={showAmendModal} onOpenChange={(open) => !amending && setShowAmendModal(open)}>
-        <DialogContent className="sm:max-w-lg rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <SquarePen className="size-5 text-primary" /> Amend Purchase Order
-            </DialogTitle>
-            <DialogDescription>
-              Changes create a new revision and preserve old values in the PO audit trail.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submitAmendment} className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Expected delivery date</Label>
-                <Input
-                  type="date"
-                  value={amendmentForm.expectedDeliveryDate}
-                  onChange={(event) => setAmendmentForm((current) => ({ ...current, expectedDeliveryDate: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Warranty</Label>
-                <Input
-                  value={amendmentForm.warranty}
-                  onChange={(event) => setAmendmentForm((current) => ({ ...current, warranty: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Payment terms</Label>
-                <Input
-                  value={amendmentForm.paymentTerms}
-                  onChange={(event) => setAmendmentForm((current) => ({ ...current, paymentTerms: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Delivery terms</Label>
-                <Input
-                  value={amendmentForm.deliveryTerms}
-                  onChange={(event) => setAmendmentForm((current) => ({ ...current, deliveryTerms: event.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notes</Label>
-              <Textarea
-                value={amendmentForm.notes}
-                onChange={(event) => setAmendmentForm((current) => ({ ...current, notes: event.target.value }))}
-                className="min-h-20"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Reason <span className="text-destructive">*</span></Label>
-              <Textarea
-                value={amendmentForm.reason}
-                onChange={(event) => setAmendmentForm((current) => ({ ...current, reason: event.target.value }))}
-                className="min-h-20"
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 border-t pt-4">
-              <Button type="button" variant="outline" onClick={() => setShowAmendModal(false)} disabled={amending}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={amending}>
-                {amending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <SquarePen className="mr-2 size-4" />}
-                Save Revision
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {poData.status === "REJECTED" && (
         <Card className="mt-6 border-destructive/30 bg-destructive/5 overflow-hidden">

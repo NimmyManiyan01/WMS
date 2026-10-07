@@ -1,7 +1,10 @@
 import datetime
 import json
+import logging
 import uuid
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field

@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     email_timeout_seconds: int = Field(default=8, ge=1, le=60)
     email_host_user: str = Field(default="")
     email_host_password: str = Field(default="")
-    email_from_name: str = Field(default="NexusWMS Procurement")
+    email_from_name: str = Field(default="KaizenX Procurement")
     procurement_email: str = Field(default="")
 
 

@@ -46,7 +46,7 @@ import {
 export const Route = createFileRoute("/dock-management")({
   head: () => ({
     meta: [
-      { title: "Dock Management · NexusWMS" },
+      { title: "Dock Management · KaizenX" },
       {
         name: "description",
         content:

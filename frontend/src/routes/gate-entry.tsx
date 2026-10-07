@@ -92,7 +92,7 @@ import {
 
 
 function gateQrPayload(gateEntryNumber: string) {
-  return `NEXUSWMS:GATE_ENTRY:${gateEntryNumber.trim().toUpperCase()}`;
+  return `KAIZENX:GATE_ENTRY:${gateEntryNumber.trim().toUpperCase()}`;
 }
 
 export const Route = createFileRoute("/gate-entry")({
@@ -127,6 +127,15 @@ type ArrivalLineItem = {
   quantity: string;
   uom: string;
 };
+type PlannedVehicle = {
+  asnNumber: string;
+  vehicleNumber: string;
+  transporter?: string;
+  driverName?: string;
+  driverPhone?: string;
+  pkgCount?: string | number;
+  pkgType?: string;
+};
 const inputClass = "mt-1.5 h-10 rounded-xl border-border/80 bg-background";
 
 function formatVehicleNumber(value: string): string {
@@ -145,6 +154,70 @@ function formatVehicleNumber(value: string): string {
 function isValidVehicleNumber(value: string): boolean {
   const compact = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return /^(?:[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{4}|\d{2}BH\d{4}[A-Z]{2})$/.test(compact);
+}
+
+function extractVehiclesFromAsns(matchingAsns: any[]): PlannedVehicle[] {
+  const result: PlannedVehicle[] = [];
+
+  matchingAsns.forEach((asn: any) => {
+    let rawLog = asn.logistics;
+    if (typeof rawLog === "string") {
+      try {
+        rawLog = JSON.parse(rawLog);
+      } catch {
+        rawLog = null;
+      }
+    }
+
+    const logList = Array.isArray(rawLog) && rawLog.length > 0 ? rawLog : null;
+    const asnNum = String(asn.asnNumber || asn.asn_number || asn.id || "");
+
+    if (logList) {
+      logList.forEach((item: any) => {
+        const rawVeh = String(
+          item.vehicle_number ||
+            item.vehicleNumber ||
+            item.vehicle_plate ||
+            item.vehiclePlate ||
+            "",
+        );
+        const formattedVeh = formatVehicleNumber(rawVeh);
+        if (formattedVeh) {
+          result.push({
+            asnNumber: asnNum,
+            vehicleNumber: formattedVeh,
+            transporter: item.transporter || asn.transporter || "",
+            driverName: item.driver_name || item.driverName || asn.driverName || asn.driver_name || "",
+            driverPhone: item.driver_contact || item.driverContact || asn.driverContact || asn.driver_contact || "",
+            pkgCount: item.number_of_packages ?? item.numberOfPackages ?? asn.numberOfPackages,
+            pkgType: item.package_type || item.packageType || asn.packageType,
+          });
+        }
+      });
+    }
+
+    const topVeh = formatVehicleNumber(String(asn.vehicleNumber || asn.vehicle_number || ""));
+    if (topVeh) {
+      result.push({
+        asnNumber: asnNum,
+        vehicleNumber: topVeh,
+        transporter: asn.transporter || "",
+        driverName: asn.driverName || asn.driver_name || "",
+        driverPhone: asn.driverContact || asn.driver_contact || "",
+        pkgCount: asn.numberOfPackages,
+        pkgType: asn.packageType,
+      });
+    }
+  });
+
+  return result.filter(
+    (v, index, self) =>
+      self.findIndex(
+        (candidate) =>
+          candidate.vehicleNumber.replace(/[^A-Z0-9]/g, "") ===
+          v.vehicleNumber.replace(/[^A-Z0-9]/g, ""),
+      ) === index,
+  );
 }
 
 function formatQuantityInputValue(value: unknown): string {
@@ -181,6 +254,7 @@ function GateEntry() {
   const [extractedDetails, setExtractedDetails] = useState<Record<string, unknown> | null>(null);
   const [lastCreatedEntry, setLastCreatedEntry] = useState<GateEntryRecord | null>(null);
   const [availablePos, setAvailablePos] = useState<any[]>([]);
+  const [plannedVehicles, setPlannedVehicles] = useState<PlannedVehicle[]>([]);
   const [autoFetchingPo, setAutoFetchingPo] = useState(false);
   const [fieldSources, setFieldSources] = useState<{
     poNumber?: "system" | "generated";
@@ -549,6 +623,34 @@ function GateEntry() {
       setPoNumber(resolvedPoNumber);
       setPoVerificationStatus("PO_VERIFIED");
 
+      const normalizePo = (val: string) => String(val || "").toUpperCase().replace(/^PO-?/, "");
+      const targetPoNorm = normalizePo(resolvedPoNumber);
+
+      const matchingAsns = asns.filter((asn: any) => {
+        const p1 = normalizePo(asn.poNumber || asn.po_number);
+        const p2 = normalizePo(asn.poId || asn.po_id);
+        return (p1 && p1 === targetPoNorm) || (p2 && p2 === targetPoNorm);
+      });
+      const vehiclesForPo = extractVehiclesFromAsns(matchingAsns);
+      setPlannedVehicles(vehiclesForPo);
+
+      const firstPendingVehicle =
+        vehiclesForPo.find(
+          (shipment) =>
+            !entries.some(
+              (entry) =>
+                String(entry.poNumber || "").toUpperCase() === resolvedPoNumber.toUpperCase() &&
+                formatVehicleNumber(entry.vehiclePlate || "") === shipment.vehicleNumber,
+            ),
+        ) || vehiclesForPo[0];
+
+      if (firstPendingVehicle) {
+        setVehicleNumber(firstPendingVehicle.vehicleNumber);
+        setAsnReference(firstPendingVehicle.asnNumber);
+        if (firstPendingVehicle.driverName) setDriverName(firstPendingVehicle.driverName);
+        if (firstPendingVehicle.driverPhone) setDriverPhone(firstPendingVehicle.driverPhone);
+      }
+
       const items = po.items || po.lines || [];
       if (items.length) {
         applyLineItems(items);
@@ -597,47 +699,21 @@ function GateEntry() {
         dates: "system",
       });
 
-      const shipment = asns.find(
-        (asn: any) =>
-          String(asn.poNumber || asn.po_number || "").toUpperCase() ===
-          resolvedPoNumber.toUpperCase(),
-      );
-
-      setVehicleNumber("");
+      const shipment = matchingAsns[0];
       if (shipment) {
-        setAsnReference(shipment.asnNumber || shipment.asn_number || shipment.id || "");
+        if (!asnReference && shipment.asnNumber) {
+          setAsnReference(shipment.asnNumber || shipment.asn_number || shipment.id || "");
+        }
         setSupplierName(shipment.supplierName || shipment.supplier_name || fetchedSupplier);
         const expectedArrival = shipment.expectedArrivalAt || shipment.expected_arrival_at;
         if (expectedArrival) setDeliveryDate(String(expectedArrival).slice(0, 10));
         const shipmentItems = shipment.lines || shipment.items || [];
         if (shipmentItems.length) applyLineItems(shipmentItems);
-      } else {
-        setAsnReference("");
-      }
-      if (shipment?.driverName || shipment?.driver_name) {
-        setDriverName(shipment.driverName || shipment.driver_name);
-      }
-      if (shipment?.driverContact || shipment?.driver_contact) {
-        setDriverPhone(shipment.driverContact || shipment.driver_contact);
-      }
-
-      if (shipment?.vehicleNumber || shipment?.vehicle_number) {
-        handleVehicleNumberChange(shipment.vehicleNumber || shipment.vehicle_number);
       }
 
       toast.success(
-        shipment?.vehicleNumber || shipment?.vehicle_number
-          ? `PO ${resolvedPoNumber} & vehicle details auto-fetched!`
-          : `PO ${resolvedPoNumber} details auto-fetched & required fields generated!`,
-        { id: toastId },
-      );
-      if (shipment?.vehicleNumber || shipment?.vehicle_number) {
-        handleVehicleNumberChange(shipment.vehicleNumber || shipment.vehicle_number);
-      }
-
-      toast.success(
-        shipment?.vehicleNumber || shipment?.vehicle_number
-          ? `PO ${resolvedPoNumber} & vehicle details auto-fetched!`
+        vehiclesForPo.length > 0
+          ? `PO ${resolvedPoNumber} & ${vehiclesForPo.length} planned vehicle(s) auto-fetched!`
           : `PO ${resolvedPoNumber} details auto-fetched & required fields generated!`,
         { id: toastId },
       );
@@ -664,18 +740,30 @@ function GateEntry() {
       setAsnReference(shipment.asnNumber || shipment.asn_number || shipment.id);
       setPoNumber(shipment.poNumber || shipment.po_number || "");
       setSupplierName(shipment.supplierName || shipment.supplier_name || "");
-      setVehicleNumber(
-        formatVehicleNumber(shipment.vehicleNumber || shipment.vehicle_number || ""),
-      );
-      setDriverName(shipment.driverName || shipment.driver_name || "Driver");
-      setDriverPhone(shipment.driverContact || shipment.driver_contact || "");
+
+      const vehiclesForAsn = extractVehiclesFromAsns([shipment]);
+      setPlannedVehicles(vehiclesForAsn);
+
+      if (vehiclesForAsn.length > 0) {
+        const firstVeh = vehiclesForAsn[0];
+        setVehicleNumber(firstVeh.vehicleNumber);
+        if (firstVeh.driverName) setDriverName(firstVeh.driverName);
+        if (firstVeh.driverPhone) setDriverPhone(firstVeh.driverPhone);
+      } else {
+        setVehicleNumber(
+          formatVehicleNumber(shipment.vehicleNumber || shipment.vehicle_number || ""),
+        );
+        setDriverName(shipment.driverName || shipment.driver_name || "Driver");
+        setDriverPhone(shipment.driverContact || shipment.driver_contact || "");
+      }
+
       setDeliveryDate(
         (shipment.expectedArrivalAt || shipment.expected_arrival_at || "").slice(0, 10),
       );
       applyLineItems(shipment.lines || shipment.items || []);
       toast.success("ASN details loaded", {
         id: toastId,
-        description: "PO, supplier, vehicle and shipment data remain sourced from the ASN.",
+        description: `PO, supplier and ${vehiclesForAsn.length || 1} vehicle(s) sourced from ASN.`,
       });
     } catch (error) {
       toast.error("Unable to load ASN", {
@@ -796,6 +884,7 @@ function GateEntry() {
       setPoDate("");
       setDeliveryDate("");
       setVehicleNumber("");
+      setPlannedVehicles([]);
       setDriverName("Driver");
       setLicenseNumber("");
       setDriverPhone("");
@@ -1301,6 +1390,102 @@ function GateEntry() {
                 )}
               </div>
             </div>
+            {plannedVehicles.length > 0 && (
+              <div className="mt-4 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="mb-2.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Truck className="size-4 text-primary" />
+                    <p className="text-xs font-bold text-foreground">
+                      Planned Vehicle Arrivals ({plannedVehicles.length} Vehicle{plannedVehicles.length > 1 ? "s" : ""})
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-bold">
+                    {plannedVehicles.filter((shipment) =>
+                      entries.some(
+                        (entry) =>
+                          String(entry.poNumber || "").toUpperCase() === poNumber.toUpperCase() &&
+                          formatVehicleNumber(entry.vehiclePlate || "") === shipment.vehicleNumber,
+                      ),
+                    ).length}
+                    /{plannedVehicles.length} arrived
+                  </Badge>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {plannedVehicles.map((shipment) => {
+                    const hasArrived = entries.some(
+                      (entry) =>
+                        String(entry.poNumber || "").toUpperCase() === poNumber.toUpperCase() &&
+                        formatVehicleNumber(entry.vehiclePlate || "") === shipment.vehicleNumber,
+                    );
+                    const isSelected = vehicleNumber === shipment.vehicleNumber;
+                    return (
+                      <div
+                        key={`${shipment.asnNumber}-${shipment.vehicleNumber}`}
+                        onClick={() => {
+                          if (hasArrived) return;
+                          setVehicleNumber(shipment.vehicleNumber);
+                          setAsnReference(shipment.asnNumber);
+                          if (shipment.driverName) setDriverName(shipment.driverName);
+                          if (shipment.driverPhone) setDriverPhone(shipment.driverPhone);
+                        }}
+                        className={cn(
+                          "flex cursor-pointer items-center justify-between gap-2 rounded-xl border p-2.5 text-xs transition-all",
+                          isSelected
+                            ? "border-primary bg-primary/10 ring-2 ring-primary/30"
+                            : hasArrived
+                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 cursor-default opacity-80"
+                              : "border-border/60 bg-card hover:border-primary/50 hover:bg-accent/40",
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="radio"
+                            name="selected_planned_vehicle"
+                            checked={isSelected}
+                            onChange={() => {
+                              if (hasArrived) return;
+                              setVehicleNumber(shipment.vehicleNumber);
+                              setAsnReference(shipment.asnNumber);
+                              if (shipment.driverName) setDriverName(shipment.driverName);
+                              if (shipment.driverPhone) setDriverPhone(shipment.driverPhone);
+                            }}
+                            disabled={hasArrived}
+                            className="size-3.5 accent-primary shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-mono font-bold text-foreground truncate">
+                              {shipment.vehicleNumber}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {shipment.transporter ? `${shipment.transporter} · ` : ""}
+                              {shipment.driverName || "Driver"}
+                            </p>
+                          </div>
+                        </div>
+                        <div>
+                          {hasArrived ? (
+                            <Badge variant="outline" className="text-[9px] bg-emerald-500/20 text-emerald-700 border-emerald-500/40 font-bold">
+                              Arrived
+                            </Badge>
+                          ) : isSelected ? (
+                            <Badge variant="outline" className="text-[9px] bg-primary/20 text-primary border-primary/40 font-bold">
+                              Selected
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] text-muted-foreground">
+                              Select
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  Select a planned vehicle to auto-fill its vehicle number, driver details, and ASN reference.
+                </p>
+              </div>
+            )}
           </SectionCard>
 
           <SectionCard

@@ -161,7 +161,7 @@ async def create_supplier_damage_claim(
     subject = f"Damage Claim {claim_number} - {report.po_number}"
     body = (f"Dear {supplier.supplier_name},\n\nDamage Claim: {claim_number}\nPO: {report.po_number}\n"
             f"Material: {report.material_name or report.material_code}\nDamaged Qty: {report.damaged_quantity} {line.uom or ''}\n"
-            f"Reason: {report.damage_reason}\n\nInspection photos are attached.\n\nRegards,\nNexusWMS Procurement Team")
+            f"Reason: {report.damage_reason}\n\nInspection photos are attached.\n\nRegards,\nKaizenX Procurement Team")
     html = render_premium_email(
         eyebrow="Supplier damage claim", title=f"Damage Claim {claim_number}", greeting=f"Hello {supplier.supplier_name},",
         intro="Procurement has raised a claim for material damaged on receipt.",
@@ -268,7 +268,7 @@ async def forward_quality_issue_to_supplier(
         "Portal Access:\n"
         f"{cred_text}\n"
         f"Quick Login Link: {magic_link}\n\n"
-        "Regards,\nNexusWMS Procurement Team"
+        "Regards,\nKaizenX Procurement Team"
     )
 
     details = [

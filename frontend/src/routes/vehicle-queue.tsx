@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api-client";
 
 export const Route = createFileRoute("/vehicle-queue")({
-  head: () => ({ meta: [{ title: "Inbound Arrivals · NexusWMS" }] }),
+  head: () => ({ meta: [{ title: "Inbound Arrivals · KaizenX" }] }),
   component: InboundArrivals,
 });
 
