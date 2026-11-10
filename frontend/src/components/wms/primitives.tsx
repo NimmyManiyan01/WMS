@@ -15,6 +15,7 @@ export function StatCard({
   showArrow = false,
   compact = false,
   infoTooltip,
+  showTrend = false,
 }: {
   label: string;
   value: string;
@@ -25,22 +26,30 @@ export function StatCard({
   showArrow?: boolean;
   compact?: boolean;
   infoTooltip?: string;
+  showTrend?: boolean;
 }) {
   const tones: Record<string, string> = {
-    primary: "bg-primary-soft text-primary",
-    teal: "bg-teal-soft text-teal",
-    success: "bg-success-soft text-success",
-    warning: "bg-warning-soft text-warning-foreground",
-    danger: "bg-danger-soft text-destructive",
+    primary: "bg-blue-100 text-blue-800",
+    teal: "bg-cyan-100 text-cyan-800",
+    success: "bg-green-100 text-green-800",
+    warning: "bg-amber-100 text-amber-800",
+    danger: "bg-red-100 text-red-800",
+  };
+  const trendTones: Record<string, string> = {
+    primary: "text-blue-600",
+    teal: "text-cyan-600",
+    success: "text-green-600",
+    warning: "text-amber-600",
+    danger: "text-red-600",
   };
   const cardContent = (
     <Card
       className={cn(
-        "flex h-full flex-col gap-0 rounded-2xl border-border/70 shadow-soft transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lift",
-        compact ? "min-h-24 justify-center p-4" : "min-h-36 p-4",
+        "relative flex h-full gap-0 rounded-2xl border-border/70 shadow-soft transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lift",
+        showTrend ? "min-h-28 grid-cols-[auto_1fr_auto] grid items-center p-4" : compact ? "min-h-24 flex-col justify-center p-4" : "min-h-36 flex-col p-4",
       )}
     >
-      <div className="flex items-center justify-between">
+      <div className={cn("flex items-center justify-between", showTrend && "order-1") }>
         <span className={cn("grid size-9 place-items-center rounded-xl", tones[tone])}>
           <Icon className="size-4" />
         </span>
@@ -51,13 +60,13 @@ export function StatCard({
       <p
         className={cn(
           "font-bold tracking-tight tabular-nums",
-          compact ? "mt-2 text-xl" : "mt-3 text-2xl",
+          showTrend ? "order-2 mx-3 mt-0 text-2xl" : compact ? "mt-2 text-xl" : "mt-3 text-2xl",
         )}
       >
         {value}
       </p>
-      <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-        <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
+      <div className={cn("mt-0.5 flex min-w-0 items-center gap-1.5", showTrend && "order-3 min-w-0 flex-col items-start gap-1 pr-12") }>
+        <p className="max-w-full truncate text-xs font-bold text-slate-700">{label}</p>
         {infoTooltip && (
           <TooltipProvider>
             <Tooltip delayDuration={200}>
@@ -81,6 +90,18 @@ export function StatCard({
           </TooltipProvider>
         )}
       </div>
+      {showTrend && (
+        <div className={cn("absolute right-4 top-1/2 mt-2 flex h-7 -translate-y-1/2 items-end gap-0.5", trendTones[tone])} aria-label={`${label} trend`}>
+          {[35, 55, 42, 72, 58, 86, 68].map((height, index) => (
+            <span
+              key={index}
+              className="w-1.5 rounded-t-sm bg-current opacity-70"
+              style={{ height: `${height}%` }}
+            />
+          ))}
+        </div>
+      )}
+      {showTrend && <span className={cn("absolute inset-x-0 bottom-0 h-0.5 rounded-b-2xl", trendTones[tone].replace("text-", "bg-"))} aria-hidden="true" />}
       {!compact && (
         <p
           className={cn(

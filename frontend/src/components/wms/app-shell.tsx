@@ -340,11 +340,13 @@ export function AppShell({
   title,
   subtitle,
   actions,
+  mainClassName,
 }: {
   children: ReactNode;
   title: ReactNode;
   subtitle?: string;
   actions?: ReactNode;
+  mainClassName?: string;
 }) {
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -885,15 +887,17 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="page-enter flex-1 px-4 py-6 lg:px-8">
+        <main className={`page-enter flex-1 px-4 py-6 lg:px-8 ${mainClassName || ""}`}>
           <div className="mx-auto w-full max-w-[1536px]">
-            <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight lg:text-[28px]">{title}</h1>
-                {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+            {(title || subtitle || actions) && (
+              <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  {title && <h1 className="text-2xl font-semibold tracking-tight lg:text-[28px]">{title}</h1>}
+                  {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+                </div>
+                {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
               </div>
-              {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-            </div>
+            )}
             {children}
           </div>
         </main>
