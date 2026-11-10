@@ -585,6 +585,16 @@ class FinishedGoodsRequestModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class FinishedGoodsUomOptionModel(Base):
+    __tablename__ = "finished_goods_uom_option"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+
 class StockReservationModel(Base):
     __tablename__ = "stock_reservation"
     __table_args__ = (UniqueConstraint("request_item_id", name="uq_stock_reservation_request_item"),)

@@ -55,19 +55,12 @@ function ManagerDashboard() {
   const loadData = async (quiet = false) => {
     try {
       if (!quiet) setLoading(true);
-      const [requests, pendingSuppliers] = await Promise.all([
+      const [requests, supplierData] = await Promise.all([
         api.getMaterialRequests(),
         api.getSuppliers(),
       ]);
       setMaterialRequests(Array.isArray(requests) ? requests : []);
-      setSuppliers(
-        Array.isArray(pendingSuppliers)
-          ? pendingSuppliers.filter(
-              (supplier) =>
-                normalizeStatus(supplier.status || "Pending Approval") === "pending approval",
-            )
-          : [],
-      );
+      setSuppliers(Array.isArray(supplierData) ? supplierData : []);
     } catch (error) {
       console.error("Failed to load manager dashboard", error);
       if (!quiet) toast.error("Failed to load manager dashboard");
@@ -122,6 +115,20 @@ function ManagerDashboard() {
     [materialRequests],
   );
 
+  const pendingSuppliers = useMemo(
+    () =>
+      suppliers.filter(
+        (supplier) =>
+          normalizeStatus(supplier.status || "Pending Approval") === "pending approval",
+      ),
+    [suppliers],
+  );
+
+  const approvedSuppliers = useMemo(
+    () => suppliers.filter((supplier) => normalizeStatus(supplier.status) === "active"),
+    [suppliers],
+  );
+
   const recentRequests = useMemo(
     () =>
       [...materialRequests]
@@ -144,14 +151,16 @@ function ManagerDashboard() {
       pending: pendingRequests.length,
       approved: approvedRequests.length,
       rejected: rejectedRequests.length,
-      supplierApprovals: suppliers.length,
+      pendingSupplierApprovals: pendingSuppliers.length,
+      approvedSuppliers: approvedSuppliers.length,
     }),
     [
       approvedRequests.length,
       materialRequests.length,
       pendingRequests.length,
       rejectedRequests.length,
-      suppliers.length,
+      pendingSuppliers.length,
+      approvedSuppliers.length,
     ],
   );
 
@@ -282,12 +291,37 @@ function ManagerDashboard() {
         </Button>
       }
     >
-      <div className="mb-6 grid gap-4 md:grid-cols-5">
-        <MetricCard title="Total Requests" value={stats.totalRequests} icon={ClipboardList} />
-        <MetricCard title="Pending" value={stats.pending} icon={PackageCheck} />
-        <MetricCard title="Approved" value={stats.approved} icon={CheckCircle2} />
-        <MetricCard title="Rejected" value={stats.rejected} icon={XCircle} />
-        <MetricCard title="Supplier Approvals" value={stats.supplierApprovals} icon={PackageCheck} />
+      <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard
+          title="Total Material Requests"
+          value={stats.totalRequests}
+          icon={ClipboardList}
+        />
+        <MetricCard
+          title="Pending Material Requests"
+          value={stats.pending}
+          icon={PackageCheck}
+        />
+        <MetricCard
+          title="Approved Material Requests"
+          value={stats.approved}
+          icon={CheckCircle2}
+        />
+        <MetricCard
+          title="Rejected Material Requests"
+          value={stats.rejected}
+          icon={XCircle}
+        />
+        <MetricCard
+          title="Pending Supplier Approvals"
+          value={stats.pendingSupplierApprovals}
+          icon={PackageCheck}
+        />
+        <MetricCard
+          title="Approved Suppliers"
+          value={stats.approvedSuppliers}
+          icon={CheckCircle2}
+        />
       </div>
 
       {loading ? (
@@ -328,7 +362,7 @@ function ManagerDashboard() {
               title="Supplier Onboarding Approvals"
               emptyText="No suppliers are waiting for manager approval."
             >
-              {suppliers.map((supplier) => {
+              {pendingSuppliers.map((supplier) => {
                 const supplierId = supplierIdOf(supplier);
                 const category = supplier.category || supplier.categories || supplier.materialCategories;
                 const categoryText = Array.isArray(category)

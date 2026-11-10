@@ -119,6 +119,7 @@ from app.modules.procurement.infrastructure.api.schemas import (
     DevLoginRequest,
     GlobalSearchResponse,
     CreateFinishedGoodsRequestSchema,
+    CreateFinishedGoodsUomOptionSchema,
     FinishedGoodsRequestResponse,
 )
 from app.modules.procurement.infrastructure.api.magic_link import (
@@ -151,6 +152,7 @@ from app.modules.procurement.infrastructure.persistence.models import (
     MaterialRequestModel,
     MaterialRequestItemModel,
     FinishedGoodsRequestModel,
+    FinishedGoodsUomOptionModel,
     MaterialStockModel,
     POApprovalHistoryModel,
     NotificationModel,
@@ -5211,7 +5213,7 @@ async def get_user_navigation(
                 {"label": "Quotations", "to": "/procurement/quotations", "icon": "FileBadge"},
                 {"label": "Purchase Orders", "to": "/procurement/purchase-orders", "icon": "FileText"},
                 {"label": "ASNs", "to": "/procurement/asns", "icon": "Truck"},
-                {"label": "Reports", "to": "/reports", "icon": "BarChart3"},
+                {"label": "Reports", "to": "/procurement/reports", "icon": "BarChart3"},
             ]
         },
         "SUPPLIER": {
@@ -5235,8 +5237,8 @@ async def get_user_navigation(
             "module_label": "Manager Portal",
             "items": [
                 {"label": "Dashboard", "to": "/manager-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Suppliers", "to": "/master-data", "icon": "Building2"},
-                {"label": "Material Requests", "to": "/procurement/material-requests", "icon": "ClipboardList"},
+                {"label": "Supplier Approvals", "to": "/master-data?module=manager&status=pending-approval", "icon": "Building2"},
+                {"label": "Material Request Approvals", "to": "/procurement/material-requests?module=manager&status=manager-approval", "icon": "ClipboardList"},
             ]
         },
         "GATE_SECURITY": {
@@ -5409,7 +5411,20 @@ async def upload_fg_bom_attachment(
     upload_dir = Path("media_uploads/bom_attachments")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    file_ext = Path(file.filename).suffix
+    allowed_extensions = {".pdf", ".xlsx", ".xls", ".csv", ".doc", ".docx", ".png", ".jpg", ".jpeg"}
+    original_name = Path(file.filename or "")
+    file_ext = original_name.suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported BOM file type")
+
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size <= 0:
+        raise HTTPException(status_code=400, detail="BOM file cannot be empty")
+    if file_size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="BOM file must be 10 MB or smaller")
+
     unique_filename = f"{uuid.uuid4()}{file_ext}"
     dest_path = upload_dir / unique_filename
 
@@ -5421,9 +5436,73 @@ async def upload_fg_bom_attachment(
         raise HTTPException(status_code=500, detail="Could not save file")
 
     return {
-        "file_name": file.filename,
+        "file_name": original_name.name,
         "file_url": f"/media/bom_attachments/{unique_filename}"
     }
+
+
+@router.get("/finished-goods-uoms")
+async def list_finished_goods_uoms(uow: UnitOfWork = Depends(get_uow)):
+    result = await uow.session.execute(
+        select(FinishedGoodsUomOptionModel).order_by(FinishedGoodsUomOptionModel.normalized_code)
+    )
+    return [
+        {"id": str(option.id), "code": option.code}
+        for option in result.scalars().all()
+    ]
+
+
+@router.post("/finished-goods-uoms", status_code=status.HTTP_201_CREATED)
+async def create_finished_goods_uom(
+    payload: CreateFinishedGoodsUomOptionSchema,
+    user: CurrentUser = Depends(get_current_user),
+    uow: UnitOfWork = Depends(get_uow),
+):
+    normalized_code = payload.code.strip().upper()
+    existing = await uow.session.scalar(
+        select(FinishedGoodsUomOptionModel).where(
+            FinishedGoodsUomOptionModel.normalized_code == normalized_code
+        )
+    )
+    if existing:
+        return {"id": str(existing.id), "code": existing.code}
+
+    option = FinishedGoodsUomOptionModel(
+        id=uuid.uuid4(),
+        code=normalized_code,
+        normalized_code=normalized_code,
+        created_by=user.username or "Procurement",
+        created_at=datetime.now(),
+    )
+    uow.session.add(option)
+    try:
+        await uow.commit()
+    except IntegrityError:
+        await uow.rollback()
+        existing = await uow.session.scalar(
+            select(FinishedGoodsUomOptionModel).where(
+                FinishedGoodsUomOptionModel.normalized_code == normalized_code
+            )
+        )
+        if existing:
+            return {"id": str(existing.id), "code": existing.code}
+        raise
+    return {"id": str(option.id), "code": option.code}
+
+
+@router.delete("/finished-goods-uoms/{option_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_finished_goods_uom(
+    option_id: uuid.UUID,
+    _user: CurrentUser = Depends(verify_procurement_role),
+    uow: UnitOfWork = Depends(get_uow),
+):
+    option = await uow.session.get(FinishedGoodsUomOptionModel, option_id)
+    if not option:
+        raise HTTPException(status_code=404, detail="UOM not found")
+
+    await uow.session.delete(option)
+    await uow.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/finished-goods-requests", status_code=status.HTTP_201_CREATED)
@@ -5437,10 +5516,19 @@ async def create_finished_goods_request(
     Status is initialized to SENT_TO_ASSEMBLY.
     In-app notifications sent to Assembly and Warehouse.
     """
-    if payload.quantity <= 0:
-        raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
-    if not payload.finished_goods_name or not payload.finished_goods_name.strip():
-        raise HTTPException(status_code=400, detail="Product/Finished Goods Name is required")
+    if payload.required_date < payload.requested_date:
+        raise HTTPException(status_code=400, detail="Required date cannot be before request date")
+    if payload.requested_date > datetime.now().date():
+        raise HTTPException(status_code=400, detail="Request date cannot be in the future")
+
+    normalized_uom = payload.uom.strip().upper()
+    managed_uom = await uow.session.scalar(
+        select(FinishedGoodsUomOptionModel).where(
+            FinishedGoodsUomOptionModel.normalized_code == normalized_uom
+        )
+    )
+    if not managed_uom:
+        raise HTTPException(status_code=400, detail="Select a managed UOM or add it first")
 
     date_str = datetime.now().strftime("%Y%m%d")
     prefix = f"FGR-{date_str}-"
@@ -5459,11 +5547,11 @@ async def create_finished_goods_request(
     new_request = FinishedGoodsRequestModel(
         id=uuid.uuid4(),
         request_number=req_number,
-        warehouse_id=payload.warehouse_id or "MAIN",
+        warehouse_id="MAIN",
         finished_goods_code=payload.finished_goods_code.strip() if payload.finished_goods_code else payload.finished_goods_name.strip(),
         finished_goods_name=payload.finished_goods_name.strip(),
         quantity=payload.quantity,
-        uom=payload.uom or "PCS",
+        uom=normalized_uom,
         required_date=req_date,
         requested_by=requester,
         requested_date=req_date_requested,

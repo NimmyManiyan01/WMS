@@ -39,6 +39,7 @@ import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { sanitizeGstin, validateGstin } from "@/lib/gstin";
 
 export const Route = createFileRoute("/supplier/$supplierId")({
   component: SupplierProfile,
@@ -215,13 +216,8 @@ function SupplierProfile() {
     else if (industry.length < 2 || industry.length > 100)
       newErrors.industry = "Must be between 2 and 100 characters";
 
-    if (!gstin) newErrors.gstin = "GSTIN is required";
-    else if (gstin.length !== 15) newErrors.gstin = "Exactly 15 characters";
-    else if (
-      !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin.toUpperCase())
-    ) {
-      newErrors.gstin = "Invalid format (e.g. 29ABCDE1234F1Z5)";
-    }
+    const gstinError = validateGstin(gstin);
+    if (gstinError) newErrors.gstin = gstinError;
 
     // Address & Contact Validation
     if (form.address) {
@@ -690,7 +686,7 @@ function SupplierProfile() {
                   value={form.gstin}
                   error={errors.gstin}
                   maxLength={15}
-                  onChange={(value) => updateForm("root", "gstin", value.substring(0, 15))}
+                  onChange={(value) => updateForm("root", "gstin", sanitizeGstin(value))}
                 />
                 {form.address && (
                   <>

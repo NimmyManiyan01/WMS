@@ -184,7 +184,7 @@ const procurementNav = [
   { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
   { label: "Damage Claims", to: "/damage-claims", icon: ShieldAlert },
-  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
+  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const supplierNav = [
@@ -202,12 +202,12 @@ const financeNav = [
 const managerNav = [
   { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
   {
-    label: "Suppliers",
+    label: "Supplier Approvals",
     to: "/master-data?module=manager&status=pending-approval",
     icon: Building2,
   },
   {
-    label: "Material Requests",
+    label: "Material Request Approvals",
     to: "/procurement/material-requests?module=manager&status=manager-approval",
     icon: ClipboardList,
   },
@@ -488,6 +488,7 @@ export function AppShell({
     path === "/dispatch" || path.startsWith("/dispatch-") || path.startsWith("/dispatch/");
   const isAdminUser =
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
+  const isManagerUser = mounted && user?.roles?.includes("MANAGER");
   const isNotificationsRoute = path.startsWith("/notifications");
   const isAdminRoute = path.startsWith("/admin/");
   const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-exit"].some((route) =>
@@ -515,7 +516,9 @@ export function AppShell({
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
-      : isDispatchUser || isDispatchRoute
+      : isManagerUser
+        ? managerNav
+        : isDispatchUser || isDispatchRoute
         ? dispatchNav
         : isAssemblyUser || isAssemblyRoute
           ? assemblyNav

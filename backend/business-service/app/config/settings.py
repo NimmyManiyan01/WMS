@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     database_pool_size: int = 10
     database_max_overflow: int = 20
     database_echo: bool = False
+    database_auto_create_schema: bool = Field(
+        default=False,
+        description="Create missing ORM tables during startup. Prefer Alembic migrations.",
+    )
+    database_legacy_schema_repair: bool = Field(
+        default=False,
+        description="Run the slow, idempotent legacy schema-repair routine during startup.",
+    )
 
     # --- Auth / JWT (validated locally, never call the Java service per-request) ---
     auth_service_base_url: str = Field(default="http://auth-service:8080")

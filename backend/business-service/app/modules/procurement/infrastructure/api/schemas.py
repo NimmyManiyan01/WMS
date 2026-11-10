@@ -1,10 +1,25 @@
 from datetime import date, datetime
 from decimal import Decimal
+import re
 from typing import Any, List, Optional, Union
 
 from pydantic import Field, field_validator
 
 from app.common.api_model import ApiModel
+
+
+GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def normalize_and_validate_gstin(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = "".join(char for char in value.strip().upper() if char.isalnum())
+    if not normalized:
+        return None
+    if not GSTIN_PATTERN.fullmatch(normalized):
+        raise ValueError("Invalid GSTIN format; expected 15 characters such as 29ABCDE1234F1Z5")
+    return normalized
 
 
 class MasterDataCreate(ApiModel):
@@ -162,6 +177,11 @@ class CreateSupplierRequest(ApiModel):
     remarks: Optional[str] = None
     created_by: Optional[str] = None
 
+    @field_validator("gstin")
+    @classmethod
+    def validate_gstin(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_and_validate_gstin(value)
+
 
 class UpdateSupplierRequest(ApiModel):
     supplier_name: Optional[str] = None
@@ -178,6 +198,11 @@ class UpdateSupplierRequest(ApiModel):
     bank_info: Optional[BankInfoRequest] = None
     documents: Optional[List[DocumentRequest]] = None
     remarks: Optional[str] = None
+
+    @field_validator("gstin")
+    @classmethod
+    def validate_gstin(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_and_validate_gstin(value)
 
 
 class SupplierStatusRequest(ApiModel):
@@ -794,17 +819,54 @@ class PoDamagedGoodsResponse(ApiModel):
 
 
 class CreateFinishedGoodsRequestSchema(ApiModel):
-    warehouse_id: Optional[str] = "MAIN"
-    finished_goods_code: Optional[str] = None
-    finished_goods_name: str
-    quantity: Decimal = Field(..., gt=0, description="Quantity must be greater than 0")
-    uom: Optional[str] = "PCS"
-    required_date: Optional[date] = None
-    requested_by: Optional[str] = None
-    requested_date: Optional[date] = None
-    bom_attachment_url: Optional[str] = None
-    bom_attachment_name: Optional[str] = None
-    remarks: Optional[str] = None
+    finished_goods_code: Optional[str] = Field(default=None, max_length=64)
+    finished_goods_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._()/+\-]*$",
+    )
+    quantity: Decimal = Field(
+        ...,
+        gt=0,
+        le=Decimal("999999999.9999"),
+        decimal_places=4,
+        description="Positive quantity with up to four decimal places",
+    )
+    uom: str = Field(default="PCS", min_length=1, max_length=32)
+    required_date: date
+    requested_by: str = Field(
+        ...,
+        min_length=2,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._@/\-]*$",
+    )
+    requested_date: date
+    bom_attachment_url: Optional[str] = Field(default=None, max_length=512)
+    bom_attachment_name: Optional[str] = Field(default=None, max_length=256)
+    remarks: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("finished_goods_name", "requested_by", "uom")
+    @classmethod
+    def strip_required_finished_goods_fields(cls, value: str) -> str:
+        cleaned = " ".join(value.strip().split())
+        if not cleaned:
+            raise ValueError("Value cannot be empty")
+        return cleaned
+
+
+class CreateFinishedGoodsUomOptionSchema(ApiModel):
+    code: str = Field(..., min_length=1, max_length=32)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        cleaned = value.strip().upper()
+        if not cleaned:
+            raise ValueError("UOM cannot be empty")
+        if not all(char.isalnum() or char in {"-", "_", "/", " "} for char in cleaned):
+            raise ValueError("UOM may contain only letters, numbers, spaces, hyphens, underscores, and /")
+        return " ".join(cleaned.split())
 
 
 class FinishedGoodsRequestResponse(ApiModel):

@@ -7,9 +7,12 @@ import {
   FileText,
   Loader2,
   Paperclip,
+  Plus,
   RefreshCw,
   Search,
   Send,
+  Settings2,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -20,6 +23,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
 import {
@@ -36,7 +47,10 @@ export const Route = createFileRoute("/procurement/finished-goods")({
   component: ProcurementFinishedGoods,
 });
 
-const today = () => new Date().toISOString().split("T")[0];
+const today = () => new Date().toISOString().slice(0, 10);
+const PRODUCT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._()/+-]*$/;
+const REQUESTER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._@/-]*$/;
+type UomOption = { id: string; code: string };
 
 function formatDisplayDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "-";
@@ -56,6 +70,10 @@ function ProcurementFinishedGoods() {
   const [uploadingBom, setUploadingBom] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [uomOptions, setUomOptions] = useState<UomOption[]>([]);
+  const [customUom, setCustomUom] = useState("");
+  const [addingUom, setAddingUom] = useState(false);
+  const [deletingUomId, setDeletingUomId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bomFile, setBomFile] = useState<File | null>(null);
@@ -66,9 +84,8 @@ function ProcurementFinishedGoods() {
 
   const [form, setForm] = useState({
     product_name: "",
-    warehouse_id: "MAIN",
     quantity: "10",
-    uom: "PCS",
+    uom: "",
     required_date: today(),
     requested_by: defaultRequester,
     requested_date: today(),
@@ -88,8 +105,32 @@ function ProcurementFinishedGoods() {
     }
   };
 
+  const fetchUoms = async () => {
+    try {
+      const options = await api.getFinishedGoodsUoms();
+      const unique = new Map<string, UomOption>();
+      for (const option of Array.isArray(options) ? options : []) {
+        const code = option.code.trim().toUpperCase();
+        if (code && !unique.has(code)) {
+          unique.set(code, { ...option, code });
+        }
+      }
+      const managedOptions = Array.from(unique.values()).sort((left, right) => left.code.localeCompare(right.code));
+      setUomOptions(managedOptions);
+      setForm((current) => ({
+        ...current,
+        uom: managedOptions.some((option) => option.code === current.uom)
+          ? current.uom
+          : (managedOptions.find((option) => option.code === "PCS")?.code ?? managedOptions[0]?.code ?? ""),
+      }));
+    } catch (error) {
+      console.error("Failed to load UOMs:", error);
+    }
+  };
+
   useEffect(() => {
     void fetchRequests();
+    void fetchUoms();
     const user = getUserInfo()?.username?.trim();
     if (user) {
       setForm((prev) => ({ ...prev, requested_by: prev.requested_by || user }));
@@ -99,6 +140,19 @@ function ProcurementFinishedGoods() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const allowedExtensions = ["pdf", "xlsx", "xls", "csv", "doc", "docx", "png", "jpg", "jpeg"];
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    if (!allowedExtensions.includes(extension)) {
+      toast.error("Unsupported BOM file type");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("BOM file must be 10 MB or smaller");
+      e.target.value = "";
+      return;
+    }
 
     setBomFile(file);
     setUploadingBom(true);
@@ -118,6 +172,61 @@ function ProcurementFinishedGoods() {
     }
   };
 
+  const handleAddCustomUom = async () => {
+    const normalized = customUom.trim().toUpperCase().replace(/\s+/g, " ");
+    if (!normalized) {
+      toast.error("Enter a UOM");
+      return;
+    }
+    if (normalized.length > 32 || !/^[A-Z0-9][A-Z0-9 _/-]*$/.test(normalized)) {
+      toast.error("UOM must be 1–32 characters using letters, numbers, spaces, -, _, or /");
+      return;
+    }
+    if (uomOptions.some((option) => option.code === normalized)) {
+      setForm((current) => ({ ...current, uom: normalized }));
+      setCustomUom("");
+      toast.info(`${normalized} already exists and has been selected`);
+      return;
+    }
+
+    setAddingUom(true);
+    try {
+      const saved = await api.createFinishedGoodsUom(normalized);
+      const code = saved.code.trim().toUpperCase();
+      setUomOptions((current) => {
+        if (current.some((option) => option.code === code)) return current;
+        return [...current, { ...saved, code }].sort((left, right) => left.code.localeCompare(right.code));
+      });
+      setForm((current) => ({ ...current, uom: code }));
+      setCustomUom("");
+      toast.success(`${code} added to UOM options`);
+    } catch (error: any) {
+      toast.error("Failed to add UOM", { description: error.message });
+    } finally {
+      setAddingUom(false);
+    }
+  };
+
+  const handleDeleteUom = async (option: UomOption) => {
+    if (!window.confirm(`Delete UOM “${option.code}”? Existing requests will keep their recorded UOM.`)) {
+      return;
+    }
+    setDeletingUomId(option.id);
+    try {
+      await api.deleteFinishedGoodsUom(option.id);
+      const remaining = uomOptions.filter((item) => item.id !== option.id);
+      setUomOptions(remaining);
+      if (form.uom === option.code) {
+        setForm((current) => ({ ...current, uom: remaining[0]?.code ?? "" }));
+      }
+      toast.success(`${option.code} removed from UOMs`);
+    } catch (error: any) {
+      toast.error("Failed to delete UOM", { description: error.message });
+    } finally {
+      setDeletingUomId(null);
+    }
+  };
+
   const removeBomFile = () => {
     setBomFile(null);
     setUploadedBomUrl(null);
@@ -134,23 +243,38 @@ function ProcurementFinishedGoods() {
     const productName = form.product_name.trim();
     const quantity = Number(form.quantity);
 
-    if (!productName) {
-      toast.error("Finished Product name/code is required");
+    if (productName.length < 2 || productName.length > 255 || !PRODUCT_PATTERN.test(productName)) {
+      toast.error("Finished Product must be 2–255 valid characters");
       return;
     }
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      toast.error("Quantity must be a positive number greater than 0");
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 999999999.9999 || !/^\d+(\.\d{1,4})?$/.test(form.quantity)) {
+      toast.error("Quantity must be positive, at most 999,999,999.9999, with up to 4 decimals");
       return;
     }
-    if (!requester) {
-      toast.error("Requested By (Requester name) is required");
+    if (!uomOptions.some((option) => option.code === form.uom)) {
+      toast.error("Select a saved UOM");
+      return;
+    }
+    if (requester.length < 2 || requester.length > 128 || !REQUESTER_PATTERN.test(requester)) {
+      toast.error("Requested By must be 2–128 valid characters");
+      return;
+    }
+    if (!requestDate || requestDate > today()) {
+      toast.error("Request Date cannot be in the future");
+      return;
+    }
+    if (!form.required_date || form.required_date < requestDate) {
+      toast.error("Required Date cannot be before Request Date");
+      return;
+    }
+    if (form.remarks.trim().length > 1000) {
+      toast.error("Remarks cannot exceed 1,000 characters");
       return;
     }
 
     setSubmitting(true);
     try {
       await api.createFinishedGoodsRequest({
-        warehouse_id: form.warehouse_id.trim() || "MAIN",
         finished_goods_code: productName,
         finished_goods_name: productName,
         quantity,
@@ -170,9 +294,8 @@ function ProcurementFinishedGoods() {
       // Reset form
       setForm({
         product_name: "",
-        warehouse_id: "MAIN",
         quantity: "10",
-        uom: "PCS",
+        uom: uomOptions.find((option) => option.code === "PCS")?.code ?? uomOptions[0]?.code ?? "",
         required_date: today(),
         requested_by: defaultRequester,
         requested_date: today(),
@@ -237,6 +360,9 @@ function ProcurementFinishedGoods() {
                 onChange={(e) => setForm((c) => ({ ...c, product_name: e.target.value }))}
                 className="h-11 rounded-xl"
                 placeholder="e.g. PUMP-100"
+                minLength={2}
+                maxLength={255}
+                pattern="[A-Za-z0-9][A-Za-z0-9 ._()/+\-]*"
                 required
               />
             </div>
@@ -250,10 +376,16 @@ function ProcurementFinishedGoods() {
                 <Input
                   id="fg-quantity"
                   type="number"
-                  min="0.01"
-                  step="any"
+                  min="0.0001"
+                  max="999999999.9999"
+                  step="0.0001"
                   value={form.quantity}
                   onChange={(e) => setForm((c) => ({ ...c, quantity: e.target.value }))}
+                  onKeyDown={(event) => {
+                    if (["-", "+", "e", "E"].includes(event.key)) {
+                      event.preventDefault();
+                    }
+                  }}
                   className="h-11 rounded-xl font-bold"
                   placeholder="10"
                   required
@@ -272,22 +404,92 @@ function ProcurementFinishedGoods() {
                     <SelectValue placeholder="Select UOM" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PCS">PCS (Pieces)</SelectItem>
-                    <SelectItem value="KG">KG (Kilograms)</SelectItem>
-                    <SelectItem value="MTR">MTR (Meters)</SelectItem>
-                    <SelectItem value="LTR">LTR (Liters)</SelectItem>
-                    <SelectItem value="BOX">BOX (Boxes)</SelectItem>
-                    <SelectItem value="SET">SET (Sets)</SelectItem>
-                    <SelectItem value="TON">TON (Metric Tons)</SelectItem>
-                    <SelectItem value="PACK">PACK (Packages)</SelectItem>
+                    {uomOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.code}>{option.code}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                <div className="flex gap-1.5 pt-1">
+                  <Input
+                    value={customUom}
+                    onChange={(event) => setCustomUom(event.target.value.toUpperCase())}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleAddCustomUom();
+                      }
+                    }}
+                    className="h-8 rounded-lg text-xs uppercase"
+                    placeholder="Add UOM"
+                    maxLength={32}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg px-2"
+                    disabled={addingUom || !customUom.trim()}
+                    onClick={() => void handleAddCustomUom()}
+                    aria-label="Add UOM"
+                  >
+                    {addingUom ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  </Button>
+                </div>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 w-full justify-start px-1 text-[11px] text-muted-foreground">
+                      <Settings2 className="mr-1.5 size-3.5" />
+                      Manage UOMs
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Manage UOMs</DialogTitle>
+                      <DialogDescription>
+                        Add or remove the UOM values available for future finished-goods requests.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">All UOMs</p>
+                        {uomOptions.length === 0 ? (
+                          <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
+                            No UOMs available. Add one from the form.
+                          </div>
+                        ) : (
+                          <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {uomOptions.map((option) => (
+                              <div key={option.id} className="flex items-center justify-between rounded-xl border px-3 py-2">
+                                <p className="text-sm font-semibold">{option.code}</p>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="size-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={deletingUomId === option.id}
+                                  onClick={() => void handleDeleteUom(option)}
+                                  aria-label={`Delete ${option.code}`}
+                                >
+                                  {deletingUomId === option.id ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="size-4" />
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
 
-            {/* Required Date & Warehouse */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+            {/* Required Date */}
+            <div className="space-y-1.5">
                 <Label htmlFor="fg-req-date" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Required Date <span className="text-red-500">*</span>
                 </Label>
@@ -300,20 +502,6 @@ function ProcurementFinishedGoods() {
                   className="h-11 rounded-xl"
                   required
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="fg-warehouse" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Target Warehouse
-                </Label>
-                <Input
-                  id="fg-warehouse"
-                  value={form.warehouse_id}
-                  onChange={(e) => setForm((c) => ({ ...c, warehouse_id: e.target.value }))}
-                  className="h-11 rounded-xl"
-                  placeholder="MAIN"
-                />
-              </div>
             </div>
 
             {/* Who has requested & Date he requested (Above BOM Attachment) */}
@@ -328,6 +516,9 @@ function ProcurementFinishedGoods() {
                   onChange={(e) => setForm((c) => ({ ...c, requested_by: e.target.value }))}
                   className="h-11 rounded-xl font-medium"
                   placeholder="e.g. procurement / Officer Name"
+                  minLength={2}
+                  maxLength={128}
+                  pattern="[A-Za-z0-9][A-Za-z0-9 ._@/\-]*"
                   required
                 />
               </div>
@@ -339,6 +530,7 @@ function ProcurementFinishedGoods() {
                 <Input
                   id="fg-requested-date"
                   type="date"
+                  max={today()}
                   value={form.requested_date}
                   onChange={(e) => setForm((c) => ({ ...c, requested_date: e.target.value }))}
                   className="h-11 rounded-xl"
@@ -412,7 +604,9 @@ function ProcurementFinishedGoods() {
                 onChange={(e) => setForm((c) => ({ ...c, remarks: e.target.value }))}
                 className="min-h-20 rounded-xl text-xs"
                 placeholder="Optional assembly instructions or special requirements..."
+                maxLength={1000}
               />
+              <p className="text-right text-[10px] text-muted-foreground">{form.remarks.length}/1000</p>
             </div>
 
             {/* Submit Action */}

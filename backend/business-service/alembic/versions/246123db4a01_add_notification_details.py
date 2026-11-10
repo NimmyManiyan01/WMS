@@ -27,6 +27,22 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
+    # Fresh databases do not have this table yet. Historically it was created
+    # by the application startup DDL, which made the migration depend on the
+    # service having been started before `alembic upgrade head`.
+    if "notification" not in inspector.get_table_names():
+        op.create_table(
+            "notification",
+            sa.Column("id", sa.UUID(), primary_key=True),
+            sa.Column("user_role", sa.String(length=32), nullable=False),
+            sa.Column("title", sa.String(length=256), nullable=False),
+            sa.Column("message", sa.Text(), nullable=False),
+            sa.Column("link", sa.String(length=512), nullable=True),
+            sa.Column("is_read", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        )
+        inspector = sa.inspect(bind)
+
     notification_cols = {
         column["name"]
         for column in inspector.get_columns("notification")

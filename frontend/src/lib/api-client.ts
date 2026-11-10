@@ -1955,7 +1955,6 @@ export const api = {
   },
 
   async createFinishedGoodsRequest(data: {
-    warehouse_id?: string;
     finished_goods_code?: string | null;
     finished_goods_name: string;
     quantity: number;
@@ -1974,6 +1973,27 @@ export const api = {
       },
       body: JSON.stringify(data),
     });
+  },
+
+  async getFinishedGoodsUoms(): Promise<Array<{ id: string; code: string }>> {
+    return request(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-uoms`);
+  },
+
+  async createFinishedGoodsUom(
+    code: string,
+  ): Promise<{ id: string; code: string }> {
+    return request(`${BUSINESS_API_URL}/api/v1/procurement/finished-goods-uoms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async deleteFinishedGoodsUom(id: string): Promise<void> {
+    return request<void>(
+      `${BUSINESS_API_URL}/api/v1/procurement/finished-goods-uoms/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
   },
 
   async uploadBomAttachment(file: File): Promise<{ file_name: string; file_url: string }> {

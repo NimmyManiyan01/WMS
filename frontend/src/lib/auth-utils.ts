@@ -125,8 +125,7 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
     pathname === "/dock-master" ||
     pathname === "/inventory" ||
     pathname === "/putaway-tasks" ||
-    pathname === "/reports" ||
-    pathname === "/damage-claims"
+    pathname === "/reports"
   )
     return [
       "WAREHOUSE",
@@ -136,6 +135,8 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
       "ADMIN",
       "SUPERUSER",
     ];
+  if (pathname === "/damage-claims")
+    return ["SUPPLIER", "PROCUREMENT", "WAREHOUSE", "GATE_SECURITY", "ADMIN", "SUPERUSER"];
   if (pathname === "/my-store")
     return ["STORE_MANAGER", "STORE_KEEPER", "ADMIN", "SUPERUSER"];
   return null;

@@ -48,6 +48,10 @@ scheduler = AsyncIOScheduler()
 _consumer_task: asyncio.Task | None = None
 
 
+class _StartupSchemaTaskDisabled(Exception):
+    """Internal control flow used to skip opt-in startup schema maintenance."""
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -59,6 +63,9 @@ async def lifespan(app: FastAPI):
     # create_all resolves foreign-key dependencies and creates parent tables
     # (supplier, rfq, asn) before children such as purchase_order.
     try:
+        if not settings.database_auto_create_schema:
+            raise _StartupSchemaTaskDisabled
+
         from app.database.base import Base
         from app.database.session import engine
 
@@ -76,6 +83,8 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         logger.info("Ensured ORM database schema exists")
+    except _StartupSchemaTaskDisabled:
+        logger.info("Skipping ORM schema creation; use 'alembic upgrade head' to update the database")
     except Exception as exc:
         logger.exception("Failed to initialize ORM database schema: %s", exc)
         raise
@@ -87,6 +96,9 @@ async def lifespan(app: FastAPI):
     # duplicate-column errors: after a PostgreSQL statement fails, the whole
     # transaction is aborted and every later migration statement would fail.
     try:
+        if not settings.database_legacy_schema_repair:
+            raise _StartupSchemaTaskDisabled
+
         from sqlalchemy import text
         from app.database.session import session_scope
 
@@ -1482,6 +1494,8 @@ async def lifespan(app: FastAPI):
             logger.info("Ensured table 'assembly_stock_reservation' exists")
         except Exception as exc:
             logger.debug(f"Store / Zone / Manager / Reservation table DDL note: {exc}")
+    except _StartupSchemaTaskDisabled:
+        logger.info("Skipping legacy schema repair (enable DATABASE_LEGACY_SCHEMA_REPAIR only for recovery)")
     except Exception as e:
         logger.warning(f"Auto-migration failed: {e}", exc_info=True)
 

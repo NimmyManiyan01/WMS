@@ -42,6 +42,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { sanitizeGstin, validateGstin } from "@/lib/gstin";
 import { api } from "@/lib/api-client";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
 
@@ -120,7 +121,6 @@ function NewSupplier() {
     industry: "",
     gstin: "",
     paymentTerms: "",
-    creditPeriodDays: "",
     modeOfPayment: "",
     address: {
       registeredAddress: "",
@@ -151,6 +151,7 @@ function NewSupplier() {
   });
 
   const [isUploading, setIsUploading] = React.useState(false);
+  const [customModeOfPayment, setCustomModeOfPayment] = React.useState("");
 
   const updateFormData = (section: string, field: string, value: string) => {
     if (section === "root") {
@@ -298,13 +299,8 @@ function NewSupplier() {
       else if (industry.length < 2 || industry.length > 100)
         newErrors.industry = "Must be between 2 and 100 characters";
 
-      if (!gstin) newErrors.gstin = "GSTIN is required";
-      else if (gstin.length !== 15) newErrors.gstin = "Must be exactly 15 characters";
-      else if (
-        !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin.toUpperCase())
-      ) {
-        newErrors.gstin = "Invalid GSTIN format (e.g. 29ABCDE1234F1Z5)";
-      }
+      const gstinError = validateGstin(gstin);
+      if (gstinError) newErrors.gstin = gstinError;
 
       // Backend Duplicate Check
       if (Object.keys(newErrors).length === 0) {
@@ -404,6 +400,10 @@ function NewSupplier() {
       const branch = formData.bankInfo.branch.trim();
       const swift = formData.bankInfo.swiftBic.trim();
 
+      if (formData.modeOfPayment === "Custom" && !customModeOfPayment.trim()) {
+        newErrors.customModeOfPayment = "Enter a custom mode of payment";
+      }
+
       if (!bankName) newErrors["bankInfo.bankName"] = "Bank name is required";
 
       if (!accNo) newErrors["bankInfo.accountNumber"] = "Account number is required";
@@ -424,7 +424,8 @@ function NewSupplier() {
       if (!branch) newErrors["bankInfo.branch"] = "Branch name is required";
 
       if (swift && !/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(swift.toUpperCase())) {
-        newErrors["bankInfo.swiftBic"] = "Invalid SWIFT/BIC format";
+        newErrors["bankInfo.swiftBic"] =
+          "Enter a valid 8 or 11-character SWIFT/BIC (e.g. HDFCINBBXXX)";
       }
 
       // Backend Duplicate Check for Account Number
@@ -621,11 +622,14 @@ function NewSupplier() {
     try {
       const finalData = {
         ...formData,
+        modeOfPayment:
+          formData.modeOfPayment === "Custom"
+            ? customModeOfPayment.trim()
+            : formData.modeOfPayment,
         supplierName: name,
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
-        creditPeriodDays: formData.creditPeriodDays ? Number(formData.creditPeriodDays) : undefined,
         address: {
           ...formData.address,
           registeredAddress: formData.address.registeredAddress.trim(),
@@ -1021,7 +1025,7 @@ function NewSupplier() {
                     value={formData.gstin}
                     maxLength={15}
                     onChange={(e) => {
-                      const val = e.target.value.substring(0, 15);
+                      const val = sanitizeGstin(e.target.value);
                       updateFormData("root", "gstin", val);
                     }}
                     placeholder="15-digit GST number"
@@ -1624,6 +1628,7 @@ function NewSupplier() {
                     id="swiftBic"
                     value={formData.bankInfo.swiftBic}
                     maxLength={11}
+                    placeholder="e.g. HDFCINBBXXX"
                     onChange={(e) => {
                       const val = e.target.value
                         .replace(/[^a-zA-Z0-9]/g, "")
@@ -1712,37 +1717,6 @@ function NewSupplier() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="creditPeriodDays" className="flex items-center gap-1.5">
-                    Credit Period (Days)
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex cursor-help items-center text-muted-foreground hover:text-foreground">
-                            <Info className="size-3.5" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs text-xs font-normal">
-                          Number of credit days allowed by the supplier from invoice or GRN date
-                          before payment is due.
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </Label>
-                  <Input
-                    id="creditPeriodDays"
-                    value={formData.creditPeriodDays}
-                    maxLength={3}
-                    onChange={(e) =>
-                      updateFormData(
-                        "root",
-                        "creditPeriodDays",
-                        e.target.value.replace(/\D/g, "").substring(0, 3),
-                      )
-                    }
-                    placeholder="e.g. 30"
-                  />
-                </div>
-                <div className="space-y-2">
                   <Label htmlFor="modeOfPayment" className="flex items-center gap-1.5">
                     Mode of Payment
                     <TooltipProvider>
@@ -1771,9 +1745,11 @@ function NewSupplier() {
                         "RTGS",
                         "IMPS",
                         "UPI",
+                        "Cash",
                         "Cheque",
                         "Demand Draft",
                         "Wire Transfer",
+                        "Custom",
                       ].map((mode) => (
                         <SelectItem key={mode} value={mode}>
                           {mode}
@@ -1781,6 +1757,35 @@ function NewSupplier() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {formData.modeOfPayment === "Custom" && (
+                    <div className="space-y-2 pt-1">
+                      <Label htmlFor="customModeOfPayment">Custom payment method</Label>
+                      <Input
+                        id="customModeOfPayment"
+                        value={customModeOfPayment}
+                        onChange={(e) => {
+                          setCustomModeOfPayment(e.target.value);
+                          if (errors.customModeOfPayment) {
+                            setErrors((prev) => {
+                              const next = { ...prev };
+                              delete next.customModeOfPayment;
+                              return next;
+                            });
+                          }
+                        }}
+                        placeholder="Enter payment method"
+                        className={cn(
+                          errors.customModeOfPayment &&
+                            "border-destructive focus-visible:ring-destructive",
+                        )}
+                      />
+                      {errors.customModeOfPayment && (
+                        <p className="text-[11px] font-medium text-destructive flex items-center gap-1">
+                          <AlertCircle className="size-3" /> {errors.customModeOfPayment}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1940,37 +1945,6 @@ function NewSupplier() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-muted/30 border border-border/50 p-5 space-y-4">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <AlertCircle className="size-4" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider">Audit Information</h4>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label className="text-[10px] uppercase text-muted-foreground font-bold">
-                      Created By
-                    </Label>
-                    <div className="text-sm font-medium flex items-center gap-2">
-                      <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold">
-                        P
-                      </div>
-                      Procurement Officer (Current Session)
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px] uppercase text-muted-foreground font-bold">
-                      Registration Date
-                    </Label>
-                    <div className="text-sm font-medium">
-                      {new Date().toLocaleDateString("en-IN", {
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 

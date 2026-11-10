@@ -58,7 +58,7 @@ export const Route = createFileRoute("/procurement/reports")({
   beforeLoad: () => requireRole(["PROCUREMENT", "FINANCE"]),
   head: () => ({
     meta: [
-      { title: "Finance Reports · KaizenX" },
+      { title: "Procurement Reports · KaizenX" },
       {
         name: "description",
         content: "Analytics and reporting across purchase spend, supplier performance, RFQs, and ASNs.",
@@ -68,7 +68,7 @@ export const Route = createFileRoute("/procurement/reports")({
   component: ProcurementReports,
 });
 
-type ReportTab = "spend" | "supplier-performance" | "rfq-analytics" | "asns-compliance" | "material-requests";
+type ReportTab = "spend" | "supplier-performance" | "rfq-analytics" | "asns-compliance" | "material-requests" | "damage-claims";
 
 const COLORS = ["#0284c7", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#64748b"];
 
@@ -99,6 +99,7 @@ function ProcurementReports() {
   const [quotations, setQuotations] = useState<any[]>([]);
   const [materialRequests, setMaterialRequests] = useState<any[]>([]);
   const [asns, setAsns] = useState<any[]>([]);
+  const [damageClaims, setDamageClaims] = useState<any[]>([]);
   const [procurementStats, setProcurementStats] = useState<any>({});
 
   // Filters
@@ -112,7 +113,7 @@ function ProcurementReports() {
     else setLoading(true);
 
     try {
-      const [sData, poData, rfqData, qData, mrData, asnData, statsData] = await Promise.all([
+      const [sData, poData, rfqData, qData, mrData, asnData, statsData, claimsData] = await Promise.all([
         api.getSuppliers().catch(() => []),
         api.getPurchaseOrders().catch(() => []),
         api.getRfqs().catch(() => []),
@@ -120,6 +121,7 @@ function ProcurementReports() {
         api.getMaterialRequests().catch(() => []),
         api.getAsns().catch(() => []),
         api.getProcurementStats().catch(() => ({})),
+        api.getDamageClaims().catch(() => []),
       ]);
 
       setSuppliers(Array.isArray(sData) ? sData : []);
@@ -129,6 +131,7 @@ function ProcurementReports() {
       setMaterialRequests(Array.isArray(mrData) ? mrData : []);
       setAsns(Array.isArray(asnData) ? asnData : []);
       setProcurementStats(statsData || {});
+      setDamageClaims(Array.isArray(claimsData) ? claimsData : []);
 
       if (isManual) toast.success("Procurement reports refreshed");
     } catch (err: any) {
@@ -237,6 +240,19 @@ function ProcurementReports() {
     return Object.entries(dist).map(([name, value]) => ({ name, value }));
   }, [purchaseOrders]);
 
+  const rejectedQuantity = useMemo(
+    () => damageClaims.reduce((sum, claim) => sum + Number(claim.rejected_quantity || claim.damaged_quantity || 0), 0),
+    [damageClaims],
+  );
+  const openClaimCount = useMemo(
+    () => damageClaims.filter((claim) => !["CLOSED", "RESOLVED"].includes(String(claim.status || "").toUpperCase())).length,
+    [damageClaims],
+  );
+  const proofCount = useMemo(
+    () => damageClaims.reduce((sum, claim) => sum + (Array.isArray(claim.proofs) ? claim.proofs.length : 0), 0),
+    [damageClaims],
+  );
+
   // Filtered PO Records
   const filteredPurchaseOrders = useMemo(() => {
     return purchaseOrders.filter((po) => {
@@ -269,7 +285,7 @@ function ProcurementReports() {
     let rows: string[][] = [];
     let filename = `procurement-${activeTab}-report.csv`;
 
-    if (activeTab === "spend" || activeTab === "asns-compliance") {
+    if (activeTab === "spend") {
       rows.push(["PO Number", "Supplier Name", "PO Date", "Status", "Total Amount (INR)"]);
       filteredPurchaseOrders.forEach((po) => {
         rows.push([
@@ -280,6 +296,15 @@ function ProcurementReports() {
           String(po.total_amount || po.totalAmount || 0),
         ]);
       });
+    } else if (activeTab === "asns-compliance") {
+      rows.push(["ASN Number", "PO Number", "Supplier", "Dispatch Date", "Status"]);
+      asns.forEach((asn) => rows.push([
+        asn.asn_number || asn.asnNumber || "—",
+        asn.po_number || asn.poNumber || "—",
+        `"${asn.supplier_name || asn.supplierName || "—"}"`,
+        asn.dispatch_date || asn.created_at || "—",
+        asn.status || "—",
+      ]));
     } else if (activeTab === "supplier-performance") {
       rows.push(["Supplier Name", "Supplier Code", "Category", "GSTIN", "Status"]);
       filteredSuppliers.forEach((s) => {
@@ -302,6 +327,20 @@ function ProcurementReports() {
           r.closingDate || r.closing_date || "—",
         ]);
       });
+    } else if (activeTab === "damage-claims") {
+      rows.push(["Claim / Rejection", "GRN", "PO", "Supplier", "Item", "Rejected Quantity", "UOM", "Reason", "Status", "Proof Count"]);
+      damageClaims.forEach((claim) => rows.push([
+        claim.claim_number || claim.id || "—",
+        claim.grn_number || "—",
+        claim.po_number || "—",
+        `"${claim.supplier_name || "—"}"`,
+        `"${claim.material || claim.item_code || "—"}"`,
+        String(claim.rejected_quantity || claim.damaged_quantity || 0),
+        claim.uom || "—",
+        `"${String(claim.reason || "—").replaceAll('"', '""')}"`,
+        claim.status || "—",
+        String(claim.proofs?.length || 0),
+      ]));
     } else {
       rows.push(["Request Number", "Warehouse", "Department", "Requested By", "Status"]);
       materialRequests.forEach((mr) => {
@@ -331,7 +370,7 @@ function ProcurementReports() {
     <AppShell
       title={
         <div className="flex items-center gap-2">
-          <span>Finance Reports</span>
+          <span>{isFinanceOnly ? "Finance Reports" : "Reports"}</span>
           <TooltipProvider>
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
@@ -352,7 +391,7 @@ function ProcurementReports() {
           </TooltipProvider>
         </div>
       }
-      subtitle={isFinanceOnly ? "Analyze purchase order spend and quotation bidding" : "Analyze purchase order spend, supplier ratings, quotation bidding, and receiving compliance"}
+      subtitle={isFinanceOnly ? "Analyze purchase order spend and quotation bidding" : "Procurement reports and analytics across demand, sourcing, suppliers, orders, inbound delivery, and rejected goods"}
       actions={
         <div className="flex items-center gap-2">
           <Button
@@ -416,6 +455,7 @@ function ProcurementReports() {
           { id: "rfq-analytics", label: "RFQ & Quotation Analytics", icon: FileQuestion },
           { id: "asns-compliance", label: "ASN & Inbound Compliance", icon: Truck },
           { id: "material-requests", label: "Demand & Requests", icon: ClipboardList },
+          { id: "damage-claims", label: "Rejections & Claims", icon: AlertTriangle },
         ].filter(t => isFinanceOnly ? (t.id === "spend" || t.id === "rfq-analytics") : true).map((tab) => {
           const IconComp = tab.icon;
           const isActive = activeTab === tab.id;
@@ -513,7 +553,7 @@ function ProcurementReports() {
         {loading ? (
           <div className="flex h-72 items-center justify-center gap-2">
             <Loader2 className="size-6 animate-spin text-primary" />
-            <p className="text-sm font-medium text-muted-foreground">Loading finance reports...</p>
+            <p className="text-sm font-medium text-muted-foreground">Loading procurement reports...</p>
           </div>
         ) : (
           <>
@@ -866,6 +906,26 @@ function ProcurementReports() {
                         </tbody>
                       </table>
                     )}
+                  </div>
+                </SectionCard>
+              </div>
+            )}
+
+            {/* TAB 6: GRN REJECTIONS & DAMAGE CLAIMS */}
+            {activeTab === "damage-claims" && (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <StatCard label="Rejected Lines" value={String(damageClaims.length)} delta="Across GRNs and supplier claims" icon={AlertTriangle} tone="warning" />
+                  <StatCard label="Rejected Quantity" value={rejectedQuantity.toLocaleString("en-IN")} delta="Total damaged or rejected units" icon={ClipboardList} tone="primary" />
+                  <StatCard label="Open Claims" value={String(openClaimCount)} delta={`${damageClaims.length-openClaimCount} closed or resolved`} icon={ShieldCheck} tone="teal" />
+                  <StatCard label="Inspection Proofs" value={String(proofCount)} delta="Evidence files attached" icon={FileBadge} tone="success" />
+                </div>
+                <SectionCard title="GRN Rejections and Supplier Claims" description="Rejected materials, inspection reasons, evidence coverage, and claim status" icon={AlertTriangle}>
+                  <div className="overflow-x-auto">
+                    {damageClaims.length===0?<p className="py-8 text-center text-sm text-muted-foreground">No rejected goods or damage claims recorded.</p>:<table className="w-full min-w-[900px] text-left text-sm">
+                      <thead><tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground"><th className="pb-3 font-medium">Reference</th><th className="pb-3 font-medium">GRN / PO</th><th className="pb-3 font-medium">Supplier</th><th className="pb-3 font-medium">Material</th><th className="pb-3 font-medium">Rejected Qty</th><th className="pb-3 font-medium">Reason</th><th className="pb-3 font-medium">Proof</th><th className="pb-3 font-medium">Status</th></tr></thead>
+                      <tbody>{damageClaims.map((claim)=><tr key={claim.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20"><td className="py-3 font-mono font-semibold text-primary">{claim.claim_number||claim.id}</td><td className="py-3"><p className="font-medium">{claim.grn_number||"—"}</p><p className="text-xs text-muted-foreground">{claim.po_number||"—"}</p></td><td className="py-3">{claim.supplier_name||"—"}</td><td className="py-3"><p className="font-medium">{claim.material||claim.item_code||"—"}</p><p className="font-mono text-xs text-muted-foreground">{claim.item_code||""}</p></td><td className="py-3 font-bold text-destructive">{claim.rejected_quantity||claim.damaged_quantity||0} {claim.uom||""}</td><td className="max-w-64 py-3 text-xs">{claim.reason||"—"}</td><td className="py-3">{claim.proofs?.length||0} file(s)</td><td className="py-3"><StatusBadge status={claim.status||"REJECTED"}/></td></tr>)}</tbody>
+                    </table>}
                   </div>
                 </SectionCard>
               </div>
