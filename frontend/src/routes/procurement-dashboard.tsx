@@ -382,7 +382,7 @@ function ProcurementDashboard() {
   return (
     <AppShell
       title=""
-      mainClassName="bg-[#1e4d7a]/35"
+      mainClassName="bg-white"
     >
       <section className="relative z-10 isolate mb-4 min-h-[250px] overflow-hidden rounded-2xl border border-[#123b76] bg-[#031633] shadow-sm">
         <img
