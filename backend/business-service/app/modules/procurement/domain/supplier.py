@@ -83,11 +83,6 @@ class SupplierDocument:
             raise DomainRuleViolationException("Document Type is mandatory")
         if not self.file_name or not str(self.file_name).strip():
             raise DomainRuleViolationException("File Name is mandatory")
-        # Validate format
-        allowed_exts = (".pdf", ".jpg", ".jpeg")
-        lower_name = self.file_name.lower()
-        if not any(lower_name.endswith(ext) for ext in allowed_exts):
-            raise DomainRuleViolationException("Invalid document format. Only PDF and JPG files are allowed.")
         # Validate size (max 20
         # MB)
         max_size_bytes = 20 * 1024 * 1024

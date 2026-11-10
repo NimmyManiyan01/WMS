@@ -606,21 +606,23 @@ export function AppShell({
             className="absolute inset-0 bg-background/70 backdrop-blur-sm"
             onClick={() => setMobileSidebarOpen(false)}
           />
-          <aside className="relative flex h-full w-[min(84vw,320px)] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
-            <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border/40 px-4">
+          <aside className="relative flex h-full w-[min(84vw,300px)] flex-col border-r border-[#1E3A6B] bg-[#0F2345] text-slate-200 shadow-2xl">
+            <div className="flex h-16 items-center justify-between gap-2 border-b border-[#1E3A6B] px-4">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-                  <Warehouse className="size-5" />
-                </div>
+                <img
+                  src="/kaizenx-cube.png"
+                  alt="KaizenX Logo"
+                  className="size-8 object-contain shrink-0 drop-shadow"
+                />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-tight">KaizenX</p>
-                  <p className="truncate text-[11px] text-muted-foreground">Pune DC - Plant 1200</p>
+                  <p className="truncate text-sm font-bold tracking-tight text-white">KaizenX</p>
+                  <p className="truncate text-[10px] font-medium text-slate-400">Pune DC · Plant 1200</p>
                 </div>
               </div>
               <button
                 type="button"
                 aria-label="Close navigation menu"
-                className="grid size-9 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                className="grid size-9 place-items-center rounded-xl text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
                 onClick={() => setMobileSidebarOpen(false)}
               >
                 <PanelLeftClose className="size-[18px]" />
@@ -630,7 +632,7 @@ export function AppShell({
             <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
               {navigationPending &&
                 Array.from({ length: 5 }).map((_, index) => (
-                  <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
+                  <div key={index} className="h-10 animate-pulse rounded-xl bg-white/5" />
                 ))}
               {nav.map((item) => {
                 const active = isActiveNavItem(item.to);
@@ -645,15 +647,16 @@ export function AppShell({
                     }}
                     title={item.label}
                     className={cn(
-                      "group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground transition-all",
-                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                      active && "bg-primary-soft text-primary shadow-soft",
+                      "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                      active
+                        ? "bg-[#2563EB] text-white shadow-sm font-semibold"
+                        : "text-slate-300 hover:bg-white/10 hover:text-white",
                     )}
                   >
-                    <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
+                    <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-slate-400 group-hover:text-white")} />
                     <span className="truncate">{item.label}</span>
                     {(item as any).badge && (
-                      <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+                      <span className="ml-auto grid size-5 place-items-center rounded-full bg-red-500 text-[10px] font-semibold text-white">
                         {(item as any).badge}
                       </span>
                     )}
@@ -662,11 +665,11 @@ export function AppShell({
               })}
             </nav>
 
-            <div className="border-t border-sidebar-border p-3">
+            <div className="border-t border-[#1E3A6B] p-3">
               <button
                 suppressHydrationWarning
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
               >
                 <LogOut className="size-[18px]" />
                 <span>Logout</span>
@@ -680,51 +683,45 @@ export function AppShell({
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
         className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-300 md:flex",
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#1E3A6B] bg-[#0F2345] text-slate-300 transition-[width] duration-300 md:flex",
           desktopSidebarCollapsed ? "w-[76px]" : "w-[264px]",
         )}
       >
         <div
           className={cn(
-            "flex h-16 items-center border-b border-sidebar-border/40 transition-all",
+            "flex h-16 items-center border-b border-[#1E3A6B] transition-all",
             desktopSidebarCollapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
           )}
         >
           {!desktopSidebarCollapsed ? (
-            <>
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="relative flex h-10 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
-                  <img
-                    src={logoUrl}
-                    alt="KGS Logo"
-                    className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
-                  />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold tracking-wider uppercase bg-gradient-to-r from-primary via-blue-600 to-teal bg-clip-text text-transparent">
-                    KaizenX
-                  </p>
-                  <p className="truncate text-[10px] font-mono text-muted-foreground font-semibold">
-                    Pune DC · Plant 1200
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
+            <div className="flex items-center gap-3 min-w-0">
               <img
-                src={logoUrl}
-                alt="KGS Logo"
-                className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
+                src="/kaizenx-cube.png"
+                alt="KaizenX Logo"
+                className="size-8 object-contain shrink-0 drop-shadow"
               />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold tracking-tight text-white">
+                  KaizenX
+                </p>
+                <p className="truncate text-[10px] font-medium text-slate-400">
+                  Pune DC · Plant 1200
+                </p>
+              </div>
             </div>
+          ) : (
+            <img
+              src="/kaizenx-cube.png"
+              alt="KaizenX Logo"
+              className="size-8 object-contain shrink-0 drop-shadow"
+            />
           )}
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {navigationPending &&
             Array.from({ length: 5 }).map((_, index) => (
-              <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
+              <div key={index} className="h-10 animate-pulse rounded-xl bg-white/5" />
             ))}
           {nav.map((item) => {
             const active = isActiveNavItem(item.to);
@@ -738,15 +735,16 @@ export function AppShell({
                 }}
                 title={item.label}
                 className={cn(
-                  "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-all",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  active && "bg-primary-soft text-primary shadow-soft",
+                  "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                  active
+                    ? "bg-[#2563EB] text-white shadow-sm font-semibold"
+                    : "text-slate-300 hover:bg-white/10 hover:text-white",
                 )}
               >
-                <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
+                <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-slate-400 group-hover:text-white")} />
                 {!desktopSidebarCollapsed && <span className="truncate">{item.label}</span>}
                 {!desktopSidebarCollapsed && (item as any).badge && (
-                  <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+                  <span className="ml-auto grid size-5 place-items-center rounded-full bg-red-500 text-[10px] font-semibold text-white">
                     {(item as any).badge}
                   </span>
                 )}
@@ -755,11 +753,11 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="border-t border-sidebar-border p-3 space-y-1">
+        <div className="border-t border-[#1E3A6B] p-3 space-y-1">
           <button
             suppressHydrationWarning
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
           >
             <LogOut className="size-[18px]" />
             {!desktopSidebarCollapsed && <span>Logout</span>}
@@ -768,7 +766,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 glass-strong">
+        <header className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white shadow-xs">
           <div className="flex h-16 items-center gap-3 px-4 lg:px-7">
             <button
               type="button"
@@ -780,16 +778,16 @@ export function AppShell({
               <Menu className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </button>
             <div className="relative hidden max-w-md flex-1 items-center sm:flex">
-              <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 size-4 text-[#64748B]" />
               <input
                 suppressHydrationWarning
                 placeholder="Search truck no, PO, vendor, gate entry…"
-                className="h-10 w-full rounded-xl border border-border bg-muted/60 pl-9 pr-16 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus:bg-card focus:ring-2 focus:ring-ring/40"
+                className="h-10 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] pl-9 pr-16 text-sm text-[#0F172A] outline-none transition-all placeholder:text-[#94A3B8] focus:bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => searchTerm.length >= 2 && setShowSearch(true)}
               />
-              <kbd className="absolute right-3 hidden rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground lg:block">
+              <kbd className="absolute right-3 hidden rounded-md border border-[#E2E8F0] bg-white px-1.5 py-0.5 text-[10px] text-[#64748B] lg:block">
                 {isSearching ? <Loader2 className="size-3 animate-spin" /> : "⌘K"}
               </kbd>
 
@@ -840,38 +838,44 @@ export function AppShell({
               )}
             </div>
 
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ml-auto flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] text-xs text-[#0F172A] shadow-2xs">
+                <Building2 className="size-3.5 text-[#2563EB]" />
+                <span className="font-semibold">Plant 1200</span>
+                <span className="text-[#CBD5E1]">|</span>
+                <span className="text-[#64748B]">Pune DC</span>
+              </div>
               <Link
                 to="/notifications"
                 aria-label="Notifications"
-                className="relative grid size-10 place-items-center rounded-xl bg-transparent text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus:bg-transparent focus-visible:outline-none"
+                className="relative grid size-10 place-items-center rounded-xl text-[#64748B] transition-colors hover:bg-slate-100 hover:text-[#0F172A] focus:bg-transparent focus-visible:outline-none"
               >
                 <Bell className="size-[18px]" />
                 {unreadNotifications > 0 && (
-                  <span className="absolute right-2 top-2 grid size-4 place-items-center rounded-full bg-destructive text-[9px] font-bold text-white animate-pulse-ring">
+                  <span className="absolute right-2 top-2 grid size-4 place-items-center rounded-full bg-[#EF4444] text-[9px] font-bold text-white animate-pulse">
                     {unreadNotifications}
                   </span>
                 )}
               </Link>
-              <div className="group relative ml-1 flex items-center gap-2.5 rounded-xl border border-border bg-card py-1.5 pl-1.5 pr-3 transition-colors hover:bg-accent/50">
+              <div className="group relative flex items-center gap-2.5 rounded-xl border border-[#E2E8F0] bg-white py-1.5 pl-1.5 pr-2.5 shadow-xs">
                 <span
                   suppressHydrationWarning
-                  className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground"
+                  className="grid size-8 place-items-center rounded-full bg-[#2563EB] text-xs font-semibold text-white shadow-xs"
                 >
                   {getUserInitials(user)}
                 </span>
                 <div className="hidden leading-tight lg:block">
-                  <p suppressHydrationWarning className="text-xs font-semibold">
+                  <p suppressHydrationWarning className="text-xs font-semibold text-[#0F172A]">
                     {getUserDisplayName(user)}
                   </p>
-                  <p suppressHydrationWarning className="text-[10px] text-muted-foreground">
+                  <p suppressHydrationWarning className="text-[10px] font-medium text-[#64748B]">
                     {getUserRoleLabel(user)}
                   </p>
                 </div>
                 <button
                   suppressHydrationWarning
                   onClick={handleLogout}
-                  className="ml-2 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  className="ml-1 rounded-lg p-1 text-[#94A3B8] transition-colors hover:bg-red-50 hover:text-[#EF4444]"
                   title="Logout"
                 >
                   <LogOut className="size-4" />
@@ -881,8 +885,8 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="page-enter flex-1 px-4 py-6 lg:px-7">
-          <div className="mx-auto w-full max-w-[1360px]">
+        <main className="page-enter flex-1 px-4 py-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1536px]">
             <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight lg:text-[28px]">{title}</h1>

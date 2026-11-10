@@ -29,8 +29,19 @@ def _cors_headers(request: Request) -> dict[str, str]:
     Only echo an origin that is explicitly configured as allowed.
     """
     origin = request.headers.get("origin")
-    allowed_origins = get_settings().cors_allow_origins
-    if not origin or (origin not in allowed_origins and "*" not in allowed_origins):
+    # Use the active CORS middleware's policy, including local development
+    # origins and its regex, rather than only the origins from the .env file.
+    from starlette.middleware.cors import CORSMiddleware
+
+    cors_config = next(
+        (middleware for middleware in request.app.user_middleware
+         if middleware.cls is CORSMiddleware), None
+    )
+    allowed = (
+        CORSMiddleware(app=request.app, **cors_config.kwargs).is_allowed_origin(origin)
+        if origin and cors_config else origin in get_settings().cors_allow_origins
+    )
+    if not origin or not allowed:
         return {}
 
     return {

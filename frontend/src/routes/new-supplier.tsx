@@ -481,6 +481,12 @@ function NewSupplier() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
+
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("Document size exceeds maximum limit of 20 MB.");
+      return;
+    }
 
     setIsUploading(true);
     try {
@@ -502,7 +508,6 @@ function NewSupplier() {
     } catch (e: any) {
       toast.error("Upload failed: " + e.message);
     } finally {
-      setIsUploading(true);
       setIsUploading(false);
     }
   };
@@ -1791,7 +1796,8 @@ function NewSupplier() {
             <div className="space-y-4 animate-fade-in">
               <h3 className="text-lg font-semibold">Supporting Documents</h3>
               <p className="text-sm text-muted-foreground">
-                Upload copies of legal and tax documents for verification.
+                Upload copies of legal and tax documents for verification. All file types accepted,
+                up to 20 MB per file.
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

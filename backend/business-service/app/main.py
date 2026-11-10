@@ -96,6 +96,32 @@ async def lifespan(app: FastAPI):
                 await session.execute(text(ddl_query))
                 await session.commit()
 
+        # Databases used by the warehouse naming branch retain these names.
+        # Rename only when the current column is missing, preserving all values.
+        for table_name, old_name, new_name in [
+            ("assembly_stock_reservation", "warehouse_ref_id", "store_id"),
+            ("assembly_stock_reservation", "warehouse_code", "store_code"),
+            ("assembly_stock_reservation", "warehouse_name", "store_name"),
+            ("pickup_task", "warehouse_ref_id", "store_id"),
+            ("pickup_task", "warehouse_code", "store_code"),
+            ("pickup_task", "warehouse_name", "store_name"),
+            ("assembly_requisition", "assigned_warehouse_ref_id", "assigned_store_id"),
+            ("assembly_requisition", "assigned_warehouse_code", "assigned_store_code"),
+            ("assembly_requisition", "assigned_warehouse_name", "assigned_store_name"),
+        ]:
+            await run_ddl(f"""
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema() AND table_name = '{table_name}'
+                        AND column_name = '{old_name}')
+                    AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema() AND table_name = '{table_name}'
+                        AND column_name = '{new_name}') THEN
+                        ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name};
+                    END IF;
+                END $$;
+            """)
+
         # Upgrade legacy Material Data columns to the canonical Warehouse
         # Material Master shape. create_all() intentionally does not alter an
         # existing table, so older developer databases need this data-safe,

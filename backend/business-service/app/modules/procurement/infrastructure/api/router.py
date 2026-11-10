@@ -1316,17 +1316,7 @@ async def upload_supplier_document(
     upload_dir = Path("media_uploads/suppliers")
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # Validate file type (PDF or JPEG only)
-    allowed_exts = {".pdf", ".jpeg", ".jpg"}
-    allowed_types = {"application/pdf", "image/jpeg", "image/jpg"}
     file_ext = Path(file.filename or "").suffix.lower()
-    content_type = (file.content_type or "").lower()
-
-    if file_ext not in allowed_exts and content_type not in allowed_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF (.pdf) and JPEG (.jpeg, .jpg) files are allowed."
-        )
 
     # Unique file name to prevent collisions
     unique_filename = f"{uuid.uuid4()}{file_ext}"
