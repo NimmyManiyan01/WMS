@@ -66,7 +66,7 @@ export function StatCard({
         {value}
       </p>
       <div className={cn("mt-0.5 flex min-w-0 items-center gap-1.5", showTrend && "order-3 min-w-0 flex-col items-start gap-1 pr-12") }>
-        <p className="max-w-full truncate text-xs font-bold text-slate-700">{label}</p>
+        <p className="text-xs font-semibold text-slate-700 leading-snug line-clamp-2" title={label}>{label}</p>
         {infoTooltip && (
           <TooltipProvider>
             <Tooltip delayDuration={200}>
