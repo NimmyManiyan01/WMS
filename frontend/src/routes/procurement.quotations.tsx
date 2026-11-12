@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -25,14 +25,15 @@ import {
   AlertCircle,
   Truck,
   Info,
+  ChevronRight,
+  Building2,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { requireRole } from "@/lib/auth-utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -140,9 +141,8 @@ function Quotations() {
         rfqId ? api.getRfq(rfqId) : Promise.resolve(null),
       ]);
 
-      setQuotations(quotesData);
+      setQuotations(Array.isArray(quotesData) ? quotesData : []);
       setRfq(rfqData);
-
     } catch (error) {
       console.error("Failed to fetch data:", error);
       toast.error("Failed to load quotations");
@@ -291,7 +291,7 @@ function Quotations() {
   };
 
   const formatMoney = (value: number) =>
-    `INR ${Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0"}`;
+    `INR ${Number.isFinite(value) ? value.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}`;
 
   const calculateLowestUnitRate = (q: any) => {
     const rates = (q.lines || [])
@@ -300,970 +300,1015 @@ function Quotations() {
     return rates.length > 0 ? Math.min(...rates) : 0;
   };
 
-  const bestQuotationId = comparisonQuotations.length > 0
-    ? comparisonQuotations.reduce((prev, curr) =>
-        (calculateTotal(curr) < calculateTotal(prev) ? curr : prev), comparisonQuotations[0]
-      )?.id
-    : null;
+  const bestQuotationId =
+    comparisonQuotations.length > 0
+      ? comparisonQuotations.reduce(
+          (prev, curr) => (calculateTotal(curr) < calculateTotal(prev) ? curr : prev),
+          comparisonQuotations[0],
+        )?.id
+      : null;
 
   return (
-    <AppShell
-      title={
-        <div className="flex items-center gap-2">
-          <span>Quotations</span>
-          <TooltipProvider>
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Quotations Info"
-                  className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help"
-                >
-                  <Info className="size-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                <p className="font-semibold">Quotations</p>
-                <p className="mt-0.5">Supplier price and commercial offers received in response to an RFQ. Use this section to compare supplier quotations before proceeding with purchase order creation.</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      }
-      subtitle={
-        rfqId
-          ? `Comparing bids for RFQ: ${rfq?.rfqNumber || rfqId}`
-          : "Select an RFQ to view side-by-side supplier comparisons"
-      }
-      actions={
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="rounded-xl"
-            onClick={() => navigate({ to: "/procurement/rfqs" })}
-          >
-            <ArrowLeft className="mr-2 size-4" /> Back to RFQs
-          </Button>
-        </div>
-      }
-    >
-      {loading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="size-8 animate-spin text-primary" />
-        </div>
-      ) : quotations.length === 0 ? (
-        <Card className="flex h-64 flex-col items-center justify-center p-6 text-center border-dashed border-border/50 bg-muted/20">
-          <FileBadge className="size-12 text-muted-foreground/30 mb-4" />
-          <h3 className="text-lg font-semibold text-muted-foreground">No quotations found</h3>
-          <p className="text-sm text-muted-foreground/70">
-            There are currently no quotations received for this request.
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          <div className="rounded-3xl border border-border/40 bg-card shadow-soft overflow-hidden">
-            <div className="bg-primary/5 p-6 border-b border-border/40 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-2xl bg-primary/10 text-primary">
-                  <TableIcon className="size-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black tracking-tight text-foreground uppercase">
-                    Bidding Comparison Matrix
-                  </h2>
-                  <p className="text-sm text-muted-foreground font-medium">
-                    Side-by-side analysis of price, delivery, terms, warranty, and total value
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                {olderQuotationCount > 0 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 rounded-xl text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary-soft/30 px-4 border border-primary/20"
-                    onClick={() => setShowOlderQuotations((current) => !current)}
-                  >
-                    {showOlderQuotations
-                      ? "Hide Archive"
-                      : `History (${olderQuotationCount})`}
-                  </Button>
-                )}
-                <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-success/10 rounded-xl border border-success/20">
-                  <Trophy className="size-4 text-success" />
-                  <span className="text-[10px] font-black uppercase text-success tracking-wider">
-                    Lowest Total Flagged
-                  </span>
-                </div>
-              </div>
+    <AppShell mainClassName="bg-[#F5F8FF]">
+      <div className="space-y-6 pb-24 max-w-[1536px] mx-auto">
+        {/* 1. Breadcrumbs */}
+        {/* 2. Page Header */}
+        <div className="flex flex-col gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-100/75">
+            <Link to="/procurement-dashboard" className="hover:text-white transition-colors">Procurement</Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <Link to="/procurement/rfqs" className="hover:text-white transition-colors">Request for Quotations</Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <span className="font-bold text-white">Quotations</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="size-12 rounded-2xl bg-white/10 border border-white/20 text-white flex items-center justify-center shadow-xs shrink-0">
+              <FileBadge className="size-6 text-white" />
             </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-[30px] font-extrabold tracking-tight text-white leading-tight">
+                  Quotations
+                </h1>
+                <TooltipProvider>
+                  <Tooltip delayDuration={200}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Quotations Info"
+                        className="inline-flex items-center text-blue-100/75 hover:text-white transition-colors cursor-help"
+                      >
+                        <Info className="size-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-xs bg-[#071D3B] text-white border-0 shadow-xl p-3">
+                      <p className="font-bold">Supplier Quotations</p>
+                      <p className="mt-1 text-slate-300">
+                        Detailed commercial and technical offers submitted by suppliers in response to an RFQ. Compare pricing, delivery terms, tax rates, and warranty before approving supplier selection.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <p className="text-xs sm:text-sm font-medium text-blue-100/85 mt-0.5">
+                {rfqId ? (
+                  <>
+                    Comparing bids for RFQ:{" "}
+                    <strong className="font-mono text-[#0866FF] font-bold">
+                      {rfq?.rfqNumber || rfqId}
+                    </strong>{" "}
+                    ({quotations.length} {quotations.length === 1 ? "quotation" : "quotations"} received)
+                  </>
+                ) : (
+                  "Select an RFQ from the RFQs list to view side-by-side supplier bidding comparisons"
+                )}
+              </p>
+            </div>
+          </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[800px]">
-                <thead>
-                  <tr>
-                    <th className="p-6 bg-muted/20 w-[240px] border-r border-border/40 sticky left-0 z-10 backdrop-blur-md">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
-                        Bidding Factors
-                      </span>
-                    </th>
-                    {comparisonQuotations.map((q, idx) => {
-                      const isL1 = bestQuotationId === q.id;
-                      const isSelected = q.status === "Selected";
-                      return (
-                        <th
-                          key={q.id || `q-head-${idx}`}
+          <div className="flex items-center gap-3 shrink-0 self-start sm:self-auto">
+            <Button
+              variant="outline"
+              className="h-10 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF] hover:border-[#0866FF]/40 font-bold text-xs sm:text-sm shadow-xs gap-1.5"
+              onClick={() => navigate({ to: "/procurement/rfqs" })}
+            >
+              <ArrowLeft className="mr-1 size-4 text-[#0866FF]" /> Back to RFQs
+            </Button>
+          </div>
+          </div>
+        </div>
+
+        {/* 3. Main Content: Empty State vs Comparison Matrix */}
+        {loading ? (
+          <div className="flex h-64 flex-col items-center justify-center rounded-3xl border border-[#DCE6F3] bg-white p-8">
+            <Loader2 className="size-8 animate-spin text-[#0866FF]" />
+            <p className="mt-3 text-sm font-semibold text-[#526580]">Loading quotations comparison...</p>
+          </div>
+        ) : quotations.length === 0 ? (
+          /* Rule 4: Beautiful, friendly enterprise empty state */
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-[#DCE6F3] bg-white p-12 text-center shadow-xs">
+            <div className="grid size-20 place-items-center rounded-3xl bg-gradient-to-br from-[#EBF3FF] to-[#D5E8FF] border border-[#CBE0FC] text-[#0866FF] shadow-xs">
+              <FileBadge className="size-10 text-[#0866FF]" />
+            </div>
+            <h2 className="mt-6 text-xl sm:text-2xl font-extrabold tracking-tight text-[#101D3A]">
+              No Supplier Quotations Received Yet
+            </h2>
+            <p className="mt-2 max-w-md text-sm font-medium text-[#526580] leading-relaxed">
+              Supplier quotations will appear here once they are submitted through the supplier portal
+              or recorded by your procurement team for side-by-side evaluation.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <Button
+                asChild
+                className="h-11 rounded-xl bg-[#0866FF] hover:bg-[#0054D6] text-white font-bold text-xs sm:text-sm shadow-xs px-6 gap-2"
+              >
+                <Link to="/procurement/rfqs">
+                  <span>View Open RFQs</span>
+                  <ArrowRight className="size-4" />
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF] font-semibold text-xs sm:text-sm"
+                onClick={() => void fetchData()}
+              >
+                Check for Updates
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Bidding Comparison Matrix */
+          <div className="space-y-6">
+            <div className="rounded-3xl border border-[#DCE6F3] bg-white shadow-xs overflow-hidden">
+              {/* Matrix Top Header */}
+              <div className="bg-[#F5F8FF] p-5 sm:p-6 border-b border-[#DCE6F3] flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3.5">
+                  <div className="size-11 rounded-xl bg-[#EBF3FF] border border-[#DCE6F3] text-[#0866FF] flex items-center justify-center shrink-0">
+                    <TableIcon className="size-5 text-[#0866FF]" />
+                  </div>
+                  <div>
+                    <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-[#101D3A] uppercase">
+                      Bidding Comparison Matrix
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[#526580] font-medium">
+                      Side-by-side analysis of price, delivery, terms, warranty, and total value
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {olderQuotationCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 rounded-xl text-xs font-bold text-[#0866FF] hover:bg-[#EBF3FF] px-3.5 border border-[#CBE0FC]"
+                      onClick={() => setShowOlderQuotations((current) => !current)}
+                    >
+                      {showOlderQuotations ? "Hide History" : `Quotation History (${olderQuotationCount})`}
+                    </Button>
+                  )}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-200">
+                    <Trophy className="size-4 text-[#16C784]" />
+                    <span className="text-xs font-bold tracking-tight">
+                      Lowest Total Flagged
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Container */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[840px]">
+                  <thead>
+                    <tr>
+                      <th className="p-5 bg-[#F5F8FF] w-[240px] border-r border-[#DCE6F3] sticky left-0 z-10">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#526580]">
+                          Bidding Factors
+                        </span>
+                      </th>
+                      {comparisonQuotations.map((q, idx) => {
+                        const isL1 = bestQuotationId === q.id;
+                        const isSelected = q.status === "Selected";
+                        return (
+                          <th
+                            key={q.id || `q-head-${idx}`}
+                            className={cn(
+                              "p-5 min-w-[280px] border-r border-[#DCE6F3] relative group transition-colors",
+                              isSelected
+                                ? "bg-emerald-50/40"
+                                : isL1
+                                  ? "bg-blue-50/30"
+                                  : "bg-white",
+                            )}
+                          >
+                            {isSelected ? (
+                              <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#16C784]" />
+                            ) : isL1 ? (
+                              <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#0866FF]" />
+                            ) : null}
+
+                            <div className="flex flex-col gap-2.5">
+                              <div className="flex items-center justify-between">
+                                <StatusBadge status={q.status} />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setInspectQuotation(q)}
+                                  className="rounded-lg text-[11px] h-7 font-bold gap-1 border-[#DCE6F3] bg-white hover:bg-[#F5F8FF] text-[#101D3A]"
+                                >
+                                  <Eye className="size-3 text-[#0866FF]" /> Final Review
+                                </Button>
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                {isSelected ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 uppercase bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                                    <Sparkles className="size-3" /> Selected Supplier
+                                  </span>
+                                ) : isL1 ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-[#0866FF] uppercase bg-blue-100/80 px-2.5 py-0.5 rounded-full border border-blue-300">
+                                    <Trophy className="size-3" /> Lowest Total (L1)
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div>
+                                <h3 className="font-extrabold text-base text-[#101D3A] leading-tight">
+                                  {q.supplierInfo?.supplierName || q.supplierName || `Supplier ${idx + 1}`}
+                                </h3>
+                                <p className="text-[11px] font-mono font-bold text-[#526580] mt-0.5">
+                                  {q.supplierInfo?.supplierCode || q.id.substring(0, 8)}
+                                </p>
+                              </div>
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-[#DCE6F3] text-xs">
+                    {/* Section 1: Decision Criteria */}
+                    <tr className="bg-[#EBF3FF]/70 border-y border-[#CBE0FC]">
+                      <td className="p-3.5 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-[#EBF3FF] font-bold text-[#0866FF]">
+                        <div className="flex items-center gap-2">
+                          <TableIcon className="size-4" />
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider">
+                            Decision Criteria
+                          </span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`cat-criteria-${q.id}`}
                           className={cn(
-                            "p-6 min-w-[280px] border-r border-border/40 relative group transition-colors",
-                            (isL1 || isSelected) && "bg-primary/[0.02]",
+                            "p-3.5 border-r border-[#DCE6F3]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-[#EBF3FF]/40",
+                          )}
+                        />
+                      ))}
+                    </tr>
+
+                    {/* Unit Price */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        Lowest Unit Rate
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-criteria-unit-price`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] text-sm font-extrabold text-[#101D3A] tabular-nums",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
                           )}
                         >
-                          {isSelected ? (
-                            <div className="absolute top-0 left-0 right-0 h-1 bg-success shadow-[0_2px_10px_rgba(34,197,94,0.4)]" />
-                          ) : isL1 ? (
-                            <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />
-                          ) : null}
-                          <div className="flex flex-col gap-3">
-                            <div className="flex items-center justify-between">
-                              <StatusBadge status={q.status} />
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setInspectQuotation(q)}
-                                className="rounded-lg text-[10px] h-7 font-bold gap-1 bg-muted/30 hover:bg-muted/55 text-foreground"
-                              >
-                                <Eye className="size-3 text-primary" /> Final Review
-                              </Button>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              {isSelected ? (
-                                <span className="flex items-center gap-1 text-[9px] font-black text-success uppercase bg-success-soft/30 px-2 py-0.5 rounded-md">
-                                  <Sparkles className="size-3" /> Selected
-                                </span>
-                              ) : isL1 ? (
-                                <span className="flex items-center gap-1 text-[9px] font-black text-primary uppercase bg-primary-soft/20 px-2 py-0.5 rounded-md">
-                                  <Trophy className="size-3" /> Lowest Total
-                                </span>
-                              ) : null}
-                            </div>
-                            <div>
-                              <h3 className="font-black text-base text-foreground leading-none">
-                                {q.supplierInfo?.supplierName || q.supplierName || `Supplier ${idx + 1}`}
-                              </h3>
-                              <p className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-widest font-bold">
-                                {q.supplierInfo?.supplierCode || q.id.substring(0, 8)}
-                              </p>
-                            </div>
+                          {formatMoney(calculateLowestUnitRate(q))}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Delivery */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        Delivery Lead Time
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-criteria-delivery`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] text-xs font-semibold text-[#101D3A]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {q.deliveryTime || q.delivery_time || q.expectedDeliveryDate || q.expected_delivery_date || "—"}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Payment Terms */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        Payment Terms
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-criteria-payment`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] text-xs font-medium text-[#526580]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {q.paymentTerms || q.payment_terms || "—"}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Warranty */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        <div className="flex items-center gap-1.5">
+                          <ShieldCheck className="size-3.5 text-[#0866FF]" />
+                          <span>Warranty</span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-criteria-warranty`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] text-xs font-semibold text-[#101D3A]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {q.warranty || "Standard 12 Months"}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Section 2: Items & Rates */}
+                    <tr className="bg-[#EBF3FF]/70 border-y border-[#CBE0FC]">
+                      <td className="p-3.5 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-[#EBF3FF] font-bold text-[#0866FF]">
+                        <div className="flex items-center gap-2">
+                          <Package className="size-4" />
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider">
+                            Item Rates & Quantities
+                          </span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`cat-m-${q.id}`}
+                          className={cn(
+                            "p-3.5 border-r border-[#DCE6F3]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-[#EBF3FF]/40",
+                          )}
+                        />
+                      ))}
+                    </tr>
+
+                    {uniqueItemCodes.map((code) => (
+                      <tr key={`row-item-${code}`} className="hover:bg-[#F5F8FF]/80 transition-colors">
+                        <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white">
+                          <div className="space-y-1">
+                            <p className="text-xs font-bold text-[#101D3A]">
+                              {comparisonQuotations
+                                .flatMap((q) => q.lines || [])
+                                .find((l) => l.itemCode === code || l.item_code === code)?.material_name || "Material Line"}
+                            </p>
+                            <code className="text-[10px] text-[#0866FF] font-bold bg-[#EBF3FF] px-2 py-0.5 rounded border border-[#CBE0FC] uppercase font-mono">
+                              {code}
+                            </code>
                           </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40 text-xs">
-                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
-                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
-                      <div className="flex items-center gap-2 text-primary">
-                        <TableIcon className="size-4" />
-                        <span className="text-[11px] font-black uppercase tracking-widest">
-                          Decision Criteria
-                        </span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td key={`cat-criteria-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
+                        </td>
+                        {comparisonQuotations.map((q) => {
+                          const line = q.lines?.find((l: any) => l.itemCode === code || l.item_code === code);
+                          return (
+                            <td
+                              key={`${q.id}-${code}`}
+                              className={cn(
+                                "p-4 border-r border-[#DCE6F3]",
+                                (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                              )}
+                            >
+                              {line ? (
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-[#526580] font-bold uppercase">Rate</span>
+                                    <span className="text-sm font-extrabold text-[#101D3A] tabular-nums">
+                                      {formatMoney(parseFloat(line.unitPrice || line.unit_price))}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-[#526580] font-bold uppercase">Quantity</span>
+                                    <span className="text-xs font-semibold text-[#526580]">
+                                      {Math.floor(parseFloat(line.quantity))} {line.uom || "Units"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-center italic text-[#526580] text-[11px]">No Quote</div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
                     ))}
-                  </tr>
 
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Unit Price</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-criteria-unit-price`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-sm font-black tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {formatMoney(calculateLowestUnitRate(q))}
+                    {/* Section 3: Commercial Adjustments */}
+                    <tr className="bg-[#EBF3FF]/70 border-y border-[#CBE0FC]">
+                      <td className="p-3.5 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-[#EBF3FF] font-bold text-[#0866FF]">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="size-4" />
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider">
+                            Commercial Adjustments
+                          </span>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`cat-f-${q.id}`}
+                          className={cn(
+                            "p-3.5 border-r border-[#DCE6F3]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-[#EBF3FF]/40",
+                          )}
+                        />
+                      ))}
+                    </tr>
 
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Delivery</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-criteria-delivery`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-black text-foreground",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.deliveryTime || q.delivery_time || q.expectedDeliveryDate || q.expected_delivery_date || "-"}
+                    {/* Discount */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        <div className="flex items-center gap-1.5 text-emerald-700">
+                          <TrendingDown className="size-3.5" />
+                          <span>Discount Offered</span>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-discount`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] font-extrabold text-sm text-emerald-700 tabular-nums",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {formatMoney(parseFloat(q.discount || 0))}
+                        </td>
+                      ))}
+                    </tr>
 
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Payment</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-criteria-payment`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-medium leading-relaxed text-muted-foreground",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.paymentTerms || q.payment_terms || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs font-bold">Warranty</span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-criteria-warranty`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-black text-foreground",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.warranty || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Total</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-criteria-total`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-base font-black tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {formatMoney(calculateTotal(q))}
-                      </td>
-                    ))}
-                  </tr>
-
-                  {/* Category: Materials */}
-                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
-                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
-                      <div className="flex items-center gap-2 text-primary">
-                        <Package className="size-4" />
-                        <span className="text-[11px] font-black uppercase tracking-widest">
-                          Item Rates & Quantities
-                        </span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td key={`cat-m-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
-                    ))}
-                  </tr>
-
-                  {uniqueItemCodes.map((code) => (
-                    <tr key={`row-item-${code}`} className="hover:bg-muted/5 transition-colors group">
-                      <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card group-hover:bg-muted/5 transition-colors">
-                        <div className="space-y-1">
-                          <p className="text-xs font-bold text-foreground">
-                            {comparisonQuotations.flatMap(q => q.lines || []).find(l => l.itemCode === code || l.item_code === code)?.material_name || "Material Unit"}
-                          </p>
-                          <code className="text-[9px] text-primary font-black bg-primary-soft/30 px-1.5 py-0.5 rounded uppercase font-mono">
-                            {code}
-                          </code>
+                    {/* GST / Tax */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        <div className="flex items-center gap-1.5">
+                          <AlertCircle className="size-3.5 text-[#526580]" />
+                          <span>Tax (GST %)</span>
                         </div>
                       </td>
                       {comparisonQuotations.map((q) => {
-                        const line = q.lines?.find((l: any) => l.itemCode === code || l.item_code === code);
+                        const baseTotal = (q.lines || []).reduce(
+                          (sum: number, l: any) =>
+                            sum +
+                            parseFloat(l.quantity || 1) *
+                              parseFloat(l.unitPrice || l.unit_price || 0),
+                          0,
+                        );
+                        const disc = parseFloat(q.discount || 0);
+                        const afterDisc = Math.max(0, baseTotal - disc);
+                        const taxRate = parseFloat(q.tax || 0);
+                        const taxMoney = afterDisc * (taxRate / 100);
+
                         return (
                           <td
-                            key={`${q.id}-${code}`}
+                            key={`${q.id}-tax`}
                             className={cn(
-                              "p-4 border-r border-border/40",
-                              (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
+                              "p-4 border-r border-[#DCE6F3] font-bold text-sm text-[#101D3A] tabular-nums",
+                              (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
                             )}
                           >
-                            {line ? (
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] text-muted-foreground font-black uppercase">Rate</span>
-                                  <span className="text-sm font-black text-foreground tabular-nums">
-                                    {formatMoney(parseFloat(line.unitPrice || line.unit_price))}
+                            {formatMoney(taxMoney)}
+                            <span className="text-xs font-semibold text-[#526580] ml-1.5">
+                              ({taxRate}%)
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+
+                    {/* Freight */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        <div className="flex items-center gap-1.5">
+                          <Truck className="size-3.5 text-[#526580]" />
+                          <span>Freight Charges</span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-freight`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] font-bold text-sm text-[#101D3A] tabular-nums",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {formatMoney(parseFloat(q.freightCharges || q.freight_charges || 0))}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Section 4: Logistics & Attachments */}
+                    <tr className="bg-[#EBF3FF]/70 border-y border-[#CBE0FC]">
+                      <td className="p-3.5 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-[#EBF3FF] font-bold text-[#0866FF]">
+                        <div className="flex items-center gap-2">
+                          <Clock className="size-4" />
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider">
+                            Logistics & Mode
+                          </span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`cat-l-${q.id}`}
+                          className={cn(
+                            "p-3.5 border-r border-[#DCE6F3]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-[#EBF3FF]/40",
+                          )}
+                        />
+                      ))}
+                    </tr>
+
+                    {/* Mode of Payment */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        Mode of Payment
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-mode`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3] text-xs font-semibold text-[#101D3A]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {q.modeOfPayment || q.mode_of_payment || "Bank Transfer (NEFT/RTGS)"}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Supporting Documents */}
+                    <tr className="hover:bg-[#F5F8FF]/80 transition-colors">
+                      <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white font-bold text-[#101D3A]">
+                        Supporting PDF Docs
+                      </td>
+                      {comparisonQuotations.map((q) => (
+                        <td
+                          key={`${q.id}-docs`}
+                          className={cn(
+                            "p-4 border-r border-[#DCE6F3]",
+                            (bestQuotationId === q.id || q.status === "Selected") && "bg-blue-50/20",
+                          )}
+                        >
+                          {q.documents && q.documents.length > 0 ? (
+                            q.documents.map((d: any, dIdx: number) => (
+                              <a
+                                key={`${q.id}-doc-${dIdx}`}
+                                href={d.file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-[#0866FF] font-bold hover:underline"
+                              >
+                                <Download className="size-3.5" /> PDF Attachment
+                              </a>
+                            ))
+                          ) : (
+                            <span className="text-[#526580] text-xs italic">No Attachments</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Grand Total Row */}
+                    <tr className="bg-gradient-to-r from-[#071D3B] via-[#0E284D] to-[#102D57] text-white">
+                      <td className="p-5 px-5 border-r border-white/20 sticky left-0 z-10 bg-[#071D3B] text-white">
+                        <div className="flex items-center gap-2.5">
+                          <Wallet className="size-5 text-[#00D4FF]" />
+                          <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-white">
+                            Net Quotation Total
+                          </span>
+                        </div>
+                      </td>
+                      {comparisonQuotations.map((q) => {
+                        const total = calculateTotal(q);
+                        const isSelected = q.status === "Selected";
+                        const isL1 = bestQuotationId === q.id;
+                        return (
+                          <td
+                            key={`${q.id}-total`}
+                            className={cn(
+                              "p-5 border-r border-white/20 font-extrabold text-xl sm:text-2xl tabular-nums tracking-tight",
+                              (isSelected || isL1) && "bg-[#0866FF]/40 text-[#00D4FF]",
+                            )}
+                          >
+                            {formatMoney(total)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+
+                    {/* Authorize Decision Actions */}
+                    <tr className="bg-white">
+                      <td className="p-5 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#526580]">
+                          Authorize Decision
+                        </span>
+                      </td>
+                      {comparisonQuotations.map((q) => {
+                        const isSelected = q.status === "Selected";
+                        const isRejected = q.status === "Rejected";
+                        return (
+                          <td
+                            key={`${q.id}-actions`}
+                            className={cn(
+                              "p-5 border-r border-[#DCE6F3]",
+                              (bestQuotationId === q.id || isSelected) && "bg-blue-50/20",
+                            )}
+                          >
+                            {isSelected ? (
+                              <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-center">
+                                <span className="flex items-center justify-center gap-2 text-xs font-bold uppercase text-emerald-700 tracking-wider">
+                                  <CheckCircle2 className="size-4" /> Selected & PO Generated
+                                </span>
+                              </div>
+                            ) : isRejected ? (
+                              <div className="space-y-2.5">
+                                <div className="bg-red-50 border border-red-300 rounded-2xl p-4 text-center">
+                                  <span className="flex items-center justify-center gap-2 text-xs font-bold uppercase text-[#E5484D] tracking-wider">
+                                    <XCircle className="size-4" /> Quotation Rejected
                                   </span>
                                 </div>
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] text-muted-foreground font-black uppercase">Qty</span>
-                                  <span className="text-xs font-bold text-muted-foreground">
-                                    {Math.floor(parseFloat(line.quantity))} Units
-                                  </span>
-                                </div>
+                                {!selectionFinalized && (
+                                  <Button
+                                    variant="ghost"
+                                    className="w-full text-[#0866FF] hover:bg-[#EBF3FF] font-bold text-xs rounded-xl"
+                                    onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "SELECT")}
+                                  >
+                                    Re-evaluate Selection
+                                  </Button>
+                                )}
                               </div>
                             ) : (
-                              <div className="text-center italic text-muted-foreground text-[10px]">No Quote</div>
+                              <div className="space-y-2.5">
+                                <Button
+                                  className="w-full h-11 rounded-xl bg-[#16C784] hover:bg-[#13ab71] text-white font-bold text-xs shadow-xs"
+                                  onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "SELECT")}
+                                  disabled={submitting}
+                                >
+                                  <CheckCircle className="size-4 mr-1.5" /> Select Vendor
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  className="w-full h-9 rounded-xl text-[#E5484D] hover:bg-red-50 font-bold text-xs"
+                                  onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "REJECT")}
+                                  disabled={submitting}
+                                >
+                                  <XCircle className="size-4 mr-1.5" /> Reject Quote
+                                </Button>
+                              </div>
                             )}
                           </td>
                         );
                       })}
                     </tr>
-                  ))}
-
-                  {/* Category: Financials */}
-                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
-                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
-                      <div className="flex items-center gap-2 text-primary">
-                        <Wallet className="size-4" />
-                        <span className="text-[11px] font-black uppercase tracking-widest">
-                          Commercial Adjustments
-                        </span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td key={`cat-f-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <div className="flex items-center gap-2">
-                        <TrendingDown className="size-3.5 text-success" />
-                        <span className="text-xs font-bold">Discount Offered</span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-discount`}
-                        className={cn(
-                          "p-4 border-r border-border/40 font-black text-sm text-success tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {formatMoney(parseFloat(q.discount || 0))}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs font-bold">Tax (GST %)</span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => {
-                      const baseTotal = (q.lines || []).reduce(
-                        (sum: number, l: any) =>
-                          sum +
-                          parseFloat(l.quantity || 1) *
-                            parseFloat(l.unitPrice || l.unit_price || 0),
-                        0,
-                      );
-                      const disc = parseFloat(q.discount || 0);
-                      const afterDisc = Math.max(0, baseTotal - disc);
-                      const taxRate = parseFloat(q.tax || 0);
-                      const taxMoney = afterDisc * (taxRate / 100);
-
-                      return (
-                        <td
-                          key={`${q.id}-tax`}
-                          className={cn(
-                            "p-4 border-r border-border/40 font-bold text-sm tabular-nums",
-                            (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                          )}
-                        >
-                          {formatMoney(taxMoney)}
-                          <span className="text-xs font-medium text-muted-foreground ml-1">
-                            ({taxRate}%)
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <div className="flex items-center gap-2">
-                        <Truck className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs font-bold">Freight Charges</span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-freight`}
-                        className={cn(
-                          "p-4 border-r border-border/40 font-bold text-sm tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {formatMoney(parseFloat(q.freightCharges || q.freight_charges || 0))}
-                      </td>
-                    ))}
-                  </tr>
-
-                  {/* Category: Logistics */}
-                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
-                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
-                      <div className="flex items-center gap-2 text-primary">
-                        <Clock className="size-4" />
-                        <span className="text-[11px] font-black uppercase tracking-widest">
-                          Logistics & Timeline
-                        </span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td key={`cat-l-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Delivery Time</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-del-time`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-black text-foreground tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.deliveryTime || q.delivery_time || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Expected Delivery</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-del-date`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-black text-foreground tabular-nums",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.expectedDeliveryDate || q.expected_delivery_date || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Payment Terms</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-pay`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-[11px] font-medium leading-relaxed italic text-muted-foreground",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.paymentTerms || q.payment_terms || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Mode of Payment</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-mode`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-xs font-semibold text-foreground",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.modeOfPayment || q.mode_of_payment || "-"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  {/* Documents & Comments */}
-                  <tr className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-y border-primary/20">
-                    <td className="p-3.5 px-6 border-r border-border/40 sticky left-0 z-10 bg-card/95 backdrop-blur-md">
-                      <div className="flex items-center gap-2 text-primary">
-                        <MessageSquare className="size-4" />
-                        <span className="text-[11px] font-black uppercase tracking-widest">
-                          Attachments & Evaluation
-                        </span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td key={`cat-c-${q.id}`} className={cn("p-3.5 border-r border-border/40", (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.04]")}></td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Supporting Docs</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-docs`}
-                        className={cn(
-                          "p-4 border-r border-border/40 space-y-1.5",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.documents && q.documents.length > 0 ? (
-                          q.documents.map((d: any, dIdx: number) => (
-                            <a
-                              key={`${q.id}-doc-${dIdx}`}
-                              href={d.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-1.5 text-[10px] text-primary font-black uppercase tracking-tighter hover:underline"
-                            >
-                              <Download className="size-3" /> PDF
-                            </a>
-                          ))
-                        ) : (
-                          <span className="text-muted-foreground text-[10px] italic">No Attachments</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="hover:bg-muted/5">
-                    <td className="p-4 px-6 border-r border-border/40 sticky left-0 z-10 bg-card hover:bg-muted/5">
-                      <span className="text-xs font-bold">Supplier Comments</span>
-                    </td>
-                    {comparisonQuotations.map((q) => (
-                      <td
-                        key={`${q.id}-comm`}
-                        className={cn(
-                          "p-4 border-r border-border/40 text-[10px] text-muted-foreground leading-relaxed italic line-clamp-3",
-                          (bestQuotationId === q.id || q.status === "Selected") && "bg-primary/[0.02]",
-                        )}
-                      >
-                        {q.remarks || "No evaluation notes recorded"}
-                      </td>
-                    ))}
-                  </tr>
-
-                  {/* Grand Total */}
-                  <tr className="bg-primary text-white border-t-2 border-primary">
-                    <td className="p-6 px-6 border-r border-white/20 sticky left-0 z-10 bg-primary shadow-2xl">
-                      <div className="flex items-center gap-3">
-                        <Wallet className="size-5" />
-                        <span className="text-sm font-black uppercase tracking-[0.2em]">Net Quotation Total</span>
-                      </div>
-                    </td>
-                    {comparisonQuotations.map((q) => {
-                      const total = calculateTotal(q);
-                      const isSelected = q.status === "Selected";
-                      return (
-                        <td
-                          key={`${q.id}-total`}
-                          className={cn(
-                            "p-6 border-r border-white/20 font-black text-2xl tabular-nums tracking-tighter transition-all",
-                            (isSelected || bestQuotationId === q.id) && "bg-primary-hover brightness-110",
-                          )}
-                        >
-                          {formatMoney(total)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-
-                  {/* Authorize Decision Actions */}
-                  <tr className="bg-card">
-                    <td className="p-6 px-6 border-r border-border/40 sticky left-0 z-10 bg-card">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Authorize Decision</span>
-                    </td>
-                    {comparisonQuotations.map((q) => {
-                      const isSelected = q.status === "Selected";
-                      const isRejected = q.status === "Rejected";
-                      return (
-                        <td
-                          key={`${q.id}-actions`}
-                          className={cn(
-                            "p-6 border-r border-border/40",
-                            (bestQuotationId === q.id || isSelected) && "bg-primary/[0.02]",
-                          )}
-                        >
-                          {isSelected ? (
-                            <div className="bg-success/10 border border-success/30 rounded-2xl p-4 text-center">
-                              <span className="flex items-center justify-center gap-2 text-[10px] font-black uppercase text-success tracking-widest">
-                                <CheckCircle2 className="size-4" /> Selected
-                              </span>
-                            </div>
-                          ) : isRejected ? (
-                            <div className="space-y-3">
-                              <div className="bg-destructive/10 border border-destructive/30 rounded-2xl p-4 text-center">
-                                <span className="flex items-center justify-center gap-2 text-[10px] font-black uppercase text-destructive tracking-widest">
-                                  <XCircle className="size-4" /> Rejected
-                                </span>
-                              </div>
-                              {!selectionFinalized && (
-                                <Button
-                                  variant="ghost"
-                                  className="w-full text-primary hover:bg-primary-soft/30 font-black uppercase tracking-widest text-[9px] rounded-xl"
-                                  onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "SELECT")}
-                                >
-                                  Re-evaluate Selection
-                                </Button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <Button
-                                className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest text-[10px] shadow-glow border-none"
-                                onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "SELECT")}
-                                disabled={submitting}
-                              >
-                                <CheckCircle className="size-4 mr-2" /> Select Vendor
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                className="w-full h-10 rounded-2xl text-destructive hover:bg-destructive/10 font-black uppercase tracking-widest text-[10px]"
-                                onClick={() => handleOpenModal(q.id, q.supplierId || q.supplier_id, "REJECT")}
-                                disabled={submitting}
-                              >
-                                <XCircle className="size-4 mr-2" /> Reject Quote
-                              </Button>
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* Bottom PO CTA */}
+            {quotations.some((q) => q.status === "Selected") && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  className="h-12 rounded-xl bg-[#0866FF] hover:bg-[#0054D6] text-white font-extrabold text-sm shadow-md px-8 gap-2"
+                  onClick={() => navigate({ to: "/procurement/purchase-orders" })}
+                >
+                  Proceed to PO Queue <ArrowRight className="size-4" />
+                </Button>
+              </div>
+            )}
           </div>
+        )}
 
-          {quotations.some((q) => q.status === "Selected") && (
-            <div className="flex justify-end pt-4">
-              <Button
-                size="lg"
-                className="h-14 rounded-2xl shadow-glow bg-success hover:bg-success/90 text-white font-black uppercase tracking-[0.1em] px-10"
-                onClick={() => navigate({ to: "/procurement/purchase-orders" })}
-              >
-                Proceed to PO Queue <ArrowRight className="ml-3 size-5" />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <Dialog open={isModalOpen} onOpenChange={(open) => !submitting && setIsModalOpen(open)}>
-        <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-2xl border-border/60 p-0 shadow-2xl">
-          <DialogHeader className="border-b border-border/60 bg-muted/20 px-6 py-5 pr-12 text-left">
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                "grid size-10 shrink-0 place-items-center rounded-xl",
-                modalMode === "SELECT" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive",
-              )}>
-                {modalMode === "SELECT" ? <FileCheck2 className="size-5" /> : <XCircle className="size-5" />}
+        {/* Selection / Rejection Dialog */}
+        <Dialog open={isModalOpen} onOpenChange={(open) => !submitting && setIsModalOpen(open)}>
+          <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-2xl border-[#DCE6F3] p-0 shadow-2xl">
+            <DialogHeader className="border-b border-[#DCE6F3] bg-[#F5F8FF] px-6 py-5 pr-12 text-left">
+              <div className="flex items-center gap-3">
+                <div
+                  className={cn(
+                    "grid size-10 shrink-0 place-items-center rounded-xl",
+                    modalMode === "SELECT" ? "bg-[#EBF3FF] text-[#0866FF]" : "bg-red-100 text-[#E5484D]",
+                  )}
+                >
+                  {modalMode === "SELECT" ? <FileCheck2 className="size-5" /> : <XCircle className="size-5" />}
+                </div>
+                <div className="min-w-0">
+                  <DialogTitle className="text-lg font-bold text-[#101D3A]">
+                    {modalMode === "SELECT" ? "Select Supplier & Generate PO Proposal" : "Reject Quotation"}
+                  </DialogTitle>
+                  <DialogDescription className="mt-0.5 text-xs text-[#526580]">
+                    {modalMode === "SELECT"
+                      ? "Confirm the winning supplier bid and record the evaluation reason."
+                      : "Provide a documented reason for rejecting this supplier's quotation."}
+                  </DialogDescription>
+                </div>
               </div>
-              <div className="min-w-0">
-                <DialogTitle className="text-lg font-bold">
-                  {modalMode === "SELECT" ? "Select Supplier & Generate PO" : "Reject Quotation"}
-                </DialogTitle>
-                <DialogDescription className="mt-1 text-xs leading-5">
-                  {modalMode === "SELECT"
-                    ? "Confirm the winning supplier and record the evaluation before generating the PO proposal."
-                    : "Provide a reason for rejecting this quotation."}
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
+            </DialogHeader>
 
-          <form onSubmit={handleAction} className="flex min-h-0 flex-col">
-            <div className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5">
-              {(() => {
-                const quotation = quotations.find((entry) => entry.id === targetQuotationId);
-                if (!quotation) return null;
-                const quotationReference = `QTN-${String(
-                  quotations.findIndex((entry) => entry.id === targetQuotationId) + 1,
-                ).padStart(4, "0")}`;
-                return (
-                  <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 sm:grid-cols-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Selected supplier</p>
-                      <p className="mt-1 truncate text-sm font-semibold">
-                        {quotation.supplierInfo?.supplierName || quotation.supplierName || "Supplier"}
-                        {quotation.supplierInfo?.supplierCode && (
-                          <span className="ml-2 text-[10px] font-mono text-muted-foreground">({quotation.supplierInfo.supplierCode})</span>
-                        )}
-                      </p>
+            <form onSubmit={handleAction} className="flex min-h-0 flex-col">
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-5">
+                {(() => {
+                  const quotation = quotations.find((entry) => entry.id === targetQuotationId);
+                  if (!quotation) return null;
+                  const quotationReference = `QTN-${String(
+                    quotations.findIndex((entry) => entry.id === targetQuotationId) + 1,
+                  ).padStart(4, "0")}`;
+                  return (
+                    <div className="grid gap-3 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Selected Supplier
+                        </p>
+                        <p className="mt-1 truncate text-sm font-bold text-[#101D3A]">
+                          {quotation.supplierInfo?.supplierName || quotation.supplierName || "Supplier"}
+                          {quotation.supplierInfo?.supplierCode && (
+                            <span className="ml-1.5 text-xs font-mono text-[#526580]">
+                              ({quotation.supplierInfo.supplierCode})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Quotation Ref
+                        </p>
+                        <p className="mt-1 font-mono text-sm font-bold text-[#0866FF]">
+                          {quotation.quotationNumber || quotationReference}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Quotation</p>
-                      <p className="mt-1 font-mono text-sm font-semibold">
-                        {quotation.quotationNumber || quotationReference}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
-              <div className="space-y-2">
-                <Label htmlFor="selection-reason" className="text-xs font-semibold">
-                  {modalMode === "SELECT" ? "Selection reason" : "Rejection reason"}
-                  <span className="ml-1 text-destructive">*</span>
-                </Label>
-                {modalMode === "SELECT" ? (
-                  <Select value={reason} onValueChange={(value) => setReason(value)}>
-                    <SelectTrigger
-                      id="selection-reason"
-                      className="h-11 rounded-xl bg-background text-sm"
-                    >
-                      <span className="truncate">{reason || "Choose a selection reason"}</span>
-                    </SelectTrigger>
-                    <SelectContent className="z-[60] max-h-80 rounded-xl">
-                      {selectionReasons.map((selectionReason) => (
-                        <SelectItem
-                          key={selectionReason.value}
-                          value={selectionReason.value}
-                          textValue={selectionReason.value}
-                          className="whitespace-nowrap py-2 text-xs"
-                        >
-                          <span className="font-medium">{selectionReason.value}</span>
-                          <span className="text-muted-foreground"> - {selectionReason.detail}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Select value={reason} onValueChange={(value) => setReason(value)}>
-                    <SelectTrigger
-                      id="selection-reason"
-                      className="h-11 rounded-xl bg-background text-sm"
-                    >
-                      <span className="truncate">{reason || "Choose a rejection reason"}</span>
-                    </SelectTrigger>
-                    <SelectContent className="z-[60] max-h-80 rounded-xl">
-                      {rejectionReasons.map((rejectionReason) => (
-                        <SelectItem key={rejectionReason} value={rejectionReason}>
-                          {rejectionReason}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {modalMode === "SELECT" && selectedReasonDetail && (
-                  <p className="text-[11px] text-muted-foreground">{selectedReasonDetail}</p>
-                )}
-              </div>
-
-              {modalMode === "SELECT" && reason === OTHER_SELECTION_REASON && (
-                <div className="space-y-2">
-                  <Label htmlFor="evaluation-comments" className="text-xs font-semibold">
-                    Procurement evaluation comments <span className="text-destructive">*</span>
+                <div className="space-y-1.5">
+                  <Label htmlFor="selection-reason" className="text-xs font-bold text-[#101D3A]">
+                    {modalMode === "SELECT" ? "Selection Reason" : "Rejection Reason"}
+                    <span className="ml-1 text-[#E5484D]">*</span>
                   </Label>
-                  <Textarea
-                    id="evaluation-comments"
-                    placeholder="Explain why this supplier was selected..."
-                    className="min-h-28 resize-y rounded-xl text-sm"
-                    value={procurementComments}
-                    onChange={(e) => setProcurementComments(e.target.value)}
-                    required
-                  />
-                  <p className="text-[11px] text-muted-foreground">This justification will be included in the finance approval record.</p>
-                </div>
-              )}
-
-              {modalMode === "REJECT" && reason === OTHER_SELECTION_REASON && (
-                <div className="space-y-2">
-                  <Label htmlFor="rejection-justification" className="text-xs font-semibold">
-                    Rejection justification <span className="text-destructive">*</span>
-                  </Label>
-                  <Textarea
-                    id="rejection-justification"
-                    placeholder="Explain why this quotation was rejected..."
-                    className="min-h-24 resize-y rounded-xl text-sm"
-                    value={rejectionJustification}
-                    onChange={(e) => setRejectionJustification(e.target.value)}
-                    required
-                  />
-                </div>
-              )}
-            </div>
-
-            <DialogFooter className="border-t border-border/60 bg-muted/10 px-6 py-4 sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl" disabled={submitting}>Cancel</Button>
-              <Button
-                type="submit"
-                className={cn(
-                  "min-w-44 rounded-xl font-bold shadow-glow",
-                  modalMode === "REJECT" && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-                )}
-                disabled={submitting}
-              >
-                {submitting ? <><Loader2 className="mr-2 size-4 animate-spin" /> Processing...</> : modalMode === "SELECT" ? <><FileCheck2 className="mr-2 size-4" /> Generate PO Proposal</> : "Confirm Rejection"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Supplier Quotation Final Review Inspection Dialog */}
-      <Dialog open={Boolean(inspectQuotation)} onOpenChange={(open) => !open && setInspectQuotation(null)}>
-        <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-2xl border-none p-0 shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75 [&>button]:hover:text-white">
-          {inspectQuotation && (() => {
-            const baseTotal = (inspectQuotation.lines || []).reduce(
-              (sum: number, l: any) =>
-                sum + parseFloat(l.quantity || 1) * parseFloat(l.unitPrice || l.unit_price || 0),
-              0,
-            );
-            const disc = parseFloat(inspectQuotation.discount || 0);
-            const netTaxable = Math.max(0, baseTotal - disc);
-            const taxRate = parseFloat(inspectQuotation.tax || 0);
-            const taxAmount = netTaxable * (taxRate / 100);
-            const freight = parseFloat(inspectQuotation.freightCharges || inspectQuotation.freight_charges || 0);
-            const other = parseFloat(inspectQuotation.additional_charges || inspectQuotation.additionalCharges || 0);
-            const grandTotal = parseFloat(inspectQuotation.totalAmount || inspectQuotation.total_amount || 0) || (netTaxable + taxAmount + freight + other);
-            const quotedItemsCount = (inspectQuotation.lines || []).filter((l: any) => parseFloat(l.unitPrice || l.unit_price || 0) > 0).length;
-
-            return (
-              <>
-                <div className="bg-blue-600 px-6 py-4 text-white">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
-                      <span className="grid size-8 place-items-center rounded-lg bg-white/15">
-                        <ShieldCheck className="size-5" />
-                      </span>
-                      Quotation Final Review
-                    </DialogTitle>
-                    <DialogDescription className="mt-0.5 text-sm font-normal text-white/85">
-                      RFQ: <span className="font-mono font-bold">{rfq?.rfqNumber || rfq?.rfq_number || "RFQ"}</span> | Supplier: <span className="font-bold">{inspectQuotation.supplierInfo?.supplierName || inspectQuotation.supplierName || "Supplier Partner"}</span>
-                    </DialogDescription>
-                  </DialogHeader>
-                </div>
-
-                <div className="space-y-4 p-5 max-h-[70vh] overflow-y-auto">
-                  {/* Taxable-Value Breakdown */}
-                  <div className="rounded-xl border border-border/70 bg-muted/10 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Taxable-Value Breakdown
-                      </h4>
-                      <span className="text-[10px] font-bold text-success uppercase">Backend Calculation Synced</span>
-                    </div>
-                    <div className="space-y-2.5 text-sm">
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
-                        <span className="text-muted-foreground font-medium">Subtotal (Gross Items)</span>
-                        <span className="font-semibold tabular-nums">{formatMoney(baseTotal)}</span>
-                      </div>
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
-                        <span className="text-muted-foreground font-medium">Discount ({inspectQuotation.discount || 0}%)</span>
-                        <span className="font-semibold text-success tabular-nums">− {formatMoney(disc)}</span>
-                      </div>
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-6 border-t border-border/60 pt-2">
-                        <span className="font-semibold text-foreground">Net Taxable Amount</span>
-                        <span className="font-semibold tabular-nums">{formatMoney(netTaxable)}</span>
-                      </div>
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
-                        <span className="text-muted-foreground font-medium">GST / Tax ({taxRate}%)</span>
-                        <span className="font-semibold tabular-nums">{formatMoney(taxAmount)}</span>
-                      </div>
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-6">
-                        <div>
-                          <span className="text-muted-foreground font-medium block">Freight Charges</span>
-                          <span className="text-[10px] text-muted-foreground italic">(*Non-taxable / exclusive of item GST)</span>
-                        </div>
-                        <span className="font-semibold tabular-nums">{formatMoney(freight)}</span>
-                      </div>
-                      {other > 0 && (
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
-                          <span className="text-muted-foreground font-medium">Additional Charges</span>
-                          <span className="font-semibold tabular-nums">{formatMoney(other)}</span>
-                        </div>
-                      )}
-                      <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-6 border-t border-border pt-3">
-                        <span className="text-sm font-semibold uppercase tracking-wide">Final Grand Total</span>
-                        <span className="text-xl font-bold tracking-tight text-primary tabular-nums">
-                          {formatMoney(grandTotal)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Logistics & Commercials Grid */}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-border/70 bg-background p-3">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Delivery Duration
-                      </Label>
-                      <p className="mt-1 text-sm font-semibold">{inspectQuotation.deliveryTime || inspectQuotation.delivery_time || "Not Specified"}</p>
-                    </div>
-                    <div className="rounded-xl border border-border/70 bg-background p-3">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Expected Delivery Date
-                      </Label>
-                      <p className="mt-1 text-sm font-semibold tabular-nums">
-                        {inspectQuotation.expectedDeliveryDate || inspectQuotation.expected_delivery_date || "Not Specified"}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-border/70 bg-background p-3">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Payment Terms & Mode
-                      </Label>
-                      <p className="mt-1 text-sm font-semibold">
-                        {inspectQuotation.paymentTerms || inspectQuotation.payment_terms || "Net 30"} ({inspectQuotation.modeOfPayment || inspectQuotation.mode_of_payment || "Bank Transfer"})
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-border/70 bg-background p-3">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Items Quoted
-                      </Label>
-                      <p className="mt-1 text-sm font-semibold">
-                        {quotedItemsCount} of {(inspectQuotation.lines || []).length} Items Quoted
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Remarks */}
-                  {inspectQuotation.remarks && (
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] uppercase font-black text-muted-foreground">
-                        Special Remarks / Commercial Conditions
-                      </Label>
-                      <div className="rounded-xl border border-border/40 bg-muted/30 p-2.5 text-xs italic leading-snug text-muted-foreground">
-                        {inspectQuotation.remarks}
-                      </div>
-                    </div>
+                  {modalMode === "SELECT" ? (
+                    <Select value={reason} onValueChange={(value) => setReason(value)}>
+                      <SelectTrigger id="selection-reason" className="h-11 rounded-xl bg-white border-[#DCE6F3] text-sm font-semibold">
+                        <span className="truncate">{reason || "Choose a selection reason"}</span>
+                      </SelectTrigger>
+                      <SelectContent className="z-[60] max-h-80 rounded-xl">
+                        {selectionReasons.map((selectionReason) => (
+                          <SelectItem
+                            key={selectionReason.value}
+                            value={selectionReason.value}
+                            textValue={selectionReason.value}
+                            className="whitespace-nowrap py-2 text-xs"
+                          >
+                            <span className="font-bold text-[#101D3A]">{selectionReason.value}</span>
+                            <span className="text-[#526580]"> — {selectionReason.detail}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select value={reason} onValueChange={(value) => setReason(value)}>
+                      <SelectTrigger id="selection-reason" className="h-11 rounded-xl bg-white border-[#DCE6F3] text-sm font-semibold">
+                        <span className="truncate">{reason || "Choose a rejection reason"}</span>
+                      </SelectTrigger>
+                      <SelectContent className="z-[60] max-h-80 rounded-xl">
+                        {rejectionReasons.map((rejectionReason) => (
+                          <SelectItem key={rejectionReason} value={rejectionReason}>
+                            {rejectionReason}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {modalMode === "SELECT" && selectedReasonDetail && (
+                    <p className="text-[11px] font-medium text-[#526580]">{selectedReasonDetail}</p>
                   )}
                 </div>
 
-                <DialogFooter className="border-t border-border/70 bg-muted/10 p-4">
-                  <Button
-                    onClick={() => setInspectQuotation(null)}
-                    className="h-11 rounded-xl bg-blue-600 px-8 text-xs font-semibold uppercase text-white shadow-glow hover:bg-blue-700 w-full"
-                  >
-                    Close Review
-                  </Button>
-                </DialogFooter>
-              </>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
+                {modalMode === "SELECT" && reason === OTHER_SELECTION_REASON && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="evaluation-comments" className="text-xs font-bold text-[#101D3A]">
+                      Procurement Evaluation Justification <span className="text-[#E5484D]">*</span>
+                    </Label>
+                    <Textarea
+                      id="evaluation-comments"
+                      placeholder="Explain why this supplier was selected..."
+                      className="min-h-24 resize-y rounded-xl text-sm border-[#DCE6F3]"
+                      value={procurementComments}
+                      onChange={(e) => setProcurementComments(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
+
+                {modalMode === "REJECT" && reason === OTHER_SELECTION_REASON && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="rejection-justification" className="text-xs font-bold text-[#101D3A]">
+                      Rejection Justification <span className="text-[#E5484D]">*</span>
+                    </Label>
+                    <Textarea
+                      id="rejection-justification"
+                      placeholder="Explain why this quotation was rejected..."
+                      className="min-h-24 resize-y rounded-xl text-sm border-[#DCE6F3]"
+                      value={rejectionJustification}
+                      onChange={(e) => setRejectionJustification(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-xl border-[#DCE6F3] text-xs font-semibold"
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className={cn(
+                    "min-w-44 rounded-xl font-bold text-xs shadow-xs text-white",
+                    modalMode === "SELECT"
+                      ? "bg-[#0866FF] hover:bg-[#0054D6]"
+                      : "bg-[#E5484D] hover:bg-red-700",
+                  )}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Processing...
+                    </>
+                  ) : modalMode === "SELECT" ? (
+                    <>
+                      <FileCheck2 className="mr-2 size-4" /> Generate PO Proposal
+                    </>
+                  ) : (
+                    "Confirm Rejection"
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Supplier Quotation Final Review Inspection Dialog */}
+        <Dialog open={Boolean(inspectQuotation)} onOpenChange={(open) => !open && setInspectQuotation(null)}>
+          <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-2xl border-none p-0 shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75 [&>button]:hover:text-white">
+            {inspectQuotation && (() => {
+              const baseTotal = (inspectQuotation.lines || []).reduce(
+                (sum: number, l: any) =>
+                  sum + parseFloat(l.quantity || 1) * parseFloat(l.unitPrice || l.unit_price || 0),
+                0,
+              );
+              const disc = parseFloat(inspectQuotation.discount || 0);
+              const netTaxable = Math.max(0, baseTotal - disc);
+              const taxRate = parseFloat(inspectQuotation.tax || 0);
+              const taxAmount = netTaxable * (taxRate / 100);
+              const freight = parseFloat(inspectQuotation.freightCharges || inspectQuotation.freight_charges || 0);
+              const other = parseFloat(inspectQuotation.additional_charges || inspectQuotation.additionalCharges || 0);
+              const grandTotal =
+                parseFloat(inspectQuotation.totalAmount || inspectQuotation.total_amount || 0) ||
+                netTaxable + taxAmount + freight + other;
+              const quotedItemsCount = (inspectQuotation.lines || []).filter(
+                (l: any) => parseFloat(l.unitPrice || l.unit_price || 0) > 0,
+              ).length;
+
+              return (
+                <>
+                  <div className="bg-gradient-to-r from-[#071D3B] via-[#0E284D] to-[#102D57] px-6 py-5 text-white">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2.5 text-xl font-bold tracking-tight text-white">
+                        <span className="grid size-8 place-items-center rounded-lg bg-white/15">
+                          <ShieldCheck className="size-5 text-[#00D4FF]" />
+                        </span>
+                        Quotation Final Review
+                      </DialogTitle>
+                      <DialogDescription className="mt-0.5 text-xs text-white/80">
+                        RFQ: <span className="font-mono font-bold text-white">{rfq?.rfqNumber || rfq?.rfq_number || "RFQ"}</span> | Supplier:{" "}
+                        <span className="font-bold text-white">
+                          {inspectQuotation.supplierInfo?.supplierName || inspectQuotation.supplierName || "Supplier"}
+                        </span>
+                      </DialogDescription>
+                    </DialogHeader>
+                  </div>
+
+                  <div className="space-y-4 p-6 max-h-[70vh] overflow-y-auto">
+                    {/* Taxable-Value Breakdown */}
+                    <div className="rounded-2xl border border-[#DCE6F3] bg-[#F5F8FF] p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#526580]">
+                          Taxable-Value Breakdown
+                        </h4>
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase bg-emerald-100 px-2 py-0.5 rounded">
+                          Live Sync
+                        </span>
+                      </div>
+                      <div className="space-y-2.5 text-sm">
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                          <span className="text-[#526580] font-medium">Subtotal (Gross Items)</span>
+                          <span className="font-bold text-[#101D3A] tabular-nums">{formatMoney(baseTotal)}</span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                          <span className="text-[#526580] font-medium">Discount ({inspectQuotation.discount || 0}%)</span>
+                          <span className="font-bold text-emerald-700 tabular-nums">− {formatMoney(disc)}</span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6 border-t border-[#DCE6F3] pt-2">
+                          <span className="font-bold text-[#101D3A]">Net Taxable Amount</span>
+                          <span className="font-bold text-[#101D3A] tabular-nums">{formatMoney(netTaxable)}</span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                          <span className="text-[#526580] font-medium">GST / Tax ({taxRate}%)</span>
+                          <span className="font-bold text-[#101D3A] tabular-nums">{formatMoney(taxAmount)}</span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                          <div>
+                            <span className="text-[#526580] font-medium block">Freight Charges</span>
+                            <span className="text-[10px] text-[#526580]/70 italic">(*Exclusive of item GST)</span>
+                          </div>
+                          <span className="font-bold text-[#101D3A] tabular-nums">{formatMoney(freight)}</span>
+                        </div>
+                        {other > 0 && (
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-6">
+                            <span className="text-[#526580] font-medium">Additional Charges</span>
+                            <span className="font-bold text-[#101D3A] tabular-nums">{formatMoney(other)}</span>
+                          </div>
+                        )}
+                        <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-6 border-t border-[#DCE6F3] pt-3">
+                          <span className="text-sm font-extrabold uppercase tracking-wide text-[#101D3A]">
+                            Final Grand Total
+                          </span>
+                          <span className="text-2xl font-extrabold tracking-tight text-[#0866FF] tabular-nums">
+                            {formatMoney(grandTotal)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Logistics & Commercials Grid */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-[#DCE6F3] bg-white p-3.5 shadow-2xs">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Delivery Duration
+                        </Label>
+                        <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                          {inspectQuotation.deliveryTime || inspectQuotation.delivery_time || "Not Specified"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-[#DCE6F3] bg-white p-3.5 shadow-2xs">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Expected Delivery Date
+                        </Label>
+                        <p className="mt-1 text-sm font-bold text-[#101D3A] tabular-nums">
+                          {inspectQuotation.expectedDeliveryDate || inspectQuotation.expected_delivery_date || "Not Specified"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-[#DCE6F3] bg-white p-3.5 shadow-2xs">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Payment Terms & Mode
+                        </Label>
+                        <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                          {inspectQuotation.paymentTerms || inspectQuotation.payment_terms || "Net 30"} (
+                          {inspectQuotation.modeOfPayment || inspectQuotation.mode_of_payment || "Bank Transfer"})
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-[#DCE6F3] bg-white p-3.5 shadow-2xs">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                          Items Quoted
+                        </Label>
+                        <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                          {quotedItemsCount} of {(inspectQuotation.lines || []).length} Items Quoted
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Remarks */}
+                    {inspectQuotation.remarks && (
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-bold text-[#526580]">
+                          Special Remarks / Commercial Conditions
+                        </Label>
+                        <div className="rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3 text-xs italic text-[#101D3A]">
+                          {inspectQuotation.remarks}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter className="border-t border-[#DCE6F3] bg-[#F5F8FF] p-4">
+                    <Button
+                      onClick={() => setInspectQuotation(null)}
+                      className="h-11 rounded-xl bg-[#0866FF] hover:bg-[#0054D6] px-8 text-xs font-bold text-white shadow-xs w-full"
+                    >
+                      Close Review
+                    </Button>
+                  </DialogFooter>
+                </>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
+      </div>
     </AppShell>
   );
 }
-

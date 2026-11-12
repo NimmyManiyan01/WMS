@@ -22,11 +22,21 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-soft: var(--primary-soft);
+  --color-primary-navy: var(--primary-navy);
+  --color-navy-secondary: var(--navy-secondary);
+  --color-hover-blue: var(--hover-blue);
+  --color-cyan: var(--cyan);
+  --color-purple: var(--purple);
+  --color-purple-foreground: var(--purple-foreground);
+  --color-purple-soft: var(--purple-soft);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-teal: var(--teal);
   --color-teal-foreground: var(--teal-foreground);
   --color-teal-soft: var(--teal-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
@@ -58,59 +68,67 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --shadow-soft:
-    0 1px 2px oklch(0.21 0.05 258 / 0.04), 0 8px 24px -12px oklch(0.21 0.05 258 / 0.16);
+    0 1px 3px rgba(16, 29, 58, 0.04), 0 6px 16px -4px rgba(16, 29, 58, 0.08);
   --shadow-lift:
-    0 2px 4px oklch(0.21 0.05 258 / 0.05), 0 18px 40px -18px oklch(0.21 0.05 258 / 0.28);
-  --shadow-glow: 0 12px 32px -12px oklch(0.55 0.22 264 / 0.5);
+    0 4px 6px -1px rgba(16, 29, 58, 0.06), 0 12px 24px -4px rgba(16, 29, 58, 0.12);
+  --shadow-glow: 0 8px 28px -6px rgba(8, 102, 255, 0.35);
 }
 
 :root {
-  --radius: 0.875rem;
-  --background: #F5F7FB;
-  --foreground: #0F172A;
+  --radius: 0.75rem;
+  --background: #F5F8FF;
+  --foreground: #101D3A;
   --card: #FFFFFF;
-  --card-foreground: #0F172A;
+  --card-foreground: #101D3A;
   --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
-  --primary: #2563EB;
+  --popover-foreground: #101D3A;
+  --primary: #0866FF;
   --primary-foreground: #FFFFFF;
-  --primary-soft: #EFF6FF;
-  --primary-navy: #0B1F3A;
-  --hover-blue: #1D4ED8;
-  --secondary: #F1F5F9;
-  --secondary-foreground: #0F172A;
+  --primary-soft: #EBF3FF;
+  --primary-navy: #071D3B;
+  --navy-secondary: #102D57;
+  --hover-blue: #0054D6;
+  --cyan: #00D4FF;
+  --purple: #7C4DFF;
+  --purple-foreground: #FFFFFF;
+  --purple-soft: #F3E8FF;
+  --secondary: #F0F4FA;
+  --secondary-foreground: #101D3A;
   --teal: #0D9488;
   --teal-foreground: #FFFFFF;
   --teal-soft: #F0FDFA;
-  --muted: #F8FAFC;
-  --muted-foreground: #64748B;
-  --accent: #F1F5F9;
-  --accent-foreground: #0F172A;
-  --destructive: #EF4444;
+  --info: #0866FF;
+  --info-foreground: #FFFFFF;
+  --info-soft: #EBF3FF;
+  --muted: #F0F4FA;
+  --muted-foreground: #526580;
+  --accent: #EBF3FF;
+  --accent-foreground: #0866FF;
+  --destructive: #E5484D;
   --destructive-foreground: #FFFFFF;
-  --danger-soft: #FEF2F2;
-  --success: #16A34A;
+  --danger-soft: #FEECEE;
+  --success: #16C784;
   --success-foreground: #FFFFFF;
-  --success-soft: #F0FDF4;
-  --warning: #F59E0B;
+  --success-soft: #E8FAF2;
+  --warning: #F5A623;
   --warning-foreground: #78350F;
-  --warning-soft: #FFFBEB;
-  --border: #E2E8F0;
-  --input: #E2E8F0;
-  --ring: #2563EB;
-  --chart-1: #2563EB;
-  --chart-2: #0D9488;
-  --chart-3: #F59E0B;
-  --chart-4: #16A34A;
-  --chart-5: #EF4444;
-  --sidebar: #0F2345;
-  --sidebar-foreground: #94A3B8;
-  --sidebar-primary: #2563EB;
+  --warning-soft: #FEF7EA;
+  --border: #DCE6F3;
+  --input: #DCE6F3;
+  --ring: #0866FF;
+  --chart-1: #0866FF;
+  --chart-2: #16C784;
+  --chart-3: #F5A623;
+  --chart-4: #7C4DFF;
+  --chart-5: #E5484D;
+  --sidebar: #071D3B;
+  --sidebar-foreground: #8FA3BF;
+  --sidebar-primary: #0866FF;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #1E3A6B;
+  --sidebar-accent: #102D57;
   --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: #1E3A6B;
-  --sidebar-ring: #2563EB;
+  --sidebar-border: #102D57;
+  --sidebar-ring: #0866FF;
 }
 
 .dark {
@@ -163,7 +181,19 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    color: var(--color-foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 }
 
@@ -318,3 +348,40 @@
 @media(min-width:1024px) and (max-height:768px) { .login-panel { padding-block:16px; } .login-panel>div { gap:12px; } .login-heading { min-height:72px; } .login-brand { padding-top:24px; } }
 @media(max-width:1200px) and (min-width:1024px) { .login-heading { padding-right:72px; } .login-parcels { transform:scale(.72); transform-origin:top right; } .login-heading h2 { font-size:25px; } .login-panel { padding-inline:22px; } }
 @media(max-width:1023px) { .login-panel { min-height:100svh; border-radius:0; padding:24px 20px; } .login-heading { padding-right:0; text-align:center; } .login-parcels { display:none; } }
+
+/* Shared Procurement-style table structure for every AppShell module. */
+@layer utilities {
+  .wms-page-content table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .wms-page-content table thead {
+    background-color: #f1f5f9;
+  }
+
+  .wms-page-content table thead th {
+    padding: 12px 16px;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.35;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
+
+  .wms-page-content table tbody td {
+    padding: 12px 16px;
+    vertical-align: middle;
+  }
+
+  .wms-page-content table tbody tr + tr td {
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .wms-page-content table tbody tr:hover td {
+    background-color: #f8fafc;
+  }
+}

@@ -12,11 +12,10 @@ import {
   Plus,
   RefreshCw,
   Eye,
-  MoreVertical,
-  SlidersHorizontal,
   Calendar,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   X,
   Send,
   Upload,
@@ -26,6 +25,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,18 +34,18 @@ import { Badge } from "@/components/ui/badge";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/procurement/finished-goods")({
@@ -68,160 +68,27 @@ function formatDisplayDate(dateStr: string | null | undefined): string {
 
 function FGStatusBadge({ status }: { status: string }) {
   const norm = (status || "").toUpperCase().replace(/_/g, " ");
-  if (norm.includes("PROGRESS") || norm.includes("PENDING") || norm.includes("SENT")) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A]">
-        <span className="size-2 rounded-full bg-[#D97706]" />
-        IN PROGRESS
-      </span>
-    );
+  let label = norm.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown";
+  let color = "bg-slate-100 text-slate-700 border-slate-200";
+  if (/PROGRESS|PENDING|SENT/.test(norm)) {
+    label = norm === "SENT TO ASSEMBLY" ? "Sent to Assembly" : norm.includes("PENDING") ? "Pending" : "In Progress";
+    color = "bg-amber-50 text-amber-800 border-amber-200";
+  } else if (/PICKUP|READY/.test(norm)) {
+    label = "Ready for Pickup";
+    color = "bg-blue-50 text-blue-800 border-blue-200";
+  } else if (/COMPLET|CLOSE|STORE/.test(norm)) {
+    label = "Completed";
+    color = "bg-emerald-50 text-emerald-800 border-emerald-200";
+  } else if (norm === "DISPATCHED") {
+    color = "bg-violet-50 text-violet-800 border-violet-200";
   }
-  if (norm.includes("PICKUP") || norm.includes("READY")) {
-    return (
-      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
-        READY FOR PICKUP
-      </span>
-    );
-  }
-  if (norm.includes("COMPLET") || norm.includes("CLOSE") || norm.includes("STORE")) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#DCFCE7] text-[#15803D] border border-[#BBF7D0]">
-        <span className="size-2 rounded-full bg-[#16A34A]" />
-        COMPLETED
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
-      {norm}
-    </span>
-  );
+  return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${color}`}>
+    <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />{label}
+  </span>;
 }
 
-const defaultSampleRequests = [
-  {
-    id: "demo-1",
-    request_number: "FGR-20261104-0002",
-    product_name: "Watch",
-    product_code: "watch",
-    quantity: 10,
-    uom: "PCS",
-    requested_by: "procurement",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 10,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "IN PROGRESS",
-    requested_date: "2026-11-04",
-    required_date: "2026-11-10",
-  },
-  {
-    id: "demo-2",
-    request_number: "FGR-20261104-0001",
-    product_name: "Laptop",
-    product_code: "LAPTOP",
-    quantity: 10,
-    uom: "PCS",
-    requested_by: "procurement",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 10,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "IN PROGRESS",
-    requested_date: "2026-11-04",
-    required_date: "2026-11-10",
-  },
-  {
-    id: "demo-3",
-    request_number: "FGD-2026-005",
-    product_name: "Motor",
-    product_code: "FG-MOTO-001",
-    quantity: 1,
-    uom: "PCS",
-    requested_by: "supplier",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 1,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "READY FOR PICKUP",
-    requested_date: "2026-10-30",
-    required_date: "2026-11-05",
-  },
-  {
-    id: "demo-4",
-    request_number: "FGD-2026-004",
-    product_name: "Motor",
-    product_code: "FG-MOTO-001",
-    quantity: 1,
-    uom: "PCS",
-    requested_by: "supplier",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 1,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "READY FOR PICKUP",
-    requested_date: "2026-10-30",
-    required_date: "2026-11-05",
-  },
-  {
-    id: "demo-5",
-    request_number: "FGD-2026-003",
-    product_name: "Motor",
-    product_code: "FG-MOTO-001",
-    quantity: 1,
-    uom: "PCS",
-    requested_by: "supplier",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 1,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "COMPLETED",
-    requested_date: "2026-10-29",
-    required_date: "2026-11-02",
-  },
-  {
-    id: "demo-6",
-    request_number: "FGD-2026-002",
-    product_name: "PUMP-100",
-    product_code: "FG-PUMP-100",
-    quantity: 5,
-    uom: "PCS",
-    requested_by: "procurement",
-    available_quantity: 5,
-    fg_store_available: 5,
-    shortage: 0,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "COMPLETED",
-    requested_date: "2026-10-28",
-    required_date: "2026-11-01",
-  },
-  {
-    id: "demo-7",
-    request_number: "FGD-2026-001",
-    product_name: "Control Valve",
-    product_code: "FG-VALVE-01",
-    quantity: 2,
-    uom: "PCS",
-    requested_by: "procurement",
-    available_quantity: 0,
-    fg_store_available: 0,
-    shortage: 2,
-    bom_attachment_name: null,
-    bom_attachment_url: null,
-    status: "IN PROGRESS",
-    requested_date: "2026-10-25",
-    required_date: "2026-10-30",
-  },
-];
-
 function ProcurementFinishedGoods() {
-  const [requests, setRequests] = useState<any[]>(defaultSampleRequests);
+  const [requests, setRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingBom, setUploadingBom] = useState(false);
@@ -229,7 +96,11 @@ function ProcurementFinishedGoods() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [requestedByFilter, setRequestedByFilter] = useState("ALL");
   const [dateFilter, setDateFilter] = useState("");
-  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [sortBy, setSortBy] = useState("newest");
+  const [shortageOnly, setShortageOnly] = useState(false);
+  const [hasBomOnly, setHasBomOnly] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
 
   // Pagination states
@@ -237,6 +108,7 @@ function ProcurementFinishedGoods() {
   const [pageSize, setPageSize] = useState(5);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const newRequestButtonRef = useRef<HTMLButtonElement>(null);
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [uploadedBomUrl, setUploadedBomUrl] = useState<string | null>(null);
   const [uploadedBomName, setUploadedBomName] = useState<string | null>(null);
@@ -258,15 +130,10 @@ function ProcurementFinishedGoods() {
     try {
       setLoadingRequests(true);
       const data = await api.getFinishedGoodsRequests();
-      if (Array.isArray(data) && data.length > 0) {
-        setRequests(data);
-      } else {
-        setRequests(defaultSampleRequests);
-      }
+      setRequests(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch finished goods requests:", error);
-      // Keep sample data visible for seamless presentation
-      setRequests(defaultSampleRequests);
+      toast.error("Unable to load requests. Please try refreshing.");
     } finally {
       setLoadingRequests(false);
     }
@@ -333,9 +200,7 @@ function ProcurementFinishedGoods() {
 
     setSubmitting(true);
     try {
-      let created: any = null;
-      try {
-        created = await api.createFinishedGoodsRequest({
+      const newItem = await api.createFinishedGoodsRequest({
           warehouse_id: form.warehouse_id.trim() || "MAIN",
           finished_goods_code: productName,
           finished_goods_name: productName,
@@ -348,28 +213,6 @@ function ProcurementFinishedGoods() {
           bom_attachment_name: uploadedBomName,
           remarks: form.remarks.trim() || null,
         });
-      } catch (err) {
-        console.warn("API request threw error, generating local item:", err);
-      }
-
-      // Add newly created item to current state so user sees it instantly
-      const newItem = created || {
-        id: `fgr-${Date.now()}`,
-        request_number: `FGR-${today().replace(/-/g, "")}-${String(requests.length + 1).padStart(4, "0")}`,
-        product_name: productName,
-        product_code: productName.toLowerCase(),
-        quantity,
-        uom: form.uom.trim() || "PCS",
-        requested_by: requester,
-        available_quantity: 0,
-        fg_store_available: 0,
-        shortage: quantity,
-        bom_attachment_name: uploadedBomName,
-        bom_attachment_url: uploadedBomUrl,
-        status: "IN PROGRESS",
-        requested_date: requestDate,
-        required_date: form.required_date,
-      };
 
       setRequests((prev) => [newItem, ...prev]);
 
@@ -426,9 +269,9 @@ function ProcurementFinishedGoods() {
     return Array.from(set);
   }, [requests]);
 
-  // Filtering
+  // Filtering & Sorting
   const filteredRequests = useMemo(() => {
-    return requests.filter((req) => {
+    let result = requests.filter((req) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -455,9 +298,58 @@ function ProcurementFinishedGoods() {
         !dateFilter ||
         String(req.requested_date || req.created_at || "").startsWith(dateFilter);
 
-      return matchesSearch && matchesStatus && matchesRequester && matchesDate;
+      const avail = req.fg_store_available ?? req.available_quantity ?? 0;
+      const reqQty = req.quantity ?? req.requested_quantity ?? 0;
+      const shortage = req.shortage ?? req.shortage_quantity ?? Math.max(0, reqQty - avail);
+      const matchesShortage = !shortageOnly || shortage > 0;
+
+      const matchesBom = !hasBomOnly || Boolean(req.bom_attachment_url || req.bom_attachment_name);
+
+      return matchesSearch && matchesStatus && matchesRequester && matchesDate && matchesShortage && matchesBom;
     });
-  }, [requests, searchQuery, statusFilter, requestedByFilter, dateFilter]);
+
+    if (sortBy === "oldest") {
+      result = [...result].sort(
+        (a, b) => new Date(a.created_at || a.requested_date || 0).getTime() - new Date(b.created_at || b.requested_date || 0).getTime(),
+      );
+    } else if (sortBy === "qty_desc") {
+      result = [...result].sort(
+        (a, b) => (b.quantity ?? b.requested_quantity ?? 0) - (a.quantity ?? a.requested_quantity ?? 0),
+      );
+    } else if (sortBy === "qty_asc") {
+      result = [...result].sort(
+        (a, b) => (a.quantity ?? a.requested_quantity ?? 0) - (b.quantity ?? b.requested_quantity ?? 0),
+      );
+    } else if (sortBy === "product_name") {
+      result = [...result].sort((a, b) =>
+        String(a.product_name || a.finished_goods_name || "").localeCompare(
+          String(b.product_name || b.finished_goods_name || ""),
+        ),
+      );
+    } else {
+      // Default: newest first
+      result = [...result].sort(
+        (a, b) => new Date(b.created_at || b.requested_date || 0).getTime() - new Date(a.created_at || a.requested_date || 0).getTime(),
+      );
+    }
+
+    return result;
+  }, [requests, searchQuery, statusFilter, requestedByFilter, dateFilter, shortageOnly, hasBomOnly, sortBy]);
+
+  const hasActiveAdvancedFilters = shortageOnly || hasBomOnly || sortBy !== "newest";
+
+  const resetAllFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setRequestedByFilter("ALL");
+    setDateFilter("");
+    setShortageOnly(false);
+    setHasBomOnly(false);
+    setSortBy("newest");
+    setCurrentPage(1);
+    setIsDatePickerOpen(false);
+    setIsFilterMenuOpen(false);
+  };
 
   // Paginated Slices
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
@@ -467,26 +359,29 @@ function ProcurementFinishedGoods() {
   }, [filteredRequests, currentPage, pageSize]);
 
   return (
-    <AppShell title="" mainClassName="bg-[#F8FAFC]">
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
+    <AppShell title="" mainClassName="bg-[#F8FAFC] pb-24 font-sans min-w-0 overflow-x-clip">
+      <div className="flex flex-col 2xl:flex-row gap-6 items-start">
         {/* Main Left Content Area */}
         <div className="flex-1 min-w-0 w-full space-y-5">
           {/* Breadcrumbs */}
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-            <span className="hover:text-slate-800 transition">Procurement</span>
-            <ChevronRight className="size-3 text-slate-400" />
-            <span className="font-semibold text-slate-700">Finished Goods Requests</span>
-          </div>
-
           {/* Title and Top Header Action Buttons */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl lg:text-[28px] font-bold tracking-tight text-slate-900 leading-tight">
+          <div className="flex flex-col gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-2 text-xs text-blue-100/75 font-medium">
+              <span>Procurement</span>
+              <ChevronRight className="size-3 text-blue-200/70" />
+              <span className="font-semibold text-white">Finished Goods Requests</span>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-white/10 text-white shadow-lg ring-1 ring-inset ring-white/20"><Boxes className="size-6" aria-hidden="true" /></div>
+              <div>
+              <h1 className="text-2xl lg:text-[28px] font-bold tracking-tight text-white leading-tight">
                 Finished Goods Requests
               </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Create and route Finished Goods production requests to Assembly and Warehouse.
+              <p className="text-xs sm:text-sm text-blue-100/85 mt-1">
+                Request finished goods from Assembly and track production, warehouse pickup and completion.
               </p>
+              </div>
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <Button
@@ -499,19 +394,21 @@ function ProcurementFinishedGoods() {
                 Refresh
               </Button>
               <Button
+                ref={newRequestButtonRef}
                 onClick={() => setIsDrawerOpen(true)}
-                className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm shadow-sm gap-1.5"
+                className="h-10 rounded-xl bg-[#0866FF] hover:bg-[#0052D6] text-white font-semibold text-xs sm:text-sm shadow-sm gap-1.5"
               >
                 <Plus className="size-4" />
                 New FG Request
               </Button>
+            </div>
             </div>
           </div>
 
           {/* 4 KPI Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {/* Card 1: Total Requests */}
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-[#0866FF] shadow-[0_4px_18px_-8px_rgba(7,29,59,0.18)]">
               <div className="size-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                 <Boxes className="size-6" />
               </div>
@@ -522,7 +419,7 @@ function ProcurementFinishedGoods() {
             </div>
 
             {/* Card 2: In Progress */}
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-[#FFFBEB] border border-amber-200/60 shadow-xs">
+            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-amber-400 shadow-[0_4px_18px_-8px_rgba(7,29,59,0.18)]">
               <div className="size-12 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
                 <Clock3 className="size-6" />
               </div>
@@ -533,7 +430,7 @@ function ProcurementFinishedGoods() {
             </div>
 
             {/* Card 3: Ready for Pickup */}
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-[#F0FDF4] border border-emerald-200/60 shadow-xs">
+            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-[#00D4FF] shadow-[0_4px_18px_-8px_rgba(7,29,59,0.18)]">
               <div className="size-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
                 <Truck className="size-6" />
               </div>
@@ -544,7 +441,7 @@ function ProcurementFinishedGoods() {
             </div>
 
             {/* Card 4: Completed */}
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-emerald-500 shadow-[0_4px_18px_-8px_rgba(7,29,59,0.18)]">
               <div className="size-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                 <CheckCircle2 className="size-6" />
               </div>
@@ -555,10 +452,12 @@ function ProcurementFinishedGoods() {
             </div>
           </div>
 
+          <p className="text-xs leading-relaxed text-slate-600">Dispatched requests are included in Total Requests only; they are not counted as Completed.</p>
+
           {/* Filters Bar */}
           <div className="flex flex-wrap items-center gap-3">
             {/* Search Input */}
-            <div className="relative flex-1 min-w-[260px]">
+            <div className="relative flex-1 min-w-0 basis-full sm:basis-64">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={searchQuery}
@@ -611,39 +510,126 @@ function ProcurementFinishedGoods() {
               </SelectContent>
             </Select>
 
-            {/* Request Date Selector */}
-            <div className="relative">
-              <input
-                type="date"
-                id="req-date-filter"
-                value={dateFilter}
-                onChange={(e) => {
-                  setDateFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-              />
-              <Button
-                variant="outline"
-                className="h-10 rounded-xl border-slate-200 bg-white text-slate-700 font-medium text-xs gap-2"
-              >
-                <Calendar className="size-4 text-slate-500" />
-                <span>{dateFilter ? formatDisplayDate(dateFilter) : "Request Date"}</span>
-              </Button>
-            </div>
+            {/* Request Date Selector Popover */}
+            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "h-10 rounded-xl border-slate-200 bg-white font-medium text-xs gap-2 transition-all cursor-pointer",
+                    dateFilter
+                      ? "border-[#0866FF] bg-blue-50/70 text-[#0866FF] font-semibold"
+                      : "text-slate-700 hover:border-slate-300",
+                  )}
+                >
+                  <Calendar className={cn("size-4", dateFilter ? "text-[#0866FF]" : "text-slate-500")} />
+                  <span>{dateFilter ? formatDisplayDate(dateFilter) : "Request Date"}</span>
+                  <ChevronDown className="size-3 text-slate-400" />
+                  {dateFilter && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDateFilter("");
+                        setCurrentPage(1);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.stopPropagation();
+                          setDateFilter("");
+                          setCurrentPage(1);
+                        }
+                      }}
+                      className="ml-0.5 p-0.5 rounded-full hover:bg-blue-100 text-[#0866FF] transition-colors"
+                      title="Clear date filter"
+                    >
+                      <X className="size-3" />
+                    </span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-4 rounded-2xl border border-slate-200 shadow-xl bg-white" align="start">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="text-xs font-bold text-slate-900">Filter by Request Date</span>
+                    {dateFilter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateFilter("");
+                          setCurrentPage(1);
+                          setIsDatePickerOpen(false);
+                        }}
+                        className="text-[11px] font-semibold text-red-600 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
 
-            {/* Filter Reset / Toggle Button */}
-            {(searchQuery || statusFilter !== "ALL" || requestedByFilter !== "ALL" || dateFilter) && (
+                  <div>
+                    <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      Select Date
+                    </Label>
+                    <input
+                      type="date"
+                      value={dateFilter}
+                      onChange={(e) => {
+                        setDateFilter(e.target.value);
+                        setCurrentPage(1);
+                        setIsDatePickerOpen(false);
+                      }}
+                      className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-900 outline-none focus:border-[#0866FF] focus:bg-white focus:ring-2 focus:ring-[#0866FF]/20 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Quick Presets
+                    </span>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg text-xs font-medium border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                        onClick={() => {
+                          setDateFilter(today());
+                          setCurrentPage(1);
+                          setIsDatePickerOpen(false);
+                        }}
+                      >
+                        Today
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg text-xs font-medium border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() - 1);
+                          setDateFilter(d.toISOString().split("T")[0]);
+                          setCurrentPage(1);
+                          setIsDatePickerOpen(false);
+                        }}
+                      >
+                        Yesterday
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Filter Reset Button */}
+            {(searchQuery || statusFilter !== "ALL" || requestedByFilter !== "ALL" || dateFilter || hasActiveAdvancedFilters) && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setSearchQuery("");
-                  setStatusFilter("ALL");
-                  setRequestedByFilter("ALL");
-                  setDateFilter("");
-                  setCurrentPage(1);
-                }}
+                onClick={resetAllFilters}
                 className="h-10 rounded-xl text-slate-500 hover:text-red-600 text-xs gap-1.5"
               >
                 <X className="size-3.5" />
@@ -651,27 +637,19 @@ function ProcurementFinishedGoods() {
               </Button>
             )}
 
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10 rounded-xl border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              title="Filters"
-            >
-              <SlidersHorizontal className="size-4" />
-            </Button>
           </div>
 
           {/* Full-Width Data Table Card */}
           <div className="rounded-2xl border border-slate-200/80 bg-white shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs sm:text-sm">
+            <div className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-[#0866FF]" tabIndex={0} role="region" aria-label="Finished goods requests table. Scroll horizontally to see all columns.">
+              <table className="w-full min-w-[1180px] text-left text-xs sm:text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-white text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="px-5 py-3.5">REQUEST #</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    <th className="px-5 py-3.5">REQUEST</th>
                     <th className="px-5 py-3.5">PRODUCT</th>
                     <th className="px-5 py-3.5">QUANTITY</th>
                     <th className="px-5 py-3.5">REQUESTED BY</th>
-                    <th className="px-5 py-3.5">FG AVAIL.</th>
+                    <th className="px-5 py-3.5" title="Available inventory across matching product locations; not restricted to Assembly.">FG Available</th>
                     <th className="px-5 py-3.5">BOM ATTACHMENT</th>
                     <th className="px-5 py-3.5">STATUS</th>
                     <th className="px-5 py-3.5">REQUEST DATE</th>
@@ -784,38 +762,11 @@ function ProcurementFinishedGoods() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setSelectedRequest(req)}
-                                className="size-8 p-0 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+                                className="h-9 px-3 gap-2 text-[#0866FF] bg-blue-50 hover:bg-blue-100 rounded-lg font-semibold"
                                 title="View Details"
                               >
-                                <Eye className="size-4" />
+                                <Eye className="size-4" /><span>View Details</span>
                               </Button>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="size-8 p-0 text-slate-500 hover:text-slate-800 rounded-lg"
-                                  >
-                                    <MoreVertical className="size-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-40 rounded-xl">
-                                  <DropdownMenuItem onClick={() => setSelectedRequest(req)}>
-                                    View Details
-                                  </DropdownMenuItem>
-                                  {bomUrl && (
-                                    <DropdownMenuItem asChild>
-                                      <a
-                                        href={`${BUSINESS_API_URL}${bomUrl}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        Download BOM
-                                      </a>
-                                    </DropdownMenuItem>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
                             </div>
                           </td>
                         </tr>
@@ -896,30 +847,30 @@ function ProcurementFinishedGoods() {
           </div>
         </div>
 
-        {/* Right Side Drawer / Slide-over Card */}
-        {isDrawerOpen && (
-          <div className="w-full lg:w-[440px] shrink-0 rounded-2xl border border-slate-200/80 bg-white shadow-lg p-6 space-y-6 animate-in slide-in-from-right-4 duration-200">
-            {/* Drawer Header */}
-            <div className="flex items-start justify-between gap-3">
+        {/* Centered request dialog */}
+        <Dialog open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+          <DialogContent
+            className="flex max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              newRequestButtonRef.current?.focus();
+            }}
+          >
+            {/* Dialog Header */}
+            <div className="shrink-0 border-b border-[#0B2A55] bg-[#0B2A55] px-5 py-5 text-white sm:px-6">
               <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">
+                <DialogTitle className="pr-6 text-xl font-bold tracking-tight text-white">
                   New Finished Goods Request
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                </DialogTitle>
+                <DialogDescription className="mt-2 pr-5 text-sm leading-relaxed text-blue-100/85">
                   Request product manufacturing and availability confirmation from Assembly.
-                </p>
+                </DialogDescription>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsDrawerOpen(false)}
-                className="size-8 p-0 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 shrink-0"
-              >
-                <X className="size-4" />
-              </Button>
+
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
               {/* Section 1: Request Details */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -929,25 +880,26 @@ function ProcurementFinishedGoods() {
                   <span>Request Details</span>
                 </div>
 
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {/* Finished Product */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="finished-product" className="text-xs font-semibold text-slate-700">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="finished-product" className="block text-sm font-medium leading-5 text-slate-700">
                     Finished Product <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="finished-product"
                     value={form.product_name}
                     onChange={(e) => setForm((c) => ({ ...c, product_name: e.target.value }))}
-                    className="h-10 rounded-xl border-slate-200 text-xs sm:text-sm placeholder:text-slate-400"
+                    className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none text-sm placeholder:text-slate-400"
                     placeholder="e.g. PUMP-100"
                     required
                   />
                 </div>
 
                 {/* Quantity & UOM */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="fg-quantity" className="text-xs font-semibold text-slate-700">
+                    <Label htmlFor="fg-quantity" className="block text-sm font-medium leading-5 text-slate-700">
                       Quantity <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -957,21 +909,21 @@ function ProcurementFinishedGoods() {
                       step="any"
                       value={form.quantity}
                       onChange={(e) => setForm((c) => ({ ...c, quantity: e.target.value }))}
-                      className="h-10 rounded-xl border-slate-200 font-bold text-xs sm:text-sm"
+                      className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none font-bold text-sm"
                       placeholder="10"
                       required
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="fg-uom" className="text-xs font-semibold text-slate-700">
+                    <Label htmlFor="fg-uom" className="block text-sm font-medium leading-5 text-slate-700">
                       UOM <span className="text-red-500">*</span>
                     </Label>
                     <Select
                       value={form.uom}
                       onValueChange={(v) => setForm((c) => ({ ...c, uom: v }))}
                     >
-                      <SelectTrigger id="fg-uom" className="h-10 rounded-xl border-slate-200 text-xs font-semibold text-slate-700">
+                      <SelectTrigger id="fg-uom" className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none text-xs font-semibold text-slate-700">
                         <SelectValue placeholder="PCS (Pieces)" />
                       </SelectTrigger>
                       <SelectContent>
@@ -989,9 +941,9 @@ function ProcurementFinishedGoods() {
                 </div>
 
                 {/* Required Date & Request Date */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="fg-req-date" className="text-xs font-semibold text-slate-700">
+                    <Label htmlFor="fg-req-date" className="block text-sm font-medium leading-5 text-slate-700">
                       Required Date <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -999,13 +951,13 @@ function ProcurementFinishedGoods() {
                       type="date"
                       value={form.required_date}
                       onChange={(e) => setForm((c) => ({ ...c, required_date: e.target.value }))}
-                      className="h-10 rounded-xl border-slate-200 text-xs"
+                      className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none text-sm"
                       required
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="fg-requested-date" className="text-xs font-semibold text-slate-700">
+                    <Label htmlFor="fg-requested-date" className="block text-sm font-medium leading-5 text-slate-700">
                       Request Date <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -1013,30 +965,32 @@ function ProcurementFinishedGoods() {
                       type="date"
                       value={form.requested_date}
                       onChange={(e) => setForm((c) => ({ ...c, requested_date: e.target.value }))}
-                      className="h-10 rounded-xl border-slate-200 text-xs"
+                      className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none text-xs"
                       required
                     />
                   </div>
                 </div>
 
                 {/* Requested By */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="fg-requested-by" className="text-xs font-semibold text-slate-700">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="fg-requested-by" className="block text-sm font-medium leading-5 text-slate-700">
                     Requested By <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="fg-requested-by"
                     value={form.requested_by}
                     onChange={(e) => setForm((c) => ({ ...c, requested_by: e.target.value }))}
-                    className="h-10 rounded-xl border-slate-200 font-medium text-xs sm:text-sm"
+                    className="h-10 w-full min-w-0 rounded-lg border-slate-200 bg-white shadow-none font-medium text-sm"
                     placeholder="procurement"
                     required
                   />
                 </div>
               </div>
 
+                </div>
+
               {/* Section 2: Additional Details */}
-              <div className="space-y-4 pt-2">
+              <div className="space-y-3 border-t border-slate-200 pt-5">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                   <div className="size-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                     <Layers className="size-4" />
@@ -1046,7 +1000,7 @@ function ProcurementFinishedGoods() {
 
                 {/* BOM Attachment Drag & Drop Dropzone */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">
+                  <Label className="block text-sm font-medium leading-5 text-slate-700">
                     BOM Attachment (Optional)
                   </Label>
                   <input
@@ -1061,16 +1015,16 @@ function ProcurementFinishedGoods() {
                   {!bomFile ? (
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex flex-col items-center justify-center cursor-pointer rounded-2xl border-2 border-dashed border-slate-200 p-6 text-center hover:border-blue-400 hover:bg-blue-50/30 transition group"
+                      className="flex flex-col items-center justify-center cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-4 text-center hover:border-blue-400 hover:bg-blue-50/30 transition group"
                     >
                       <div className="size-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2 group-hover:scale-105 transition">
                         <Upload className="size-5" />
                       </div>
-                      <span className="text-xs font-semibold text-slate-700">
-                        Drag and drop file here, or <span className="text-blue-600 underline">click to upload</span>
+                      <span className="block text-sm font-medium leading-5 text-slate-700">
+                        <span className="text-blue-600 underline">Click to upload</span> a BOM attachment
                       </span>
                       <span className="text-[11px] text-slate-400 mt-1">
-                        Supported formats: PDF, XLS, XLSX (Max 10 MB)
+                        Supported formats: PDF, XLS, XLSX, CSV, DOC, DOCX
                       </span>
                     </div>
                   ) : (
@@ -1100,20 +1054,22 @@ function ProcurementFinishedGoods() {
                 </div>
               </div>
 
-              {/* Drawer Action Footer */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              </div>
+
+              {/* Dialog Action Footer */}
+              <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-4 sm:px-6">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setIsDrawerOpen(false)}
-                  className="h-10 px-5 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs sm:text-sm"
+                  className="h-10 px-5 rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-sm"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
                   disabled={submitting || uploadingBom}
-                  className="h-10 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm shadow-sm gap-2"
+                  className="h-10 px-6 rounded-xl bg-[#0866FF] hover:bg-[#0052D6] text-white font-semibold text-sm shadow-sm gap-2"
                 >
                   {submitting ? (
                     <>
@@ -1129,14 +1085,14 @@ function ProcurementFinishedGoods() {
                 </Button>
               </div>
             </form>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Detail Modal */}
       {selectedRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+          <Card className="w-full max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
                 <div className="size-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
@@ -1192,11 +1148,11 @@ function ProcurementFinishedGoods() {
               </div>
 
               <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                <span className="text-[10px] font-bold uppercase text-slate-400">FG Store Available</span>
+                <span className="text-[10px] font-bold uppercase text-slate-400">FG Available</span>
                 <div className="font-black text-lg text-emerald-600 mt-0.5">
                   {selectedRequest.fg_store_available ?? selectedRequest.available_quantity ?? 0} {selectedRequest.uom || "PCS"}
                 </div>
-                <div className="text-[11px] text-slate-400">From FG inventory</div>
+                <div className="text-[11px] text-slate-400">Across matching inventory locations</div>
               </div>
 
               <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">

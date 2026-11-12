@@ -1689,7 +1689,8 @@ export const api = {
 
   async globalSearch(q: string): Promise<{ results: any[] }> {
     return request<any>(
-      `${BUSINESS_API_URL}/api/v1/procurement/global-search?q=${encodeURIComponent(q)}`,
+      `${BUSINESS_API_URL}/api/v1/procurement/global-search?q=${encodeURIComponent(q.trim())}`,
+      { signal: AbortSignal.timeout(12000) },
     );
   },
   async getAssemblyDashboard(): Promise<any> {

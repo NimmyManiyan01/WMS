@@ -670,16 +670,18 @@ function NewSupplier() {
     <AppShell
       title="Register New Supplier"
       subtitle="Complete the 5-step onboarding process to add a new vendor."
+      mainClassName="[&>div]:max-w-5xl"
     >
-      <div className="mx-auto max-w-4xl">
+      <div className="w-full min-w-0 pb-6">
         {/* Step Indicator */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-6 grid grid-cols-5 rounded-2xl border border-slate-200 bg-white px-2 py-5 sm:px-6">
           {steps.map((step, idx) => (
-            <React.Fragment key={step.id}>
+            <div key={step.id} className="relative min-w-0">
               <button
                 type="button"
                 onClick={() => setCurrentStep(step.id)}
-                className="flex flex-col items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                aria-current={currentStep === step.id ? "step" : undefined}
+                className="relative z-10 flex w-full flex-col items-center gap-2 rounded-xl px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 <div
                   className={cn(
@@ -699,7 +701,7 @@ function NewSupplier() {
                 </div>
                 <span
                   className={cn(
-                    "text-xs font-medium",
+                    "flex min-h-8 items-start justify-center text-center text-[10px] leading-4 font-medium sm:text-xs",
                     currentStep === step.id ? "text-primary" : "text-muted-foreground",
                   )}
                 >
@@ -709,21 +711,21 @@ function NewSupplier() {
               {idx < steps.length - 1 && (
                 <div
                   className={cn(
-                    "h-px flex-1 bg-muted transition-all",
+                    "absolute left-[calc(50%+24px)] top-5 h-px w-[calc(100%-48px)] bg-muted transition-all",
                     currentStep > step.id && "bg-success",
                   )}
                 />
               )}
-            </React.Fragment>
+            </div>
           ))}
         </div>
 
-        <Card className="p-6 shadow-soft">
+        <Card className="gap-0 rounded-2xl p-4 shadow-soft sm:p-6 lg:p-8 [&_input:not([type=checkbox])]:h-11 [&_input:not([type=checkbox])]:rounded-lg [&_button[role=combobox]]:h-11 [&_button[role=combobox]]:rounded-lg [&_button[role=combobox]]:bg-white [&_label]:leading-5">
           {/* Step 1: Company Profile */}
           {currentStep === 1 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Company Profile</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="supplierName">
                     Supplier Display Name <span className="text-destructive">*</span>
@@ -1047,7 +1049,7 @@ function NewSupplier() {
 
           {/* Step 2: Address & Contact */}
           {currentStep === 2 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Address & Primary Contact</h3>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -1175,7 +1177,7 @@ function NewSupplier() {
                   </div>
                 </div>
                 <div className="border-t pt-4 mt-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="contactName" className="flex items-center gap-1.5">
                         Primary Contact Name <span className="text-destructive">*</span>
@@ -1397,9 +1399,9 @@ function NewSupplier() {
 
           {/* Step 3: Banking Information */}
           {currentStep === 3 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Banking Information</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="bankName" className="flex items-center gap-1.5">
                     Bank Name <span className="text-destructive">*</span>
@@ -1793,7 +1795,7 @@ function NewSupplier() {
 
           {/* Step 4: Documents */}
           {currentStep === 4 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Supporting Documents</h3>
               <p className="text-sm text-muted-foreground">
                 Upload copies of legal and tax documents for verification. All file types accepted,
@@ -1951,7 +1953,7 @@ function NewSupplier() {
                   <AlertCircle className="size-4" />
                   <h4 className="text-xs font-bold uppercase tracking-wider">Audit Information</h4>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-[10px] uppercase text-muted-foreground font-bold">
                       Created By
@@ -1980,7 +1982,7 @@ function NewSupplier() {
             </div>
           )}
 
-          <div className="mt-8 flex items-center justify-between border-t pt-6">
+          <div className="mt-6 flex items-center justify-between gap-3 border-t pt-5 [&>button]:min-h-10 [&>button]:min-w-24">
             <Button
               variant="ghost"
               onClick={handleBack}

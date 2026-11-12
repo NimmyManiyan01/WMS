@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
+  Ban,
   Building2,
   FileText,
   Loader2,
@@ -51,6 +52,7 @@ function SupplierProfile() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [form, setForm] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -316,7 +318,29 @@ function SupplierProfile() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const toggleSupplierBlock = async () => {
+    if (updatingStatus || saving || !supplier) return;
+    const blocked = String(supplier.status).trim().toLowerCase() === "blocked";
+    setUpdatingStatus(true);
+    try {
+      const updated = blocked
+        ? await api.unblockSupplier(supplierId)
+        : await api.blockSupplier(supplierId);
+      setSupplier(updated);
+      setForm((previous: any) => previous ? { ...previous, status: updated.status } : previous);
+      window.dispatchEvent(new Event("suppliers:changed"));
+      toast.success(blocked ? "Supplier unblocked" : "Supplier blocked");
+    } catch (err) {
+      toast.error("Unable to change supplier status", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   const saveChanges = async () => {
+    if (updatingStatus) return;
     if (!validate()) {
       return;
     }
@@ -442,20 +466,30 @@ function SupplierProfile() {
 
   return (
     <AppShell
+      mainClassName="[&>div]:max-w-6xl pb-12"
       title={supplier?.supplierName || "Supplier Profile"}
       subtitle={`GSTIN: ${supplier?.gstin || "—"}`}
       actions={
         supplier && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={supplier.status || "Active"} />
-            <Button variant="outline" className="rounded-xl font-bold" onClick={openEditor}>
+            {!editing && <Button variant="outline" className="rounded-xl font-bold" onClick={openEditor}>
               <Pencil className="mr-1.5 size-3.5" /> Edit Supplier
+            </Button>}
+            <Button
+              variant="outline"
+              className="h-10 rounded-xl border-red-200 bg-white font-bold text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={toggleSupplierBlock}
+              disabled={updatingStatus || saving}
+            >
+              {updatingStatus ? <Loader2 className="size-4 animate-spin" /> : <Ban className="size-4" />}
+              {String(supplier.status).trim().toLowerCase() === "blocked" ? "Unblock Supplier" : "Block Supplier"}
             </Button>
           </div>
         )
       }
     >
-      <Button variant="ghost" className="mb-4 rounded-xl font-bold text-xs" asChild>
+      <Button variant="outline" className="mb-5 h-11 rounded-xl border-blue-200 bg-white px-4 font-bold text-primary shadow-sm hover:bg-blue-50 hover:text-primary" asChild>
         <Link to="/master-data">
           <ArrowLeft className="mr-2 size-4" /> Back to Suppliers
         </Link>
@@ -476,7 +510,8 @@ function SupplierProfile() {
           {editing && form && (
             <SectionCard
               title="Edit supplier"
-              description="Changes are saved immediately to the supplier master"
+              className="[&_input:not([type=checkbox])]:h-11 [&_input:not([type=checkbox])]:rounded-lg [&_button[role=combobox]]:h-11 [&_button[role=combobox]]:rounded-lg [&_button[role=combobox]]:bg-white [&_label]:inline-flex [&_label]:min-h-5 [&_label]:items-center [&_label]:leading-5"
+              description="Update the supplier details, then select Save changes."
               icon={Pencil}
               actions={
                 <>
@@ -488,13 +523,14 @@ function SupplierProfile() {
                   >
                     <X /> Cancel
                   </Button>
-                  <Button size="sm" onClick={saveChanges} disabled={saving}>
+                  <Button size="sm" onClick={saveChanges} disabled={saving || updatingStatus}>
                     <Save /> {saving ? "Saving…" : "Save changes"}
                   </Button>
                 </>
               }
             >
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid items-start gap-x-6 gap-y-5 md:grid-cols-2">
+                <h3 className="col-span-full border-b pb-3 text-sm font-bold text-[#101D3A]">Company information</h3>
                 <ValidatedEditField
                   label="Supplier name"
                   value={form.supplierName}
@@ -694,6 +730,7 @@ function SupplierProfile() {
                 />
                 {form.address && (
                   <>
+                    <h3 className="col-span-full mt-3 border-b pb-3 text-sm font-bold text-[#101D3A]">Address details</h3>
                     <ValidatedEditField
                       label="Address"
                       value={form.address.registeredAddress}
@@ -752,6 +789,7 @@ function SupplierProfile() {
                 )}
                 {form.contact && (
                   <>
+                    <h3 className="col-span-full mt-3 border-b pb-3 text-sm font-bold text-[#101D3A]">Contact details</h3>
                     <ValidatedEditField
                       label="Primary contact"
                       value={form.contact.primaryContactName}
@@ -822,6 +860,7 @@ function SupplierProfile() {
                 )}
                 {form.bankInfo && (
                   <>
+                    <h3 className="col-span-full mt-3 border-b pb-3 text-sm font-bold text-[#101D3A]">Banking & payment</h3>
                     <ValidatedEditField
                       label="Bank Name"
                       value={form.bankInfo.bankName}
@@ -938,7 +977,7 @@ function SupplierProfile() {
                   </>
                 )}
               </div>
-              <div className="mt-4">
+              <div className="mt-8 space-y-2 border-t pt-5">
                 <Label htmlFor="remarks">Remarks</Label>
                 <Textarea
                   id="remarks"

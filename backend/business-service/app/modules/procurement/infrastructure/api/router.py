@@ -5011,7 +5011,10 @@ async def global_search(
     Provides real-time results for the navbar search.
     """
     try:
-        search_term = f"%{q}%"
+        query = q.strip()
+        if not query:
+            return {"results": []}
+        search_term = f"%{query}%"
         results = []
 
 
@@ -5128,6 +5131,24 @@ async def global_search(
 
 
 
+
+        gate_stmt = select(
+            GateEntryModel.id, GateEntryModel.gate_entry_number,
+            GateEntryModel.vehicle_number, GateEntryModel.po_number,
+            GateEntryModel.driver_name, GateEntryModel.status,
+        ).where(or_(
+            GateEntryModel.gate_entry_number.ilike(search_term),
+            GateEntryModel.vehicle_number.ilike(search_term),
+            GateEntryModel.po_number.ilike(search_term),
+            GateEntryModel.driver_name.ilike(search_term),
+        )).limit(5)
+        for entry in (await uow.session.execute(gate_stmt)).all():
+            results.append({
+                "id": str(entry.id), "type": "GATE_ENTRY",
+                "title": f"Gate entry: {entry.gate_entry_number}",
+                "subtitle": f"Vehicle: {entry.vehicle_number} | PO: {entry.po_number} | Driver: {entry.driver_name} | Status: {entry.status}",
+                "link": "/vehicle-queue",
+            })
 
         return {"results": results}
     except Exception as e:
