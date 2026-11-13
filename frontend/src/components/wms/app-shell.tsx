@@ -38,13 +38,19 @@ import {
   Navigation,
   MapPin,
   CheckCircle2,
+  ChevronRight,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import logoUrl from "@/assets/Logo.png";
-import { toast } from "sonner";
 import { getUserInfo, type UserInfo } from "@/lib/auth-utils";
 import { SecureAssistant } from "@/components/wms/secure-assistant";
 
@@ -181,10 +187,12 @@ const procurementNav = [
   { label: "Suppliers", to: "/master-data", icon: Building2 },
   { label: "RFQs", to: "/procurement/rfqs", icon: FileQuestion },
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
-  { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
+  { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText, hasSubmenu: true },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
   { label: "Damage Claims", to: "/damage-claims", icon: ShieldAlert },
-  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
+  { label: "Procurement Reports", to: "/procurement/reports", icon: BarChart3 },
+
+
 ];
 
 const supplierNav = [
@@ -202,12 +210,12 @@ const financeNav = [
 const managerNav = [
   { label: "Dashboard", to: "/manager-dashboard", icon: LayoutDashboard },
   {
-    label: "Supplier Approvals",
+    label: "Suppliers",
     to: "/master-data?module=manager&status=pending-approval",
     icon: Building2,
   },
   {
-    label: "Material Request Approvals",
+    label: "Material Requests",
     to: "/procurement/material-requests?module=manager&status=manager-approval",
     icon: ClipboardList,
   },
@@ -335,18 +343,50 @@ function getRoleLabel(user: { username?: string; roles?: string[] } | null): str
   return "Operations Manager";
 }
 
+function getModuleBreadcrumb(pathname: string): string {
+  if (pathname.startsWith("/procurement") || pathname === "/master-data" || pathname === "/new-supplier") return "Procurement";
+  if (pathname.startsWith("/gate") || pathname.startsWith("/vehicle")) return "Gate Security";
+  if (pathname.startsWith("/dock")) return "Dock Management";
+  if (pathname.startsWith("/grn") || pathname.startsWith("/receiving")) return "Receiving & GRN";
+  if (pathname.startsWith("/warehouse") || pathname === "/inventory" || pathname === "/my-store" || pathname === "/putaway-tasks") return "Warehouse";
+  if (pathname.startsWith("/assembly")) return "Assembly";
+  if (pathname.startsWith("/dispatch")) return "Dispatch";
+  if (pathname.startsWith("/finance")) return "Finance";
+  if (pathname.startsWith("/supplier")) return "Supplier Portal";
+  if (pathname.startsWith("/admin")) return "Administration";
+  return "Overview";
+}
+
+function getEnterpriseSubtitle(pathname: string): string {
+  if (pathname.startsWith("/procurement") || pathname === "/master-data" || pathname === "/new-supplier") return "Enterprise Procurement";
+  if (pathname.startsWith("/warehouse") || pathname === "/inventory" || pathname === "/my-store" || pathname === "/putaway-tasks") return "Enterprise Warehouse";
+  if (pathname.startsWith("/assembly")) return "Enterprise Assembly";
+  if (pathname.startsWith("/dispatch")) return "Enterprise Dispatch";
+  if (pathname.startsWith("/gate") || pathname.startsWith("/vehicle")) return "Enterprise Security";
+  if (pathname.startsWith("/finance")) return "Enterprise Finance";
+  if (pathname.startsWith("/supplier")) return "Enterprise Supplier";
+  if (pathname.startsWith("/admin")) return "Enterprise Administration";
+  return "Enterprise Platform";
+}
+
 export function AppShell({
   children,
   title,
   subtitle,
   actions,
+  breadcrumbs,
+  mainClassName,
 }: {
   children: ReactNode;
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: string;
   actions?: ReactNode;
+  breadcrumbs?: ReactNode;
+  mainClassName?: string;
 }) {
   const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [sidebarFocused, setSidebarFocused] = useState(false);
+  const sidebarCollapsed = !sidebarHovered && !sidebarFocused;
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -356,6 +396,7 @@ export function AppShell({
   }, []);
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
+  const isFinishedGoodsPage = path === "/procurement/finished-goods";
   const searchStr = location.searchStr || "";
   const fullHref = path + searchStr;
   const navigate = useNavigate();
@@ -365,26 +406,44 @@ export function AppShell({
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (searchTerm.length >= 2) {
-        setIsSearching(true);
-        try {
-          const data = await api.globalSearch(searchTerm);
-          setSearchResults(data.results);
-          setShowSearch(true);
-        } catch (e) {
-          console.error("Search failed", e);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setSearchResults([]);
-        setShowSearch(false);
+    const query = searchTerm.trim();
+    let cancelled = false;
+    setSearchResults([]);
+    setSearchError("");
+    setIsSearching(query.length >= 2);
+    if (query.length < 2) {
+      setShowSearch(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const data = await api.globalSearch(query);
+        if (!cancelled) setSearchResults(data.results ?? []);
+      } catch {
+        if (!cancelled) setSearchError("Record search is unavailable. Check that the backend service is running and try again.");
+      } finally {
+        if (!cancelled) setIsSearching(false);
       }
     }, 300);
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchTerm]);
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (event.key === "Escape") setShowSearch(false);
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
   const isGrnUser =
     mounted &&
     (user?.roles?.includes("GRN") ||
@@ -488,7 +547,6 @@ export function AppShell({
     path === "/dispatch" || path.startsWith("/dispatch-") || path.startsWith("/dispatch/");
   const isAdminUser =
     mounted && (user?.roles?.includes("ADMIN") || user?.roles?.includes("SUPERUSER"));
-  const isManagerUser = mounted && user?.roles?.includes("MANAGER");
   const isNotificationsRoute = path.startsWith("/notifications");
   const isAdminRoute = path.startsWith("/admin/");
   const isSharedOperationsRoute = ["/warehouse-dashboard", "/vehicle-exit"].some((route) =>
@@ -516,9 +574,7 @@ export function AppShell({
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
-      : isManagerUser
-        ? managerNav
-        : isDispatchUser || isDispatchRoute
+      : isDispatchUser || isDispatchRoute
         ? dispatchNav
         : isAssemblyUser || isAssemblyRoute
           ? assemblyNav
@@ -554,12 +610,6 @@ export function AppShell({
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [fullHref]);
-  const handleLogout = () => {
-    api.logout();
-    setUser(null);
-    toast.success("Logged out successfully");
-    navigate({ to: "/login" });
-  };
   const isActiveNavItem = (to: string) => {
     if (to.includes("?")) {
       const [targetPath, targetQuery] = to.split("?");
@@ -597,7 +647,13 @@ export function AppShell({
         (path.startsWith(to + "/") || path.startsWith(to + "?")))
     );
   };
-  const desktopSidebarCollapsed = !sidebarHovered;
+  const query = searchTerm.trim().toLowerCase();
+  const matchingPages = query.length >= 2 ? nav
+    .filter((item) => `${item.label} ${item.to}`.toLowerCase().includes(query))
+    .slice(0, 6)
+    .map((item) => ({ id: item.to, type: "PAGE", title: item.label, subtitle: "Open page", link: item.to })) : [];
+  const visibleSearchResults = [...matchingPages, ...searchResults];
+  const desktopSidebarCollapsed = sidebarCollapsed;
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -606,24 +662,26 @@ export function AppShell({
           <button
             type="button"
             aria-label="Close navigation menu"
-            className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
             onClick={() => setMobileSidebarOpen(false)}
           />
-          <aside className="relative flex h-full w-[min(84vw,320px)] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
-            <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border/40 px-4">
+          <aside className="relative flex h-full w-[min(84vw,280px)] flex-col border-r border-[#102D57] bg-[#071D3B] text-slate-200 shadow-2xl">
+            <div className="flex h-16 items-center justify-between gap-2 border-b border-[#102D57] px-4">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-                  <Warehouse className="size-5" />
-                </div>
+                <img
+                  src="/kaizenx-cube.png"
+                  alt="KaizenX Logo"
+                  className="size-8 object-contain shrink-0 drop-shadow"
+                />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-tight">KaizenX</p>
-                  <p className="truncate text-[11px] text-muted-foreground">Pune DC - Plant 1200</p>
+                  <p className="truncate text-sm font-bold tracking-tight text-white leading-tight">KaizenX</p>
+                  <p className="truncate text-[10px] font-medium text-[#8FA3BF]">Pune DC · Plant 1200</p>
                 </div>
               </div>
               <button
                 type="button"
                 aria-label="Close navigation menu"
-                className="grid size-9 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                className="grid size-9 place-items-center rounded-xl text-[#8FA3BF] transition-colors hover:bg-[#102D57] hover:text-white"
                 onClick={() => setMobileSidebarOpen(false)}
               >
                 <PanelLeftClose className="size-[18px]" />
@@ -633,7 +691,7 @@ export function AppShell({
             <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
               {navigationPending &&
                 Array.from({ length: 5 }).map((_, index) => (
-                  <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
+                  <div key={index} className="h-10 animate-pulse rounded-xl bg-white/5" />
                 ))}
               {nav.map((item) => {
                 const active = isActiveNavItem(item.to);
@@ -648,15 +706,16 @@ export function AppShell({
                     }}
                     title={item.label}
                     className={cn(
-                      "group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground transition-all",
-                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                      active && "bg-primary-soft text-primary shadow-soft",
+                      "group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all",
+                      active
+                        ? "bg-[#0866FF] text-white shadow-xs font-semibold"
+                        : "text-[#8FA3BF] hover:bg-[#102D57] hover:text-white",
                     )}
                   >
-                    <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
+                    <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-[#8FA3BF] group-hover:text-white")} />
                     <span className="truncate">{item.label}</span>
                     {(item as any).badge && (
-                      <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+                      <span className="ml-auto grid size-5 place-items-center rounded-full bg-[#E5484D] text-[10px] font-semibold text-white">
                         {(item as any).badge}
                       </span>
                     )}
@@ -665,16 +724,6 @@ export function AppShell({
               })}
             </nav>
 
-            <div className="border-t border-sidebar-border p-3">
-              <button
-                suppressHydrationWarning
-                onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
-              >
-                <LogOut className="size-[18px]" />
-                <span>Logout</span>
-              </button>
-            </div>
           </aside>
         </div>
       )}
@@ -682,118 +731,150 @@ export function AppShell({
       <aside
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
+        onFocusCapture={() => setSidebarFocused(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setSidebarFocused(false);
+          }
+        }}
         className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-300 md:flex",
-          desktopSidebarCollapsed ? "w-[76px]" : "w-[264px]",
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#102D57] bg-[#071D3B] text-slate-300 transition-[width] duration-200 md:flex z-30",
+          desktopSidebarCollapsed ? "w-[72px]" : isFinishedGoodsPage ? "w-[288px]" : "w-[268px]",
         )}
       >
         <div
           className={cn(
-            "flex h-16 items-center border-b border-sidebar-border/40 transition-all",
+            "flex h-16 items-center border-b border-[#102D57] transition-all",
             desktopSidebarCollapsed ? "justify-center px-2" : "justify-between gap-2 px-4",
           )}
         >
           {!desktopSidebarCollapsed ? (
-            <>
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="relative flex h-10 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
-                  <img
-                    src={logoUrl}
-                    alt="KGS Logo"
-                    className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
-                  />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold tracking-wider uppercase bg-gradient-to-r from-primary via-blue-600 to-teal bg-clip-text text-transparent">
-                    KaizenX
-                  </p>
-                  <p className="truncate text-[10px] font-mono text-muted-foreground font-semibold">
-                    Pune DC · Plant 1200
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-blue-500/10 to-teal/20 p-1 border border-primary/30 shadow-glow">
+            <div className="flex items-center gap-2.5 min-w-0">
               <img
-                src={logoUrl}
-                alt="KGS Logo"
-                className="h-full w-full object-contain drop-shadow-[0_2px_6px_rgba(6,182,212,0.4)]"
+                src="/kaizenx-cube.png"
+                alt="KaizenX Logo"
+                className="size-8 object-contain shrink-0 drop-shadow"
               />
+              <div className="min-w-0">
+                <p className="truncate text-base font-bold tracking-tight text-white leading-tight">
+                  KaizenX
+                </p>
+                <p className="truncate text-[11px] font-medium text-[#8FA3BF]">
+                  {getEnterpriseSubtitle(path)}
+                </p>
+              </div>
             </div>
+          ) : (
+            <img
+              src="/kaizenx-cube.png"
+              alt="KaizenX Logo"
+              className="size-8 object-contain shrink-0 drop-shadow"
+            />
           )}
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-          {navigationPending &&
-            Array.from({ length: 5 }).map((_, index) => (
-              <div key={index} className="h-10 animate-pulse rounded-xl bg-sidebar-accent/60" />
-            ))}
-          {nav.map((item) => {
-            const active = isActiveNavItem(item.to);
-            return (
-              <Link
-                key={`${item.label}-${item.to}`}
-                to={item.to as any}
-                onClick={(e) => {
-                  e.preventDefault();
-                  void navigate({ to: item.to as any });
-                }}
-                title={item.label}
-                className={cn(
-                  "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-all",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  active && "bg-primary-soft text-primary shadow-soft",
-                )}
-              >
-                <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
-                {!desktopSidebarCollapsed && <span className="truncate">{item.label}</span>}
-                {!desktopSidebarCollapsed && (item as any).badge && (
-                  <span className="ml-auto grid size-5 place-items-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
-                    {(item as any).badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <TooltipProvider delayDuration={100}>
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
+            {navigationPending &&
+              Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="h-10 animate-pulse rounded-xl bg-white/5" />
+              ))}
+            {nav.map((item: any) => {
+              const active = isActiveNavItem(item.to);
+              const sectionHeader = item.section && !desktopSidebarCollapsed ? (
+                <div key={`section-${item.section}`} className="pt-4 pb-1.5 px-3.5 text-[11px] font-bold tracking-wider text-[#6B82A6] uppercase">
+                  {item.section}
+                </div>
+              ) : null;
+              const navLink = (
+                <Link
+                  key={`${item.label}-${item.to}`}
+                  to={item.to as any}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void navigate({ to: item.to as any });
+                  }}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-all",
+                    desktopSidebarCollapsed ? "justify-center px-0 size-11 mx-auto" : "px-3.5",
+                    active
+                      ? "bg-[#0866FF] text-white shadow-xs font-semibold"
+                      : "text-[#8FA3BF] hover:bg-[#102D57] hover:text-white",
+                  )}
+                >
+                  <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-[#8FA3BF] group-hover:text-white")} />
+                  {!desktopSidebarCollapsed && <span className={isFinishedGoodsPage ? "leading-5" : "truncate"}>{item.label}</span>}
+                  {!desktopSidebarCollapsed && item.hasSubmenu && (
+                    <ChevronRight className="ml-auto size-3.5 text-[#526580] group-hover:text-white transition-colors" />
+                  )}
+                  {!desktopSidebarCollapsed && item.badge && (
+                    <span className="ml-auto grid size-5 place-items-center rounded-full bg-[#E5484D] text-[10px] font-semibold text-white">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              );
 
-        <div className="border-t border-sidebar-border p-3 space-y-1">
-          <button
-            suppressHydrationWarning
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-danger-soft"
-          >
-            <LogOut className="size-[18px]" />
-            {!desktopSidebarCollapsed && <span>Logout</span>}
-          </button>
-        </div>
+              return (
+                <Fragment key={`${item.label}-${item.to}`}>
+                  {sectionHeader}
+                  {desktopSidebarCollapsed ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        {navLink}
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="font-semibold text-xs border-[#102D57] bg-[#071D3B] text-white shadow-lg">
+                        {item.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    navLink
+                  )}
+                </Fragment>
+              );
+            })}
+          </nav>
+
+        </TooltipProvider>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 glass-strong">
+        <header className="sticky top-0 z-30 border-b border-[#DCE6F3] bg-white shadow-xs">
           <div className="flex h-16 items-center gap-3 px-4 lg:px-7">
             <button
               type="button"
               aria-label="Open navigation menu"
               onClick={() => setMobileSidebarOpen(true)}
-              className="group relative grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground md:hidden"
+              className="grid size-9 shrink-0 place-items-center rounded-xl border border-[#DCE6F3] bg-white text-[#526580] hover:bg-slate-50 hover:text-[#101D3A] md:hidden shadow-2xs"
             >
-              <Warehouse className="size-4 transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
-              <Menu className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              <Menu className="size-5" />
             </button>
-            <div className="relative hidden max-w-md flex-1 items-center sm:flex">
-              <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
+
+            <div className="relative flex min-w-0 max-w-md flex-1 items-center">
+              <Search className="pointer-events-none absolute left-3 z-[51] size-4 text-[#526580]" />
               <input
+                ref={searchInputRef}
+                aria-label="Global search"
                 suppressHydrationWarning
                 placeholder="Search truck no, PO, vendor, gate entry…"
-                className="h-10 w-full rounded-xl border border-border bg-muted/60 pl-9 pr-16 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus:bg-card focus:ring-2 focus:ring-ring/40"
+                className="relative z-50 h-10 w-full rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] pl-9 pr-14 text-sm text-[#101D3A] outline-none transition-all placeholder:text-[#8FA3BF] focus:bg-white focus:border-[#0866FF] focus:ring-2 focus:ring-[#0866FF]/20"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onFocus={() => searchTerm.length >= 2 && setShowSearch(true)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setShowSearch(e.target.value.trim().length >= 2);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && visibleSearchResults.length > 0) {
+                    e.preventDefault();
+                    void navigate({ to: visibleSearchResults[0].link as any });
+                    setShowSearch(false);
+                    setSearchTerm("");
+                  }
+                }}
+                onFocus={() => searchTerm.trim().length >= 2 && setShowSearch(true)}
               />
-              <kbd className="absolute right-3 hidden rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground lg:block">
-                {isSearching ? <Loader2 className="size-3 animate-spin" /> : "⌘K"}
+              <kbd className="pointer-events-none absolute right-3 z-[51] hidden rounded-md border border-[#DCE6F3] bg-white px-1.5 py-0.5 text-[10px] text-[#526580] lg:block">
+                {isSearching ? <Loader2 className="size-3 animate-spin" /> : "Ctrl + K"}
               </kbd>
 
               {showSearch && (
@@ -801,9 +882,11 @@ export function AppShell({
                   <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)} />
                   <div className="absolute top-full left-0 mt-2 w-full min-w-[320px] max-h-[480px] overflow-y-auto z-50 rounded-2xl border border-border bg-card shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="p-2">
-                      {searchResults.length > 0 ? (
+                      {isSearching && <p role="status" className="px-4 py-3 text-sm text-muted-foreground">Searching records...</p>}
+                      {searchError && <p role="alert" className="px-4 py-3 text-sm text-red-600">{searchError}</p>}
+                      {visibleSearchResults.length > 0 ? (
                         <div className="space-y-1">
-                          {searchResults.map((result) => (
+                          {visibleSearchResults.map((result) => (
                             <Link
                               key={`${result.type}-${result.id}`}
                               to={result.link}
@@ -830,74 +913,95 @@ export function AppShell({
                             </Link>
                           ))}
                         </div>
-                      ) : (
+                      ) : !isSearching && !searchError ? (
                         <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                           <Search className="mb-2 size-8 opacity-20" />
                           <p className="text-sm font-medium">No results found for "{searchTerm}"</p>
-                          <p className="text-xs">Try searching for a different PO, ASN or Vendor</p>
+                          <p className="text-xs">Try a page name, truck number, PO, ASN, vendor or gate entry</p>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </>
               )}
             </div>
 
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ml-auto flex items-center gap-2">
               <Link
                 to="/notifications"
-                aria-label="Notifications"
-                className="relative grid size-10 place-items-center rounded-xl bg-transparent text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus:bg-transparent focus-visible:outline-none"
+                aria-label={unreadNotifications > 0 ? `Notifications (${unreadNotifications} unread)` : "Notifications"}
+                className="relative grid size-10 place-items-center rounded-xl text-[#526580] transition-colors hover:bg-[#EBF3FF] hover:text-[#0866FF] focus:bg-transparent focus-visible:outline-none"
               >
-                <Bell className="size-[18px]" />
+                <Bell className="size-5" aria-hidden="true" />
                 {unreadNotifications > 0 && (
-                  <span className="absolute right-2 top-2 grid size-4 place-items-center rounded-full bg-destructive text-[9px] font-bold text-white animate-pulse-ring">
-                    {unreadNotifications}
+                  <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E5484D] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white pointer-events-none">
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
                   </span>
                 )}
               </Link>
-              <div className="group relative ml-1 flex items-center gap-2.5 rounded-xl border border-border bg-card py-1.5 pl-1.5 pr-3 transition-colors hover:bg-accent/50">
+              <div className="flex items-center gap-2.5 rounded-xl border border-[#DCE6F3] bg-white px-2.5 py-1.5 shadow-xs">
                 <span
                   suppressHydrationWarning
-                  className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground"
+                  className="grid size-8 place-items-center rounded-full bg-[#0866FF] text-xs font-bold text-white shadow-xs"
                 >
                   {getUserInitials(user)}
                 </span>
-                <div className="hidden leading-tight lg:block">
-                  <p suppressHydrationWarning className="text-xs font-semibold">
+                <div className="hidden leading-tight lg:block text-left">
+                  <p suppressHydrationWarning className="text-xs font-bold text-[#101D3A]">
                     {getUserDisplayName(user)}
                   </p>
-                  <p suppressHydrationWarning className="text-[10px] text-muted-foreground">
+                  <p suppressHydrationWarning className="text-[10px] font-medium text-[#526580]">
                     {getUserRoleLabel(user)}
                   </p>
                 </div>
                 <button
-                  suppressHydrationWarning
-                  onClick={handleLogout}
-                  className="ml-2 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  title="Logout"
+                  type="button"
+                  className="ml-1 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                  onClick={() => {
+                    api.logout();
+                    setUser(null);
+                    void navigate({ to: "/login" });
+                  }}
                 >
-                  <LogOut className="size-4" />
+                  <LogOut className="size-4" aria-hidden="true" />
+                  Logout
                 </button>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="page-enter flex-1 px-4 py-6 lg:px-7">
-          <div className="mx-auto w-full max-w-[1360px]">
-            <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight lg:text-[28px]">{title}</h1>
-                {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+        <main className={`page-enter flex-1 px-4 py-6 lg:px-8 ${mainClassName || ""}`}>
+          <div className="wms-page-content mx-auto w-full max-w-[1536px]">
+            {(title || subtitle || actions || breadcrumbs) && (
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+                <div className="min-w-0">
+                  {breadcrumbs ? (
+                    <div className="mb-2">{breadcrumbs}</div>
+                  ) : title ? (
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-blue-100/75">
+                      <span>{getModuleBreadcrumb(path)}</span>
+                      <ChevronRight className="size-3 text-blue-200/70" />
+                      <span className="font-bold text-white">
+                        {typeof title === "string" ? title : "Current View"}
+                      </span>
+                    </div>
+                  ) : null}
+                  {title && (
+                    <h1 className="text-2xl font-extrabold tracking-tight text-white lg:text-[30px]">
+                      {title}
+                    </h1>
+                  )}
+                  {subtitle && <p className="mt-1 text-sm font-medium text-blue-100/85">{subtitle}</p>}
+                </div>
+                {actions && <div className="flex flex-wrap items-center gap-3 [&_button]:shrink-0">{actions}</div>}
               </div>
-              {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-            </div>
+            )}
             {children}
           </div>
         </main>
       </div>
-      <SecureAssistant />
+      <SecureAssistant procurementFinishedGoods={isFinishedGoodsPage} />
     </div>
   );
 }

@@ -62,7 +62,7 @@ function getModule() {
   return roles.map((role) => roleModules[role]).find(Boolean) || roleModules.WAREHOUSE;
 }
 
-export function SecureAssistant() {
+export function SecureAssistant({ procurementFinishedGoods = false }: { procurementFinishedGoods?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -108,6 +108,7 @@ export function SecureAssistant() {
         aria-label="Open KaizenX assistant"
         title="KaizenX Assistant"
         onClick={() => setOpen(true)}
+        style={procurementFinishedGoods ? { bottom: "max(1rem, env(safe-area-inset-bottom))", right: "max(1rem, env(safe-area-inset-right))", background: "#0866FF" } : undefined}
         className="fixed bottom-5 right-5 z-40 grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
       >
         <Bot className="size-5" />
@@ -118,6 +119,7 @@ export function SecureAssistant() {
             role="dialog"
             aria-label="KaizenX Assistant"
             onClick={(event) => event.stopPropagation()}
+            style={procurementFinishedGoods ? { bottom: "max(1rem, env(safe-area-inset-bottom))", right: "max(1rem, env(safe-area-inset-right))", maxHeight: "calc(100dvh - 2rem)" } : undefined}
             className="absolute bottom-5 right-5 flex h-[min(650px,calc(100vh-40px))] w-[min(420px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
           >
             <header className="flex items-center justify-between border-b border-border/60 bg-primary px-4 py-3 text-primary-foreground">

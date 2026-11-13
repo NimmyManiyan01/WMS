@@ -663,7 +663,6 @@ function NewAsn() {
                       <input
                         type="file"
                         id={`file-${type}`}
-                        accept=".pdf,.jpeg,.jpg,application/pdf,image/jpeg"
                         className="hidden"
                         onChange={(e) => handleFileUpload(e, type)}
                         disabled={uploadingDoc}

@@ -15,49 +15,77 @@ export function StatCard({
   showArrow = false,
   compact = false,
   infoTooltip,
+  showTrend = false,
 }: {
   label: string;
   value: string;
   delta?: string;
   icon: LucideIcon;
-  tone?: "primary" | "teal" | "success" | "warning" | "danger";
+  tone?: "primary" | "teal" | "success" | "warning" | "danger" | "purple";
   to?: string;
   showArrow?: boolean;
   compact?: boolean;
   infoTooltip?: string;
+  showTrend?: boolean;
 }) {
   const tones: Record<string, string> = {
-    primary: "bg-primary-soft text-primary",
-    teal: "bg-teal-soft text-teal",
-    success: "bg-success-soft text-success",
-    warning: "bg-warning-soft text-warning-foreground",
-    danger: "bg-danger-soft text-destructive",
+    primary: "bg-[#EBF3FF] text-[#0866FF]",
+    teal: "bg-[#F0FDFA] text-[#0D9488]",
+    success: "bg-[#E8FAF2] text-[#16C784]",
+    warning: "bg-[#FEF7EA] text-[#F5A623]",
+    danger: "bg-[#FEECEE] text-[#E5484D]",
+    purple: "bg-[#F3E8FF] text-[#7C4DFF]",
   };
+  const accentBorders: Record<string, string> = {
+    primary: "hover:border-[#0866FF]/40",
+    teal: "hover:border-[#0D9488]/40",
+    success: "hover:border-[#16C784]/40",
+    warning: "hover:border-[#F5A623]/40",
+    danger: "hover:border-[#E5484D]/40",
+    purple: "hover:border-[#7C4DFF]/40",
+  };
+  const trendTones: Record<string, string> = {
+    primary: "text-[#0866FF]",
+    teal: "text-[#0D9488]",
+    success: "text-[#16C784]",
+    warning: "text-[#F5A623]",
+    danger: "text-[#E5484D]",
+    purple: "text-[#7C4DFF]",
+  };
+
+  const isLoading = value === "..." || value === "loading";
+
   const cardContent = (
     <Card
       className={cn(
-        "flex h-full flex-col gap-0 rounded-2xl border-border/70 shadow-soft transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lift",
-        compact ? "min-h-24 justify-center p-4" : "min-h-36 p-4",
+        "relative flex h-full flex-col justify-between rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md",
+        accentBorders[tone] || "hover:border-primary/40",
+        compact ? "min-h-[110px]" : "min-h-[136px]",
       )}
     >
       <div className="flex items-center justify-between">
-        <span className={cn("grid size-9 place-items-center rounded-xl", tones[tone])}>
-          <Icon className="size-4" />
+        <span className={cn("grid size-10 place-items-center rounded-xl", tones[tone] || tones.primary)}>
+          <Icon className="size-5" />
         </span>
         {to && showArrow && (
-          <ArrowRight className="size-3 -translate-x-1 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+          <ArrowRight className="size-3.5 -translate-x-1 text-[#526580] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
         )}
       </div>
-      <p
-        className={cn(
-          "font-bold tracking-tight tabular-nums",
-          compact ? "mt-2 text-xl" : "mt-3 text-2xl",
+
+      <div className="mt-3">
+        {isLoading ? (
+          <div className="h-8 w-20 animate-pulse rounded-lg bg-slate-100" />
+        ) : (
+          <p className="text-[28px] lg:text-[32px] font-extrabold tracking-tight text-[#101D3A] leading-none tabular-nums">
+            {value}
+          </p>
         )}
-      >
-        {value}
-      </p>
-      <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-        <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
+      </div>
+
+      <div className="mt-1 flex items-center gap-1.5 min-w-0">
+        <p className="text-sm font-semibold text-[#526580] leading-snug truncate" title={label}>
+          {label}
+        </p>
         {infoTooltip && (
           <TooltipProvider>
             <Tooltip delayDuration={200}>
@@ -65,7 +93,7 @@ export function StatCard({
                 <button
                   type="button"
                   aria-label={`Info: ${label}`}
-                  className="inline-flex items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring p-0.5 cursor-help transition-colors shrink-0"
+                  className="inline-flex items-center justify-center rounded-full text-[#8FA3BF] hover:text-[#101D3A] focus:outline-none focus:ring-1 focus:ring-primary p-0.5 cursor-help transition-colors shrink-0"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -74,22 +102,28 @@ export function StatCard({
                   <Info className="size-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs">
+              <TooltipContent side="top" className="max-w-xs text-xs">
                 {infoTooltip}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}
       </div>
-      {!compact && (
-        <p
-          className={cn(
-            "mt-1.5 min-h-4 text-[10px] font-semibold text-muted-foreground/80",
-            !delta && "invisible",
-          )}
-          aria-hidden={!delta}
-        >
-          {delta || "No additional detail"}
+
+      {showTrend && (
+        <div className={cn("absolute right-4 top-1/2 mt-2 flex h-7 -translate-y-1/2 items-end gap-0.5", trendTones[tone])} aria-label={`${label} trend`}>
+          {[35, 55, 42, 72, 58, 86, 68].map((height, index) => (
+            <span
+              key={index}
+              className="w-1.5 rounded-t-sm bg-current opacity-70"
+              style={{ height: `${height}%` }}
+            />
+          ))}
+        </div>
+      )}
+      {!compact && delta && (
+        <p className="mt-1.5 min-h-4 text-xs font-medium text-[#526580]">
+          {delta}
         </p>
       )}
     </Card>
@@ -149,16 +183,16 @@ export function SectionCard({
   infoTooltip?: string;
 }) {
   return (
-    <Card className={cn("gap-0 rounded-2xl border-border/70 p-0 shadow-soft", className)}>
-      <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-4">
+    <Card className={cn("gap-0 rounded-2xl border border-[#DCE6F3] bg-white p-0 shadow-xs", className)}>
+      <div className="flex flex-wrap items-center gap-3 border-b border-[#DCE6F3] px-6 py-4">
         {Icon && (
-          <span className="grid size-9 place-items-center rounded-xl bg-primary-soft text-primary">
+          <span className="grid size-9 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
             <Icon className="size-[18px]" />
           </span>
         )}
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+            <h2 className="text-base font-bold tracking-tight text-[#101D3A]">{title}</h2>
             {infoTooltip && (
               <TooltipProvider>
                 <Tooltip delayDuration={200}>
@@ -166,7 +200,7 @@ export function SectionCard({
                     <button
                       type="button"
                       aria-label={`Info: ${title}`}
-                      className="inline-flex items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring p-0.5 cursor-help transition-colors"
+                      className="inline-flex items-center justify-center rounded-full text-[#8FA3BF] hover:text-[#101D3A] focus:outline-none focus:ring-1 focus:ring-primary p-0.5 cursor-help transition-colors"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -182,11 +216,11 @@ export function SectionCard({
               </TooltipProvider>
             )}
           </div>
-          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+          {description && <p className="text-xs font-medium text-[#526580]">{description}</p>}
         </div>
         {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-6">{children}</div>
     </Card>
   );
 }

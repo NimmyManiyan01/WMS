@@ -42,7 +42,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { sanitizeGstin, validateGstin } from "@/lib/gstin";
 import { api } from "@/lib/api-client";
 import { INDIAN_STATES, TDS_SECTIONS } from "@/lib/constants";
 
@@ -121,6 +120,7 @@ function NewSupplier() {
     industry: "",
     gstin: "",
     paymentTerms: "",
+    creditPeriodDays: "",
     modeOfPayment: "",
     address: {
       registeredAddress: "",
@@ -151,7 +151,6 @@ function NewSupplier() {
   });
 
   const [isUploading, setIsUploading] = React.useState(false);
-  const [customModeOfPayment, setCustomModeOfPayment] = React.useState("");
 
   const updateFormData = (section: string, field: string, value: string) => {
     if (section === "root") {
@@ -299,8 +298,13 @@ function NewSupplier() {
       else if (industry.length < 2 || industry.length > 100)
         newErrors.industry = "Must be between 2 and 100 characters";
 
-      const gstinError = validateGstin(gstin);
-      if (gstinError) newErrors.gstin = gstinError;
+      if (!gstin) newErrors.gstin = "GSTIN is required";
+      else if (gstin.length !== 15) newErrors.gstin = "Must be exactly 15 characters";
+      else if (
+        !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin.toUpperCase())
+      ) {
+        newErrors.gstin = "Invalid GSTIN format (e.g. 29ABCDE1234F1Z5)";
+      }
 
       // Backend Duplicate Check
       if (Object.keys(newErrors).length === 0) {
@@ -400,10 +404,6 @@ function NewSupplier() {
       const branch = formData.bankInfo.branch.trim();
       const swift = formData.bankInfo.swiftBic.trim();
 
-      if (formData.modeOfPayment === "Custom" && !customModeOfPayment.trim()) {
-        newErrors.customModeOfPayment = "Enter a custom mode of payment";
-      }
-
       if (!bankName) newErrors["bankInfo.bankName"] = "Bank name is required";
 
       if (!accNo) newErrors["bankInfo.accountNumber"] = "Account number is required";
@@ -424,8 +424,7 @@ function NewSupplier() {
       if (!branch) newErrors["bankInfo.branch"] = "Branch name is required";
 
       if (swift && !/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(swift.toUpperCase())) {
-        newErrors["bankInfo.swiftBic"] =
-          "Enter a valid 8 or 11-character SWIFT/BIC (e.g. HDFCINBBXXX)";
+        newErrors["bankInfo.swiftBic"] = "Invalid SWIFT/BIC format";
       }
 
       // Backend Duplicate Check for Account Number
@@ -482,6 +481,12 @@ function NewSupplier() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
+
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("Document size exceeds maximum limit of 20 MB.");
+      return;
+    }
 
     setIsUploading(true);
     try {
@@ -503,7 +508,6 @@ function NewSupplier() {
     } catch (e: any) {
       toast.error("Upload failed: " + e.message);
     } finally {
-      setIsUploading(true);
       setIsUploading(false);
     }
   };
@@ -622,14 +626,11 @@ function NewSupplier() {
     try {
       const finalData = {
         ...formData,
-        modeOfPayment:
-          formData.modeOfPayment === "Custom"
-            ? customModeOfPayment.trim()
-            : formData.modeOfPayment,
         supplierName: name,
         registeredCompanyName: regName,
         industry: industry,
         gstin: gstin.toUpperCase(),
+        creditPeriodDays: formData.creditPeriodDays ? Number(formData.creditPeriodDays) : undefined,
         address: {
           ...formData.address,
           registeredAddress: formData.address.registeredAddress.trim(),
@@ -669,16 +670,18 @@ function NewSupplier() {
     <AppShell
       title="Register New Supplier"
       subtitle="Complete the 5-step onboarding process to add a new vendor."
+      mainClassName="[&>div]:max-w-5xl"
     >
-      <div className="mx-auto max-w-4xl">
+      <div className="w-full min-w-0 pb-6">
         {/* Step Indicator */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-6 grid grid-cols-5 rounded-2xl border border-slate-200 bg-white px-2 py-5 sm:px-6">
           {steps.map((step, idx) => (
-            <React.Fragment key={step.id}>
+            <div key={step.id} className="relative min-w-0">
               <button
                 type="button"
                 onClick={() => setCurrentStep(step.id)}
-                className="flex flex-col items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                aria-current={currentStep === step.id ? "step" : undefined}
+                className="relative z-10 flex w-full flex-col items-center gap-2 rounded-xl px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 <div
                   className={cn(
@@ -698,7 +701,7 @@ function NewSupplier() {
                 </div>
                 <span
                   className={cn(
-                    "text-xs font-medium",
+                    "flex min-h-8 items-start justify-center text-center text-[10px] leading-4 font-medium sm:text-xs",
                     currentStep === step.id ? "text-primary" : "text-muted-foreground",
                   )}
                 >
@@ -708,21 +711,21 @@ function NewSupplier() {
               {idx < steps.length - 1 && (
                 <div
                   className={cn(
-                    "h-px flex-1 bg-muted transition-all",
+                    "absolute left-[calc(50%+24px)] top-5 h-px w-[calc(100%-48px)] bg-muted transition-all",
                     currentStep > step.id && "bg-success",
                   )}
                 />
               )}
-            </React.Fragment>
+            </div>
           ))}
         </div>
 
-        <Card className="p-6 shadow-soft">
+        <Card className="gap-0 rounded-2xl p-4 shadow-soft sm:p-6 lg:p-8 [&_input:not([type=checkbox])]:h-11 [&_input:not([type=checkbox])]:rounded-lg [&_button[role=combobox]]:h-11 [&_button[role=combobox]]:rounded-lg [&_button[role=combobox]]:bg-white [&_label]:leading-5">
           {/* Step 1: Company Profile */}
           {currentStep === 1 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Company Profile</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="supplierName">
                     Supplier Display Name <span className="text-destructive">*</span>
@@ -1025,7 +1028,7 @@ function NewSupplier() {
                     value={formData.gstin}
                     maxLength={15}
                     onChange={(e) => {
-                      const val = sanitizeGstin(e.target.value);
+                      const val = e.target.value.substring(0, 15);
                       updateFormData("root", "gstin", val);
                     }}
                     placeholder="15-digit GST number"
@@ -1046,7 +1049,7 @@ function NewSupplier() {
 
           {/* Step 2: Address & Contact */}
           {currentStep === 2 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Address & Primary Contact</h3>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -1174,7 +1177,7 @@ function NewSupplier() {
                   </div>
                 </div>
                 <div className="border-t pt-4 mt-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="contactName" className="flex items-center gap-1.5">
                         Primary Contact Name <span className="text-destructive">*</span>
@@ -1396,9 +1399,9 @@ function NewSupplier() {
 
           {/* Step 3: Banking Information */}
           {currentStep === 3 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Banking Information</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="bankName" className="flex items-center gap-1.5">
                     Bank Name <span className="text-destructive">*</span>
@@ -1628,7 +1631,6 @@ function NewSupplier() {
                     id="swiftBic"
                     value={formData.bankInfo.swiftBic}
                     maxLength={11}
-                    placeholder="e.g. HDFCINBBXXX"
                     onChange={(e) => {
                       const val = e.target.value
                         .replace(/[^a-zA-Z0-9]/g, "")
@@ -1717,6 +1719,37 @@ function NewSupplier() {
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="creditPeriodDays" className="flex items-center gap-1.5">
+                    Credit Period (Days)
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help items-center text-muted-foreground hover:text-foreground">
+                            <Info className="size-3.5" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs font-normal">
+                          Number of credit days allowed by the supplier from invoice or GRN date
+                          before payment is due.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <Input
+                    id="creditPeriodDays"
+                    value={formData.creditPeriodDays}
+                    maxLength={3}
+                    onChange={(e) =>
+                      updateFormData(
+                        "root",
+                        "creditPeriodDays",
+                        e.target.value.replace(/\D/g, "").substring(0, 3),
+                      )
+                    }
+                    placeholder="e.g. 30"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="modeOfPayment" className="flex items-center gap-1.5">
                     Mode of Payment
                     <TooltipProvider>
@@ -1745,11 +1778,9 @@ function NewSupplier() {
                         "RTGS",
                         "IMPS",
                         "UPI",
-                        "Cash",
                         "Cheque",
                         "Demand Draft",
                         "Wire Transfer",
-                        "Custom",
                       ].map((mode) => (
                         <SelectItem key={mode} value={mode}>
                           {mode}
@@ -1757,35 +1788,6 @@ function NewSupplier() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {formData.modeOfPayment === "Custom" && (
-                    <div className="space-y-2 pt-1">
-                      <Label htmlFor="customModeOfPayment">Custom payment method</Label>
-                      <Input
-                        id="customModeOfPayment"
-                        value={customModeOfPayment}
-                        onChange={(e) => {
-                          setCustomModeOfPayment(e.target.value);
-                          if (errors.customModeOfPayment) {
-                            setErrors((prev) => {
-                              const next = { ...prev };
-                              delete next.customModeOfPayment;
-                              return next;
-                            });
-                          }
-                        }}
-                        placeholder="Enter payment method"
-                        className={cn(
-                          errors.customModeOfPayment &&
-                            "border-destructive focus-visible:ring-destructive",
-                        )}
-                      />
-                      {errors.customModeOfPayment && (
-                        <p className="text-[11px] font-medium text-destructive flex items-center gap-1">
-                          <AlertCircle className="size-3" /> {errors.customModeOfPayment}
-                        </p>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1793,10 +1795,11 @@ function NewSupplier() {
 
           {/* Step 4: Documents */}
           {currentStep === 4 && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold">Supporting Documents</h3>
               <p className="text-sm text-muted-foreground">
-                Upload copies of legal and tax documents for verification.
+                Upload copies of legal and tax documents for verification. All file types accepted,
+                up to 20 MB per file.
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1945,10 +1948,41 @@ function NewSupplier() {
                 </div>
               </div>
 
+              <div className="rounded-2xl bg-muted/30 border border-border/50 p-5 space-y-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <AlertCircle className="size-4" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider">Audit Information</h4>
+                </div>
+                <div className="grid items-start gap-x-6 gap-y-5 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-bold">
+                      Created By
+                    </Label>
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold">
+                        P
+                      </div>
+                      Procurement Officer (Current Session)
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-bold">
+                      Registration Date
+                    </Label>
+                    <div className="text-sm font-medium">
+                      {new Date().toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
-          <div className="mt-8 flex items-center justify-between border-t pt-6">
+          <div className="mt-6 flex items-center justify-between gap-3 border-t pt-5 [&>button]:min-h-10 [&>button]:min-w-24">
             <Button
               variant="ghost"
               onClick={handleBack}

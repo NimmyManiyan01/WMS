@@ -1,0 +1,1 @@
+Built-in imagegen prompt: Photorealistic warehouse inspired by the reference screenshot: full-height steel roof, blue and yellow storage racks, cardboard cartons, yellow forklift, loaded pallet and white delivery truck. Natural cool daylight, realistic proportions, uncluttered upper-left area for UI text. No text, logos, UI, overlays or solid colored areas.

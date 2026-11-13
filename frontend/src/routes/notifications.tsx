@@ -1,14 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Truck, Inbox, Loader2, FileText, AlertTriangle, Camera, X, Eye, ExternalLink, QrCode, CheckCircle2, PackageCheck, Layers, History } from "lucide-react";
+import { ArrowLeft, Truck, Inbox, Loader2, FileText, AlertTriangle, Camera, X, Eye, QrCode, CheckCircle2, PackageCheck, Layers, History } from "lucide-react";
 import { AppShell, DockAllocationNotificationCard } from "@/components/wms/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { requireAuth, getUserInfo } from "@/lib/auth-utils";
+import { requireAuth, getUserInfo, getDefaultRouteForUser } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/notifications")({
   beforeLoad: () => requireAuth(),
@@ -225,6 +225,8 @@ function parseGrnNotificationDetails(n: any) {
 }
 
 function Notifications() {
+  const router = useRouter();
+  const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [userRole, setUserRole] = useState("WAREHOUSE");
@@ -396,50 +398,24 @@ function Notifications() {
   };
 
   const handleOpenNotificationDetails = (n: any) => {
-    // Some older notification records contain the shared warehouse dashboard
-    // as their target. Keep procurement users in their own dashboard context.
-    const notificationLink =
-      userRole === "PROCUREMENT" &&
-      ["/warehouse-dashboard", "/receiving"].includes(String(n.link || ""))
-        ? "/procurement-dashboard"
-        : n.link;
-    const isGrnLinked = String(n.link || "").startsWith("/grn");
-    const isDockAllocation =
-      userRole !== "GRN" &&
-      !isGrnLinked &&
-      (n.title?.toUpperCase().includes("DOCK ALLOCAT") ||
-        n.title?.toUpperCase().includes("DOCK CONFIRMED"));
-
     const isDamage =
       n.title?.toLowerCase().includes("damage") ||
       n.message?.toLowerCase().includes("damage") ||
-      n.type === "damaged_goods";
-
+      n.type === "damaged_goods" ||
+      n.notification_type === "GRN_DAMAGE_RECORDED";
     const isGrnOrQuality =
-      n.title?.toLowerCase().includes("grn") ||
-      n.title?.toLowerCase().includes("quality") ||
-      n.title?.toLowerCase().includes("receiving") ||
-      n.message?.toLowerCase().includes("grn") ||
-      n.message?.toLowerCase().includes("inspection");
+      String(n.link || "").startsWith("/grn") ||
+      /grn|quality|receiving/i.test(n.title || "") ||
+      /grn|inspection/i.test(n.message || "");
 
-    if (isGrnLinked) {
-      window.location.href = n.link;
-    } else if (isDamage) {
+    if (isDamage) {
       setSelectedDamageNotif(n);
       setShowDamageModal(true);
     } else if (isGrnOrQuality) {
       setSelectedGrnNotif(n);
       setShowGrnModal(true);
-    } else if (isDockAllocation) {
-      // Dock allocation card is rendered directly on page
-    } else if (
-      notificationLink &&
-      (userRole === "PROCUREMENT" || !["/warehouse-dashboard", "/receiving"].includes(notificationLink))
-    ) {
-      window.location.href = notificationLink;
     } else {
-      setSelectedGrnNotif(n);
-      setShowGrnModal(true);
+      setSelectedNotification(n);
     }
   };
 
@@ -530,15 +506,31 @@ function Notifications() {
       title="Notification centre"
       subtitle="Stay updated with procurement and supply chain alerts"
       actions={
-        <Button
-          variant="outline"
-          className="rounded-xl"
-          onClick={() => void handleMarkAllRead()}
-          disabled={markingAllRead || !notifications.some((notification) => !notification.is_read)}
-        >
-          <CheckCircle2 className="mr-2 size-4" />
-          {markingAllRead ? "Marking…" : "Mark all as read"}
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => {
+              if (router.history.canGoBack()) {
+                router.history.back();
+              } else {
+                void router.navigate({ to: getDefaultRouteForUser() as any });
+              }
+            }}
+          >
+            <ArrowLeft className="mr-2 size-4" />
+            Back
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => void handleMarkAllRead()}
+            disabled={markingAllRead || !notifications.some((notification) => !notification.is_read)}
+          >
+            <CheckCircle2 className="mr-2 size-4" />
+            {markingAllRead ? "Marking…" : "Mark all as read"}
+          </Button>
+        </>
       }
     >
       {loading ? (
@@ -801,6 +793,18 @@ function Notifications() {
       )}
 
       {/* ✨ DAMAGED GOODS & PROCUREMENT RECEIPT DETAILS MODAL (POPUP) */}
+      <Dialog open={selectedNotification !== null} onOpenChange={(open) => { if (!open) setSelectedNotification(null); }}>
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedNotification?.title || "Notification details"}</DialogTitle>
+          </DialogHeader>
+          <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{selectedNotification?.message || "No additional details available."}</p>
+          <DialogFooter>
+            <Button onClick={() => setSelectedNotification(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showDamageModal} onOpenChange={setShowDamageModal}>
         <DialogContent className="max-w-4xl rounded-3xl p-6 space-y-6 max-h-[90vh] overflow-y-auto border shadow-2xl">
           {/* HEADER */}
@@ -1023,31 +1027,6 @@ function Notifications() {
 
           {/* FOOTER */}
           <DialogFooter className="pt-4 border-t flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              {damageDetails?.poNumber && (
-                <Button
-                  variant="outline"
-                  className="rounded-xl font-bold text-xs"
-                  onClick={() => {
-                    setShowDamageModal(false);
-                    window.location.href = `/purchase-order?po_number=${damageDetails.poNumber}`;
-                  }}
-                >
-                  <ExternalLink className="mr-1.5 size-3.5" /> View Purchase Order ({damageDetails.poNumber})
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                className="rounded-xl font-bold text-xs"
-                onClick={() => {
-                  setShowDamageModal(false);
-                  window.location.href = `/grn?tab=records`;
-                }}
-              >
-                <FileText className="mr-1.5 size-3.5" /> Open GRN Console
-              </Button>
-            </div>
-
             <Button
               variant="default"
               className="rounded-xl font-bold px-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -1218,31 +1197,6 @@ function Notifications() {
 
           {/* FOOTER */}
           <DialogFooter className="pt-4 border-t flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              {grnDetails?.poNumber && (
-                <Button
-                  variant="outline"
-                  className="rounded-xl font-bold text-xs"
-                  onClick={() => {
-                    setShowGrnModal(false);
-                    window.location.href = `/purchase-order?po_number=${grnDetails.poNumber}`;
-                  }}
-                >
-                  <ExternalLink className="mr-1.5 size-3.5" /> View Purchase Order ({grnDetails.poNumber})
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                className="rounded-xl font-bold text-xs"
-                onClick={() => {
-                  setShowGrnModal(false);
-                  window.location.href = "/grn?tab=records";
-                }}
-              >
-                <FileText className="mr-1.5 size-3.5" /> Open GRN Records
-              </Button>
-            </div>
-
             <Button
               variant="default"
               className="rounded-xl font-bold text-xs px-6 bg-primary hover:bg-primary/90 text-primary-foreground"
