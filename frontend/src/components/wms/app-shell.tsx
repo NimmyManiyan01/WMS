@@ -40,7 +40,7 @@ import {
   CheckCircle2,
   ChevronRight,
 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -52,7 +52,12 @@ import {
 import { api } from "@/lib/api-client";
 import logoUrl from "@/assets/Logo.png";
 import { getUserInfo, type UserInfo } from "@/lib/auth-utils";
-import { SecureAssistant } from "@/components/wms/secure-assistant";
+
+const SecureAssistant = lazy(() =>
+  import("@/components/wms/secure-assistant").then((module) => ({
+    default: module.SecureAssistant,
+  })),
+);
 
 function getUserDisplayName(user: UserInfo | null): string {
   if (!user) return "User";
@@ -87,6 +92,9 @@ function getUserRoleLabel(user: UserInfo | null): string {
     roles.includes("PROCUREMENT_OFFICER")
   ) {
     return "Procurement Manager";
+  }
+  if (roles.includes("MANAGER")) {
+    return "Approval Manager";
   }
   if (roles.includes("FINANCE") || roles.includes("FINANCE_MANAGER")) {
     return "Finance Manager";
@@ -173,7 +181,7 @@ const warehouseNav = [
   { label: "Material Requests", to: "/warehouse/material-requests", icon: ClipboardList },
   { label: "Dock Management", to: "/dock-management", icon: Warehouse },
   { label: "Inventory", to: "/inventory", icon: Boxes },
-  { label: "Putaway Tasks", to: "/putaway-tasks", icon: PackageCheck },
+  { label: "Putaway Tracking", to: "/putaway-tasks", icon: PackageCheck },
   { label: "Assembly Requisitions", to: "/warehouse/assembly-requisitions", icon: ClipboardList },
   { label: "Damage & Quarantine", to: "/warehouse/quarantine", icon: ShieldAlert },
   { label: "Finished Goods Dispatch", to: "/warehouse/dispatch-tracking", icon: Truck },
@@ -488,7 +496,7 @@ export function AppShell({
           }
         };
         void fetchNotifications();
-        const interval = window.setInterval(fetchNotifications, 2000);
+        const interval = window.setInterval(fetchNotifications, 30000);
         window.addEventListener("notifications:refresh", fetchNotifications);
         window.addEventListener("focus", fetchNotifications);
         cleanup = () => {
@@ -571,9 +579,12 @@ export function AppShell({
       "/arrival-success",
     ].some((route) => path.startsWith(route)) ||
     (isGateSecurityUser && (isSharedOperationsRoute || isNotificationsRoute));
+  const isApprovalManager = mounted && user?.roles?.includes("MANAGER");
   const resolvedNav =
     isAdminRoute || isAdminUser
       ? adminNav
+      : isApprovalManager
+        ? managerNav
       : isDispatchUser || isDispatchRoute
         ? dispatchNav
         : isAssemblyUser || isAssemblyRoute
@@ -1001,7 +1012,9 @@ export function AppShell({
           </div>
         </main>
       </div>
-      <SecureAssistant procurementFinishedGoods={isFinishedGoodsPage} />
+      <Suspense fallback={null}>
+        <SecureAssistant procurementFinishedGoods={isFinishedGoodsPage} />
+      </Suspense>
     </div>
   );
 }

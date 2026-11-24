@@ -203,6 +203,33 @@ function AssemblyRequestsPage() {
     );
   };
 
+  const handleSelectVariant = (idx: number, variantId: string) => {
+    const currentItem = items[idx];
+    const foundMat = masterMaterials.find((m) => m.id === currentItem.material_id);
+    const foundVariant = foundMat?.variants?.find((variant: any) => variant.id === variantId);
+    if (!foundMat || !foundVariant) return;
+
+    const specDetails = [foundVariant.size, foundVariant.color, foundVariant.grade]
+      .filter(Boolean)
+      .join(", ");
+
+    setItems(
+      items.map((it, i) =>
+        i === idx
+          ? {
+              ...it,
+              material_variant_id: foundVariant.id,
+              variant_code: foundVariant.variant_code || "",
+              material_name: specDetails
+                ? `${foundMat.material_name} (${specDetails})`
+                : foundMat.material_name,
+              uom: foundVariant.uom || foundMat.base_uom || "PCS",
+            }
+          : it,
+      ),
+    );
+  };
+
   const toggleRowMode = (idx: number, toCustom: boolean) => {
     setItems(
       items.map((it, i) =>
@@ -733,8 +760,8 @@ function AssemblyRequestsPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                        <div className="flex-1 w-full">
+                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_6rem_5rem_2.25rem] gap-2 items-center">
+                        <div className="min-w-0 w-full">
                           <Select
                             value={item.material_id}
                             onValueChange={(val) => handleSelectMaterial(idx, val)}
@@ -748,7 +775,8 @@ function AssemblyRequestsPage() {
                                 className="text-blue-600 font-semibold cursor-pointer border-b border-border/40 pb-1.5 focus:bg-blue-50 dark:focus:bg-blue-950"
                               >
                                 <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
-                                  <Sparkles className="size-3.5 text-amber-500" /> + Add Custom Item (New Raw Material)
+                                  <Sparkles className="size-3.5 text-amber-500" /> + Add Custom Item
+                                  (New Raw Material)
                                 </span>
                               </SelectItem>
                               {masterMaterials.map((m) => (
@@ -763,7 +791,41 @@ function AssemblyRequestsPage() {
                           </Select>
                         </div>
 
-                        <div className="w-24">
+                        <div className="min-w-0 w-full">
+                          {(() => {
+                            const selectedMaterial = masterMaterials.find(
+                              (material) => material.id === item.material_id,
+                            );
+                            return (
+                              <Select
+                                value={item.material_variant_id}
+                                onValueChange={(val) => handleSelectVariant(idx, val)}
+                                disabled={!selectedMaterial?.variants?.length}
+                              >
+                                <SelectTrigger className="h-9 rounded-xl text-xs bg-background">
+                                  <SelectValue placeholder="Select specification" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-60">
+                                  {selectedMaterial?.variants?.map((variant: any) => {
+                                    const details = [variant.size, variant.color, variant.grade]
+                                      .filter(Boolean)
+                                      .join(" · ");
+                                    return (
+                                      <SelectItem key={variant.id} value={variant.id}>
+                                        <span className="font-mono font-bold text-primary">
+                                          {variant.variant_code}
+                                        </span>
+                                        {details ? ` — ${details}` : ""}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
+                        </div>
+
+                        <div className="w-full">
                           <Input
                             type="number"
                             min="0.0001"
@@ -773,7 +835,7 @@ function AssemblyRequestsPage() {
                             onChange={(e) =>
                               setItems(
                                 items.map((it, i) =>
-                                    i === idx ? { ...it, quantity: e.target.value } : it,
+                                  i === idx ? { ...it, quantity: e.target.value } : it,
                                 ),
                               )
                             }
@@ -782,7 +844,7 @@ function AssemblyRequestsPage() {
                           />
                         </div>
 
-                        <div className="w-20">
+                        <div className="w-full">
                           <Select
                             value={item.uom}
                             onValueChange={(val) =>

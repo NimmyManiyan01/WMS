@@ -148,8 +148,6 @@ function buildAsnPrintHtml(asn: any): string {
             <div class="box"><div class="label">Vehicle</div><div class="value">${escapeHtml(readField(asn, "vehicleNumber", "vehicle_number") || "N/A")}</div></div>
             <div class="box"><div class="label">Driver</div><div class="value">${escapeHtml(readField(asn, "driverName", "driver_name") || "N/A")}</div></div>
             <div class="box"><div class="label">Expected Arrival</div><div class="value">${escapeHtml(readField(asn, "expectedArrivalAt", "expected_arrival_at") ? new Date(readField(asn, "expectedArrivalAt", "expected_arrival_at")).toLocaleDateString() : "N/A")}</div></div>
-            <div class="box"><div class="label">Invoice</div><div class="value">${escapeHtml(readField(asn, "invoiceNumber", "invoice_number") || "N/A")}</div></div>
-            <div class="box"><div class="label">Challan</div><div class="value">${escapeHtml(readField(asn, "challanNumber", "challan_number") || "N/A")}</div></div>
           </section>
           <h2>Shipment Lines</h2>
           <table>
@@ -264,10 +262,6 @@ function Asns() {
         asn.vehicle_number,
         asn.driverName,
         asn.driver_name,
-        asn.invoiceNumber,
-        asn.invoice_number,
-        asn.challanNumber,
-        asn.challan_number,
         asn.status,
       ]
         .filter(Boolean)
@@ -662,19 +656,6 @@ function Asns() {
                             <strong className="text-[#101D3A]">{asn.numberOfPackages || 0}</strong> Pkgs
                           </span>
 
-                          {(asn.invoiceNumber || asn.invoice_number) && (
-                            <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1">
-                              <span className="text-[#526580]">Inv:</span>
-                              <strong className="font-mono text-[#101D3A]">{asn.invoiceNumber || asn.invoice_number}</strong>
-                            </span>
-                          )}
-
-                          {(asn.challanNumber || asn.challan_number) && (
-                            <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1">
-                              <span className="text-[#526580]">Challan:</span>
-                              <strong className="font-mono text-[#101D3A]">{asn.challanNumber || asn.challan_number}</strong>
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>

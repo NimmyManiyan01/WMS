@@ -329,10 +329,6 @@ class AsnModel(Base):
     shipping_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     shipment_type: Mapped[str] = mapped_column(String(32), nullable=False, default="STANDARD")
     replacement_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("replacement_request.id"), nullable=True)
-    invoice_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    challan_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    challan_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     logistics: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
 

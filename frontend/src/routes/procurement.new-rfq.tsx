@@ -40,7 +40,7 @@ import { requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
 import { getUserInfo } from "@/lib/auth-utils";
 export const Route = createFileRoute("/procurement/new-rfq")({
-  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
+  beforeLoad: () => requireRole(["PROCUREMENT", "ADMIN", "SUPERUSER"]),
   component: NewRfq,
 });
 const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background";
@@ -111,6 +111,21 @@ function NewRfq() {
     supplier?.category || supplier?.categories || supplier?.materialCategories || supplier?.material_categories || [];
   const supplierMaterials = (supplier: any) =>
     supplier?.mainMaterials || supplier?.main_materials || supplier?.materials || [];
+  const normalizeCategory = (value: unknown) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const supplierHasRegisteredCategory = (supplier: any, category: unknown) => {
+    const requestedCategory = normalizeCategory(category);
+    if (!requestedCategory) return true;
+    const categories = Array.isArray(supplierCategories(supplier))
+      ? supplierCategories(supplier)
+      : [supplierCategories(supplier)];
+    return categories.some((entry: unknown) => normalizeCategory(entry) === requestedCategory);
+  };
   const normalizeMatchText = (value: unknown) =>
     String(value || "")
       .toLowerCase()
@@ -159,12 +174,8 @@ function NewRfq() {
     return (
       (!search || supplierText.includes(search)) &&
       (!city || supplierCityText.includes(city)) &&
-      (!category ||
-        hasSharedMatchToken(category, supplierCategories(supplier)) ||
-        hasSharedMatchToken(category, supplierMaterials(supplier))) &&
-      (!material ||
-        hasSharedMatchToken(material, supplierMaterials(supplier)) ||
-        hasSharedMatchToken(material, supplierCategories(supplier)))
+      supplierHasRegisteredCategory(supplier, category) &&
+      (!material || hasSharedMatchToken(material, supplierMaterials(supplier)))
     );
   };
   const supplierCategoryText = (supplier: any, fallback = "Category not set") => {
@@ -207,14 +218,6 @@ function NewRfq() {
         })),
       );
 
-      const mrCats = [...new Set(mr.items.map((it: any) => it.category).filter(Boolean))];
-      if (mrCats.length > 0) {
-        const primaryCat = mrCats[0];
-        setFilters((prev) => ({
-          ...prev,
-          category: primaryCat,
-        }));
-      }
     }
   };
   useEffect(() => {
@@ -321,6 +324,10 @@ function NewRfq() {
     }
     if (items.some((item) => !item.material_code.trim() || !item.material_name.trim())) {
       toast.error("Please fill in Material Code and Name for all items");
+      return;
+    }
+    if (items.some((item) => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+      toast.error("Order quantity must be greater than 0 for all items");
       return;
     }
     setShowConfirmModal(true);
@@ -521,11 +528,15 @@ function NewRfq() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Required Quantity</Label>
+                    <Label className="text-xs font-semibold">Order Quantity</Label>
                     <Input
-                      className="h-10 rounded-xl font-mono font-bold text-orange-600 bg-muted/50"
+                      type="number"
+                      min="0.01"
+                      step="any"
+                      required
+                      className="h-10 rounded-xl font-mono font-bold text-orange-600 bg-background"
                       value={item.quantity ?? ""}
-                      readOnly
+                      onChange={(event) => handleItemChange(index, "quantity", event.target.value)}
                     />
                   </div>
 

@@ -243,6 +243,13 @@ function normalizeGrnRecord(r: any) {
     status: r.status || "COMPLETED",
     lines: r.lines || [],
     batches: r.batches || [],
+    batch_count:
+      r.batch_count ??
+      r.batchCount ??
+      (r.lines || []).reduce(
+        (count: number, line: any) => count + (Array.isArray(line.batches) ? line.batches.length : 0),
+        0,
+      ),
     damage_lots: r.damage_lots || r.damageLots || [],
     damage_evidence: r.damage_evidence || r.damageEvidence || [],
     documents: r.documents || [],
@@ -357,6 +364,7 @@ function GrnPageWorkflow() {
 
   // Page 4 - Batches State
   const [materialBatches, setMaterialBatches] = useState<Record<string, BatchEntry[]>>({});
+  const [damagedMaterialBatches, setDamagedMaterialBatches] = useState<Record<string, BatchEntry[]>>({});
 
   // Page 5 - Documents State
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([]);
@@ -411,6 +419,7 @@ function GrnPageWorkflow() {
       if (Array.isArray(draft?.materials)) setMaterials(draft.materials);
       if (draft?.qualityApproved) setQualityApproved(draft.qualityApproved);
       if (draft?.materialBatches) setMaterialBatches(draft.materialBatches);
+      if (draft?.damagedMaterialBatches) setDamagedMaterialBatches(draft.damagedMaterialBatches);
       if (Array.isArray(draft?.uploadedDocuments)) setUploadedDocuments(draft.uploadedDocuments);
       if (Number(draft?.currentPage) > 0) setCurrentPage(Number(draft.currentPage));
       if (Number(draft?.maxCompletedStep) > 0) setMaxCompletedStep(Number(draft.maxCompletedStep));
@@ -447,6 +456,7 @@ function GrnPageWorkflow() {
           materials,
           qualityApproved,
           materialBatches,
+          damagedMaterialBatches,
           uploadedDocuments,
           savedAt: new Date().toISOString(),
         }),
@@ -463,6 +473,7 @@ function GrnPageWorkflow() {
     materials,
     qualityApproved,
     materialBatches,
+    damagedMaterialBatches,
     uploadedDocuments,
   ]);
 
@@ -1002,6 +1013,7 @@ function GrnPageWorkflow() {
       setDamagePhotos({});
       setQualityApproved({});
       setMaterialBatches({});
+      setDamagedMaterialBatches({});
       try {
         const ctx = await api.getGrnContext(
           undefined,
@@ -1029,6 +1041,7 @@ function GrnPageWorkflow() {
       setDamagePhotos({});
       setQualityApproved({});
       setMaterialBatches({});
+      setDamagedMaterialBatches({});
       if (availablePos.length > 0) {
         const first = availablePos[0];
         const targetPo = first.poNumber || first.po_number;
@@ -1305,6 +1318,7 @@ function GrnPageWorkflow() {
     setDamagePhotos({});
     setQualityApproved({});
     setMaterialBatches({});
+    setDamagedMaterialBatches({});
     setUploadedDocuments([]);
     setHeader({
       grn_number: "",
@@ -1801,7 +1815,9 @@ function GrnPageWorkflow() {
 
   async function handleProceedFromPage4() {
     if (!allBatchesValid) {
-      toast.error("Total batch quantity must match the approved good quantity for every material.");
+      toast.error(
+        "Good and damaged batch totals must match their respective quantities for every material.",
+      );
       return;
     }
     setBusyAction(true);
@@ -1819,6 +1835,16 @@ function GrnPageWorkflow() {
               })),
             )
             .catch((e) => console.warn("Batch save:", e));
+        }
+        const damagedBatchesForLine =
+          damagedMaterialBatches[rowKey] || damagedMaterialBatches[m.item_code];
+        if (m.grn_line_id && Number(m.damaged_quantity || 0) > 0 && damagedBatchesForLine) {
+          await api.createGrnDamageBatches(
+            m.grn_line_id,
+            damagedBatchesForLine.map((batch) => ({
+              batch_quantity: Number(batch.batch_quantity || 0),
+            })),
+          );
         }
       }
       const nextStep = 5;
@@ -1887,9 +1913,27 @@ function GrnPageWorkflow() {
         : (mat?.good_quantity ?? 0);
     const batches = materialBatches[rowKey] || materialBatches[item.item_code] || [];
     const totalBatchQty = batches.reduce((acc, b) => acc + Number(b.batch_quantity || 0), 0);
-    const isValid =
+    const goodIsValid =
       totalBatchQty === appQty || (appQty === 0 && (totalBatchQty === 0 || batches.length === 0));
-    return { appQty, totalBatchQty, isValid };
+    const damagedQty = Number(item.damaged_quantity || 0);
+    const damagedBatches =
+      damagedMaterialBatches[rowKey] || damagedMaterialBatches[item.item_code] || [];
+    const totalDamagedBatchQty = damagedBatches.reduce(
+      (acc, batch) => acc + Number(batch.batch_quantity || 0),
+      0,
+    );
+    const damagedIsValid =
+      damagedQty === 0 ||
+      (damagedBatches.length > 0 && totalDamagedBatchQty === damagedQty);
+    return {
+      appQty,
+      totalBatchQty,
+      damagedQty,
+      totalDamagedBatchQty,
+      goodIsValid,
+      damagedIsValid,
+      isValid: goodIsValid && damagedIsValid,
+    };
   }
 
   const allBatchesValid = materials.every((m, idx) => getBatchValidation(m, idx).isValid);
@@ -2165,7 +2209,10 @@ function GrnPageWorkflow() {
   }
 
   // Print Batch QR Labels for a specific GRN Record
-  async function printGrnRecordBatchLabels(record: any) {
+  async function printGrnRecordBatchLabels(
+    record: any,
+    output: "print" | "download" = "print",
+  ) {
     let linesToRender =
       record.lines && record.lines.length > 0
         ? record.lines
@@ -2173,11 +2220,17 @@ function GrnPageWorkflow() {
           ? record.materials
           : [];
     const targetId = record.grn_id || record.id || record.grn_number || record.grnNumber;
-    if (linesToRender.length === 0 && targetId) {
+    const summaryHasBatchAllocations = linesToRender.some(
+      (line: any) => Array.isArray(line.batches) && line.batches.length > 0,
+    );
+    if ((linesToRender.length === 0 || !summaryHasBatchAllocations) && targetId) {
       try {
         const fullDetail = await api.getGrnDetail(targetId);
         if (fullDetail && (fullDetail.lines || fullDetail.materials)) {
-          linesToRender = fullDetail.lines || fullDetail.materials;
+          const detailedLines = fullDetail.lines || fullDetail.materials || [];
+          if (detailedLines.length > 0) {
+            linesToRender = detailedLines;
+          }
           record = { ...record, ...fullDetail };
         }
       } catch {
@@ -2268,6 +2321,25 @@ function GrnPageWorkflow() {
 
     if (labelsToPrint.length === 0) {
       toast.info(`No batch allocations found for GRN ${grnNum}`);
+      return;
+    }
+
+    if (output === "download") {
+      labelsToPrint.forEach((label, index) => {
+        if (!label.dataUrl) return;
+        const safeName = `${label.qrId || `${grnNum}-QR-${index + 1}`}`
+          .replace(/[^a-z0-9._-]+/gi, "-")
+          .replace(/^-+|-+$/g, "");
+        const link = document.createElement("a");
+        link.href = label.dataUrl;
+        link.download = `${safeName}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
+      toast.success(
+        `Downloaded ${labelsToPrint.length} batch QR code${labelsToPrint.length === 1 ? "" : "s"} for ${grnNum}`,
+      );
       return;
     }
 
@@ -2965,11 +3037,52 @@ function GrnPageWorkflow() {
         }
 
         const damageGenerated: DamageQrEntry[] = [];
+        if (currentPage === 6 && grnId) {
+          try {
+            const persistedLots = await api.generateDamageQrs(grnId);
+            for (const lot of persistedLots) {
+              const qr = lot.qr || {};
+              const payload = qr.qrPayload || qr.qr_payload || "";
+              let dataUrl = "";
+              if (payload) {
+                dataUrl = await QRCode.toDataURL(payload, {
+                  margin: 2,
+                  width: 500,
+                  errorCorrectionLevel: "M",
+                  color: { dark: "#000000", light: "#ffffff" },
+                });
+              }
+              damageGenerated.push({
+                damage_lot_id: lot.damageLotId || lot.damage_lot_id,
+                damage_lot_number: lot.damageLotNumber || lot.damage_lot_number,
+                item_code: qr.itemCode || qr.item_code || "",
+                material_name:
+                  materials.find(
+                    (material) =>
+                      material.item_code === (qr.itemCode || qr.item_code),
+                  )?.material_name || qr.itemCode || qr.item_code || "Damaged Material",
+                damaged_quantity: Number(lot.damagedQuantity || lot.damaged_quantity || 0),
+                uom: lot.uom || "PCS",
+                reason: lot.reason || "Damaged/Rejected during receiving inspection",
+                qa_status: lot.qaStatus || lot.qa_status || "REJECTED / DAMAGED",
+                quarantine_location:
+                  lot.quarantineLocation || lot.quarantine_location || "QUARANTINE-ZONE-A",
+                status: lot.status || "DAMAGED",
+                qr_id: qr.qrId || qr.qr_id,
+                qr_code: qr.qrCode || qr.qr_code,
+                qr_payload: payload,
+                qr_data_url: dataUrl,
+              });
+            }
+          } catch (error) {
+            console.error("Persisted damage QR generation error:", error);
+          }
+        }
         const damagedLines = materials.filter(
           (m) => (m.damaged_quantity || 0) > 0 || (m.rejected_quantity || 0) > 0,
         );
 
-        for (const m of damagedLines) {
+        for (const m of damageGenerated.length === 0 ? damagedLines : []) {
           const photo = damagePhotos[m.item_code];
           const reasonText =
             photo && photo.reason
@@ -3019,6 +3132,8 @@ function GrnPageWorkflow() {
   }, [
     currentPage,
     materialBatches,
+    damagedMaterialBatches,
+    grnId,
     header.grn_number,
     header.po_number,
     header.supplier_name,
@@ -3568,6 +3683,14 @@ function GrnPageWorkflow() {
                               >
                                 <QrCode className="mr-1.5 size-3.5 text-primary" /> Batch QR Labels
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-xl text-xs font-semibold"
+                                onClick={() => void printGrnRecordBatchLabels(r, "download")}
+                              >
+                                <Download className="mr-1.5 size-3.5 text-primary" /> Download QR
+                              </Button>
                             </div>
 
                             {status.toUpperCase().includes("PARTIAL") && (
@@ -3782,11 +3905,17 @@ function GrnPageWorkflow() {
                     <label className="text-[11px] font-semibold uppercase text-muted-foreground block mb-1">
                       Vehicle Number
                     </label>
-                    <Input
-                      value={header.vehicle_number}
-                      onChange={(e) => setHeader({ ...header, vehicle_number: e.target.value })}
-                      className="font-mono text-sm font-bold rounded-lg"
-                    />
+                    {header.receipt_type === "UNEXPECTED_DELIVERY" ? (
+                      <Input
+                        value={header.vehicle_number}
+                        onChange={(e) => setHeader({ ...header, vehicle_number: e.target.value })}
+                        className="font-mono text-sm font-bold rounded-lg"
+                      />
+                    ) : (
+                      <p className="font-mono text-sm font-bold text-foreground">
+                        {header.vehicle_number || "—"}
+                      </p>
+                    )}
                   </div>
 
                   {/* Driver Name */}
@@ -3794,11 +3923,17 @@ function GrnPageWorkflow() {
                     <label className="text-[11px] font-semibold uppercase text-muted-foreground block mb-1">
                       Driver Name
                     </label>
-                    <Input
-                      value={header.driver_name}
-                      onChange={(e) => setHeader({ ...header, driver_name: e.target.value })}
-                      className="text-sm font-bold rounded-lg"
-                    />
+                    {header.receipt_type === "UNEXPECTED_DELIVERY" ? (
+                      <Input
+                        value={header.driver_name}
+                        onChange={(e) => setHeader({ ...header, driver_name: e.target.value })}
+                        className="text-sm font-bold rounded-lg"
+                      />
+                    ) : (
+                      <p className="text-sm font-bold text-foreground">
+                        {header.driver_name || "—"}
+                      </p>
+                    )}
                   </div>
                 </div>
               </Card>
@@ -4573,8 +4708,8 @@ function GrnPageWorkflow() {
               <div className="border-b pb-4">
                 <h3 className="font-bold text-foreground text-base">Lot & Batch Creation</h3>
                 <p className="text-xs text-muted-foreground">
-                  Divide Quality-Approved materials into batches.{" "}
-                  <b>Rule: Total Batch Quantity MUST equal Quality-Approved Quantity.</b>
+                  Divide quality-approved and damaged materials into separate batches.{" "}
+                  <b>Each batch total must exactly match its respective quantity.</b>
                 </p>
               </div>
 
@@ -4582,8 +4717,8 @@ function GrnPageWorkflow() {
                 <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-xs text-rose-800 font-bold flex items-center gap-2">
                   <AlertTriangle className="size-5 shrink-0" />
                   <span>
-                    Batch Quantity Mismatch! The sum of batch quantities for each material must
-                    strictly match the Quality-Approved Quantity before proceeding.
+                    Batch Quantity Mismatch! Good batches must match the quality-approved quantity,
+                    and damaged batches must match the damaged quantity before proceeding.
                   </span>
                 </div>
               )}
@@ -4591,8 +4726,20 @@ function GrnPageWorkflow() {
               <div className="space-y-5">
                 {materials.map((m, idx) => {
                   const rowKey = grnMaterialKey(m, idx);
-                  const { appQty, totalBatchQty, isValid } = getBatchValidation(m, idx);
+                  const {
+                    appQty,
+                    totalBatchQty,
+                    damagedQty,
+                    totalDamagedBatchQty,
+                    goodIsValid,
+                    damagedIsValid,
+                    isValid,
+                  } = getBatchValidation(m, idx);
                   const batches = materialBatches[rowKey] || materialBatches[m.item_code] || [];
+                  const damagedBatches =
+                    damagedMaterialBatches[rowKey] ||
+                    damagedMaterialBatches[m.item_code] ||
+                    [];
 
                   return (
                     <Card
@@ -4721,6 +4868,95 @@ function GrnPageWorkflow() {
                           </div>
                         ))}
                       </div>
+
+                      {damagedQty > 0 && (
+                        <div className="mt-5 space-y-3 border-t border-rose-200 pt-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-bold text-rose-700">
+                                Damaged Goods Batches
+                              </span>
+                              <Input
+                                type="number"
+                                min="1"
+                                placeholder="1"
+                                className="h-7 w-16 text-center text-xs font-bold"
+                                value={damagedBatches.length === 0 ? "" : damagedBatches.length}
+                                onChange={(event) => {
+                                  const count = Number(event.target.value);
+                                  if (!Number.isInteger(count) || count < 1) {
+                                    setDamagedMaterialBatches((previous) => ({
+                                      ...previous,
+                                      [rowKey]: [],
+                                    }));
+                                    return;
+                                  }
+                                  const baseQuantity = Number((damagedQty / count).toFixed(4));
+                                  let allocated = 0;
+                                  const nextBatches = Array.from({ length: count }, (_, batchIndex) => {
+                                    const quantity =
+                                      batchIndex === count - 1
+                                        ? Number((damagedQty - allocated).toFixed(4))
+                                        : baseQuantity;
+                                    allocated += quantity;
+                                    return {
+                                      batch_number: `DMG-BATCH-${m.item_code}-${String(batchIndex + 1).padStart(3, "0")}`,
+                                      batch_quantity: quantity,
+                                    };
+                                  });
+                                  setDamagedMaterialBatches((previous) => ({
+                                    ...previous,
+                                    [rowKey]: nextBatches,
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div className="text-xs font-semibold">
+                              Damaged Qty: <b className="text-rose-700">{damagedQty}</b> {m.uom}
+                              <span className="mx-2">·</span>
+                              Batch Total:{" "}
+                              <b className={damagedIsValid ? "text-emerald-700" : "text-rose-700"}>
+                                {totalDamagedBatchQty}
+                              </b>{" "}
+                              {m.uom}
+                            </div>
+                          </div>
+
+                          {damagedBatches.map((batch, batchIndex) => (
+                            <div
+                              key={batch.batch_number || `damaged_batch_${batchIndex}`}
+                              className="flex items-center gap-3"
+                            >
+                              <span className="w-24 text-xs font-mono font-bold text-rose-600">
+                                Batch #{batchIndex + 1}
+                              </span>
+                              <Input
+                                value={batch.batch_number}
+                                readOnly
+                                className="w-52 bg-muted/40 font-mono text-xs"
+                              />
+                              <Input
+                                type="number"
+                                min="0.0001"
+                                value={batch.batch_quantity || ""}
+                                onChange={(event) => {
+                                  const quantity = Number(event.target.value || 0);
+                                  setDamagedMaterialBatches((previous) => {
+                                    const next = [...(previous[rowKey] || [])];
+                                    next[batchIndex] = {
+                                      ...next[batchIndex],
+                                      batch_quantity: quantity,
+                                    };
+                                    return { ...previous, [rowKey]: next };
+                                  });
+                                }}
+                                className="w-32 text-right font-bold"
+                              />
+                              <span className="text-xs text-muted-foreground">{m.uom}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </Card>
                   );
                 })}

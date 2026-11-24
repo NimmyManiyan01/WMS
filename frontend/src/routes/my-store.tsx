@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { KeyboardEvent } from "react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Building2,
   ShieldCheck,
@@ -49,10 +49,15 @@ import {
   TrendingDown,
   Activity,
   Sparkles,
+  Camera,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import QRCode from "qrcode";
+import jsQR from "jsqr";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -264,6 +269,8 @@ interface PutawayTask {
   grn_number: string;
   handling_unit_id?: string | null;
   item_code: string;
+  batch_number?: string | null;
+  batchNumber?: string | null;
   material_name: string;
   material_qr?: string | null;
   quantity: number;
@@ -380,6 +387,104 @@ interface StoreDock {
   } | null;
 }
 
+function QrImageActions({
+  label,
+  onDecoded,
+}: {
+  label: string;
+  onDecoded: (payload: string) => void;
+}) {
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [decoding, setDecoding] = useState(false);
+
+  const decodeImage = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose an image containing a QR code.");
+      return;
+    }
+    setDecoding(true);
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("Unable to read the QR image.");
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        const decoded = jsQR(pixels.data, pixels.width, pixels.height, {
+          inversionAttempts: "attemptBoth",
+        });
+        if (!decoded?.data) throw new Error("No readable QR code was found in the image.");
+        onDecoded(decoded.data);
+        toast.success(`${label} scanned successfully.`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Unable to scan QR image.");
+      } finally {
+        URL.revokeObjectURL(url);
+        setDecoding(false);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      setDecoding(false);
+      toast.error("Unable to open the selected image.");
+    };
+    image.src = url;
+  };
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => {
+          decodeImage(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          decodeImage(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={decoding}
+        onClick={() => cameraInputRef.current?.click()}
+        className="rounded-xl text-xs"
+      >
+        {decoding ? <Loader2 className="size-3.5 animate-spin" /> : <Camera className="size-3.5" />}
+        Camera
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={decoding}
+        onClick={() => uploadInputRef.current?.click()}
+        className="rounded-xl text-xs"
+      >
+        <Upload className="size-3.5" /> Upload QR
+      </Button>
+    </div>
+  );
+}
+
 function MyStorePage() {
   const searchParams = Route.useSearch();
   const [activeTab, setActiveTab] = useState<
@@ -433,6 +538,21 @@ function MyStorePage() {
   // Expanded Zones in accordion
   const [expandedZoneIds, setExpandedZoneIds] = useState<Set<string>>(new Set());
 
+  // Store layout creation
+  const [createZoneOpen, setCreateZoneOpen] = useState(false);
+  const [creatingZone, setCreatingZone] = useState(false);
+  const [newZoneName, setNewZoneName] = useState("");
+  const [newZoneDesc, setNewZoneDesc] = useState("");
+  const [previewZoneCode, setPreviewZoneCode] = useState("");
+  const [createBinOpen, setCreateBinOpen] = useState(false);
+  const [creatingBin, setCreatingBin] = useState(false);
+  const [targetZoneForBin, setTargetZoneForBin] = useState<Zone | null>(null);
+  const [newBinName, setNewBinName] = useState("");
+  const [newBinRack, setNewBinRack] = useState("R01");
+  const [newBinCapacity, setNewBinCapacity] = useState("1000");
+  const [newBinCapacityUom, setNewBinCapacityUom] = useState("PCS");
+  const [previewBinCode, setPreviewBinCode] = useState("");
+
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -482,6 +602,9 @@ function MyStorePage() {
   const [confirmingPickup, setConfirmingPickup] = useState(false);
 
   const user = getUserInfo();
+  const canManageLayout = Boolean(
+    user?.roles?.some((role) => ["STORE_MANAGER", "ADMIN", "SUPERUSER"].includes(role)),
+  );
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -595,6 +718,101 @@ function MyStorePage() {
       toast.error("Failed to refresh zones");
     } finally {
       setZonesLoading(false);
+    }
+  };
+
+  const openCreateZoneDialog = async () => {
+    if (!store) return;
+    setNewZoneName("");
+    setNewZoneDesc("");
+    setPreviewZoneCode("");
+    setCreateZoneOpen(true);
+    try {
+      const result = await api.getNextZoneCode(store.id);
+      setPreviewZoneCode(result?.suggested_zone_code || `${store.store_code}-Z01`);
+    } catch {
+      setPreviewZoneCode(`${store.store_code}-Z01`);
+    }
+  };
+
+  const handleCreateZone = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!store || !newZoneName.trim()) {
+      toast.error("Please enter a zone name.");
+      return;
+    }
+    setCreatingZone(true);
+    try {
+      const created = await api.createZone(store.id, {
+        zone_name: newZoneName.trim(),
+        description: newZoneDesc.trim() || undefined,
+        status: "ACTIVE",
+      });
+      toast.success(`Zone ${created.zone_code} created successfully.`);
+      setCreateZoneOpen(false);
+      await refreshZones();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create zone.");
+    } finally {
+      setCreatingZone(false);
+    }
+  };
+
+  const openCreateBinDialog = async (zone: Zone) => {
+    setTargetZoneForBin(zone);
+    setNewBinName("");
+    setNewBinRack("Generating...");
+    setNewBinCapacity("1000");
+    setNewBinCapacityUom("PCS");
+    setPreviewBinCode("");
+    setCreateBinOpen(true);
+    try {
+      const result = await api.getNextBinCode(zone.id);
+      const binCode = result?.suggested_bin_code || `${zone.zone_code}-BIN-001`;
+      const sequence = binCode.match(/(\d+)$/)?.[1] || String((zone.bins?.length || 0) + 1).padStart(3, "0");
+      const rackCode = `RACK-${sequence.padStart(3, "0")}`;
+      setPreviewBinCode(binCode);
+      setNewBinRack(rackCode);
+      setNewBinName(`${rackCode} Storage Bin`);
+    } catch {
+      const sequence = String((zone.bins?.length || 0) + 1).padStart(3, "0");
+      const rackCode = `RACK-${sequence}`;
+      setPreviewBinCode(`${zone.zone_code}-BIN-${sequence}`);
+      setNewBinRack(rackCode);
+      setNewBinName(`${rackCode} Storage Bin`);
+    }
+  };
+
+  const handleCreateBin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!targetZoneForBin || !newBinName.trim()) {
+      toast.error("Please enter a bin name.");
+      return;
+    }
+    const capacity = Number(newBinCapacity);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      toast.error("Capacity must be greater than zero.");
+      return;
+    }
+    setCreatingBin(true);
+    try {
+      const created = await api.createBin(targetZoneForBin.id, {
+        bin_name: newBinName.trim(),
+        bin_code: previewBinCode || undefined,
+        rack: newBinRack.trim() || undefined,
+        capacity,
+        status: "ACTIVE",
+      });
+      toast.success(`Rack ${created.rack || newBinRack} created successfully.`, {
+        description: `Bin ${created.bin_code} and its QR code were generated automatically.`,
+      });
+      setCreateBinOpen(false);
+      setExpandedZoneIds((current) => new Set(current).add(targetZoneForBin.id));
+      await refreshZones();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create bin.");
+    } finally {
+      setCreatingBin(false);
     }
   };
 
@@ -953,6 +1171,15 @@ function MyStorePage() {
         // aggregate putaway-task quantity.
         unit = await api.resolveGrnQr(matScanInput.trim());
       }
+      const scannedBatch = unit.batch_number || unit.batchNumber;
+      const expectedBatch = executingTask.batch_number || executingTask.batchNumber;
+      if (
+        expectedBatch &&
+        (!scannedBatch ||
+          scannedBatch.trim().toUpperCase() !== expectedBatch.trim().toUpperCase())
+      ) {
+        throw new Error(`Scan the QR for batch ${expectedBatch}.`);
+      }
       setVerifiedHU(unit);
       const scannedBatchQty = Number(
         unit.available_quantity ?? unit.batch_quantity ?? unit.quantity,
@@ -980,6 +1207,47 @@ function MyStorePage() {
     } finally {
       setVerifyingMat(false);
     }
+  };
+
+  const handleLocationQrDecoded = (payload: string) => {
+    let decoded: any = {};
+    try {
+      decoded = JSON.parse(payload);
+    } catch {
+      decoded = { zone_code: payload, bin_code: payload };
+    }
+
+    const zoneToken = String(decoded.zone_id || decoded.zoneId || decoded.zone_code || "").trim();
+    const binToken = String(decoded.bin_id || decoded.binId || decoded.bin_code || "").trim();
+    let matchedZone = zones.find(
+      (zone) => zone.id === zoneToken || zone.zone_code === zoneToken,
+    );
+    let matchedBin: Bin | undefined;
+
+    if (binToken) {
+      for (const zone of zones) {
+        const bin = (zone.bins || []).find(
+          (candidate) => candidate.id === binToken || candidate.bin_code === binToken,
+        );
+        if (bin) {
+          matchedZone = zone;
+          matchedBin = bin;
+          break;
+        }
+      }
+    }
+
+    if (!matchedZone || matchedZone.status?.toUpperCase() !== "ACTIVE") {
+      toast.error("The scanned location is not an active zone in this store.");
+      return;
+    }
+    if (matchedBin && matchedBin.status?.toUpperCase() !== "ACTIVE") {
+      toast.error("The scanned destination bin is not active.");
+      return;
+    }
+
+    setZoneScanInput(matchedZone.id);
+    setBinScanInput(matchedBin?.id || "");
   };
 
   const handleConfirmPutawaySubmit = async (e: React.FormEvent) => {
@@ -2152,7 +2420,71 @@ function MyStorePage() {
                   </p>
                 </Card>
               ) : (
-                <div className="grid gap-4 lg:grid-cols-2">
+                <>
+                <Card className="overflow-hidden rounded-2xl border shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1100px] text-left text-xs">
+                      <thead className="border-b bg-muted/40 text-[10px] uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-3">Task</th>
+                          <th className="px-3 py-3">GRN</th>
+                          <th className="px-3 py-3">Batch / QR</th>
+                          <th className="px-3 py-3">Material</th>
+                          <th className="px-3 py-3 text-right">Quantity</th>
+                          <th className="px-3 py-3">Source</th>
+                          <th className="px-3 py-3">Destination</th>
+                          <th className="px-3 py-3">Status</th>
+                          <th className="px-3 py-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredPutawayTasks.map((task) => {
+                          const isPending =
+                            task.status === "ASSIGNED_TO_STORE" ||
+                            task.status === "PUTAWAY_PENDING";
+                          const isInProgress = task.status === "PUTAWAY_IN_PROGRESS";
+                          const isCompleted = task.status === "PUTAWAY_COMPLETED";
+                          return (
+                            <tr key={`table-${task.id}`} className="hover:bg-muted/20">
+                              <td className="px-3 py-3 font-mono font-bold text-primary">{task.task_number}</td>
+                              <td className="px-3 py-3 font-mono">{task.grn_number}</td>
+                              <td className="px-3 py-3 font-mono font-semibold">
+                                {task.batch_number || task.batchNumber || "Batch data unavailable"}
+                              </td>
+                              <td className="px-3 py-3">
+                                <p className="font-semibold">{task.material_name}</p>
+                                <p className="font-mono text-muted-foreground">{task.item_code}</p>
+                              </td>
+                              <td className="px-3 py-3 text-right font-bold text-primary">{task.quantity.toLocaleString()} {task.uom}</td>
+                              <td className="px-3 py-3 font-mono">{task.source_location}</td>
+                              <td className="px-3 py-3 font-mono">{task.destination_bin_code || task.destination_zone || "Keeper Choice"}</td>
+                              <td className="px-3 py-3"><StatusBadge status={task.status} /></td>
+                              <td className="px-3 py-3 text-right">
+                                {isPending && (
+                                  <Button size="sm" onClick={() => handleStartPutaway(task)} className="rounded-xl text-xs">
+                                    <Play className="mr-1 size-3.5" /> Start Putaway
+                                  </Button>
+                                )}
+                                {isInProgress && (
+                                  <Button size="sm" onClick={() => handleOpenExecuteModal(task)} className="rounded-xl bg-purple-600 text-xs text-white hover:bg-purple-700">
+                                    <ScanLine className="mr-1 size-3.5" /> Scan & Confirm
+                                  </Button>
+                                )}
+                                {isCompleted && (
+                                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-600">
+                                    <CheckCircle2 className="size-3.5" /> Completed
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+                <div className="hidden">
                   {filteredPutawayTasks.map((task) => {
                     const isPending =
                       task.status === "ASSIGNED_TO_STORE" || task.status === "PUTAWAY_PENDING";
@@ -2267,6 +2599,7 @@ function MyStorePage() {
                     );
                   })}
                 </div>
+                </>
               )}
             </div>
           )}
@@ -2291,6 +2624,16 @@ function MyStorePage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {canManageLayout && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={openCreateZoneDialog}
+                      className="h-8 rounded-xl text-xs gap-1.5"
+                    >
+                      <Plus className="size-3.5" /> Create Zone
+                    </Button>
+                  )}
                   <div className="relative w-56">
                     <Search className="size-3.5 absolute left-3 top-2.5 text-muted-foreground" />
                     <Input
@@ -2329,6 +2672,16 @@ function MyStorePage() {
                         ? "No zones match your search filter"
                         : "No storage zones assigned to this store"}
                     </p>
+                    {canManageLayout && !search && statusFilter === "ALL" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={openCreateZoneDialog}
+                        className="mt-2 rounded-xl text-xs gap-1.5"
+                      >
+                        <Plus className="size-3.5" /> Create First Zone
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="p-4 space-y-3">
@@ -2337,6 +2690,145 @@ function MyStorePage() {
                       const binsInZone = z.bins || [];
 
                       return (
+                        <div key={z.id} className="contents">
+                        <section
+                          key={`layout-${z.id}`}
+                          className="overflow-hidden rounded-3xl border border-slate-300 bg-slate-50 shadow-sm"
+                        >
+                          <header className="flex flex-col gap-4 border-b border-slate-300 bg-[#e7f0fb] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <h3 className="text-xl font-black text-slate-950">{z.zone_code}</h3>
+                              <p className="mt-1 text-base font-bold text-slate-950">
+                                {binsInZone.length} {binsInZone.length === 1 ? "rack" : "racks"}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Badge className={cn(
+                                "rounded-full px-4 py-1 text-sm font-extrabold",
+                                z.status?.toUpperCase() === "ACTIVE"
+                                  ? "bg-green-800 text-white hover:bg-green-800"
+                                  : "bg-slate-500 text-white hover:bg-slate-500",
+                              )}>
+                                {z.status || "INACTIVE"}
+                              </Badge>
+                              {canManageLayout && (
+                                <Button
+                                  type="button"
+                                  onClick={() => openCreateBinDialog(z)}
+                                  className="h-11 rounded-xl border-2 border-slate-950 bg-[#0d568d] px-5 text-base font-extrabold text-white shadow-md hover:bg-[#0a4776]"
+                                >
+                                  <Plus className="size-5" /> Add Rack
+                                </Button>
+                              )}
+                            </div>
+                          </header>
+
+                          <div className="space-y-5 p-5">
+                            {binsInZone.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-base font-semibold text-slate-500">
+                                No racks configured in this zone.
+                              </div>
+                            ) : binsInZone.map((b) => {
+                              const capacity = Number(b.capacity || 0);
+                              const occupied = Number(b.occupied_quantity || 0);
+                              const available = Math.max(0, Number(b.available_capacity ?? capacity - occupied));
+                              const occupancy = capacity > 0
+                                ? Math.min(100, Math.max(0, Number(b.occupancy_percentage ?? (occupied / capacity) * 100)))
+                                : 0;
+                              const occupancyLabel = occupancy >= 100
+                                ? "Fully Occupied"
+                                : occupancy > 0
+                                  ? "Partially Occupied"
+                                  : "Available";
+                              const assignedTask = putawayTasks.find(
+                                (task) =>
+                                  task.destination_bin_id === b.id &&
+                                  !["COMPLETED", "PUTAWAY_COMPLETED", "CANCELLED"].includes((task.status || "").toUpperCase()),
+                              );
+
+                              return (
+                                <article key={b.id} className="rounded-3xl border border-slate-300 bg-white p-6 shadow-sm">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                      <h4 className="text-lg font-black text-slate-950">
+                                        {b.rack || b.bin_code}
+                                      </h4>
+                                      {b.rack && b.bin_code !== b.rack && (
+                                        <p className="mt-1 font-mono text-sm font-semibold text-slate-500">{b.bin_code}</p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline" className="rounded-full border-[#0d568d] px-4 py-1.5 text-sm font-bold text-[#0d568d]">
+                                      {occupancyLabel}
+                                    </Badge>
+                                  </div>
+
+                                  <div className="mt-6 grid gap-6 text-slate-950 md:grid-cols-2">
+                                    <div>
+                                      <p className="text-base font-bold">Capacity (Occupied / Maximum)</p>
+                                      <p className="mt-1 text-xl font-black">
+                                        {occupied.toLocaleString()} / {capacity.toLocaleString()} PCS
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-base font-bold">Available Capacity</p>
+                                      <p className="mt-1 text-xl font-black">{available.toLocaleString()} PCS</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-6">
+                                    <div className="mb-3 flex items-center justify-between text-base font-bold text-slate-950">
+                                      <span>Occupancy</span>
+                                      <span>{Math.round(occupancy)}%</span>
+                                    </div>
+                                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                                      <div
+                                        className={cn(
+                                          "h-full rounded-full transition-all",
+                                          occupancy >= 90 ? "bg-red-600" : occupancy >= 70 ? "bg-amber-500" : "bg-[#0876bd]",
+                                        )}
+                                        style={{ width: `${occupancy}%` }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-5">
+                                    <Button
+                                      type="button"
+                                      disabled={!assignedTask}
+                                      onClick={() => assignedTask && (
+                                        (assignedTask.status || "").toUpperCase() === "PUTAWAY_PENDING"
+                                          ? handleStartPutaway(assignedTask)
+                                          : handleOpenExecuteModal(assignedTask)
+                                      )}
+                                      className="h-11 rounded-xl border-2 border-slate-950 bg-[#1683c5] px-5 text-base font-extrabold text-white shadow-md hover:bg-[#0d6fa9]"
+                                    >
+                                      Add Material
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={() => handleViewBinQR(b, z)}
+                                      className="h-11 rounded-xl bg-[#e6eef9] px-5 text-base font-extrabold text-slate-950"
+                                    >
+                                      View Details
+                                    </Button>
+                                    {canManageLayout && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled
+                                        className="h-11 rounded-xl px-5 text-base font-extrabold text-red-400"
+                                      >
+                                        <Trash2 className="size-4" /> Delete Rack
+                                      </Button>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+                        {false && (
                         <div
                           key={z.id}
                           className="rounded-xl border border-border/50 bg-card/60 overflow-hidden shadow-subtle"
@@ -2386,6 +2878,16 @@ function MyStorePage() {
                               >
                                 <QrCode className="size-3 mr-1" /> Zone QR
                               </Button>
+                              {canManageLayout && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openCreateBinDialog(z)}
+                                  className="h-7 px-2 rounded-lg text-xs"
+                                >
+                                  <Plus className="size-3 mr-1" /> Add Bin
+                                </Button>
+                              )}
                             </div>
                           </div>
 
@@ -2397,6 +2899,17 @@ function MyStorePage() {
                                   <Grid className="size-3.5 text-emerald-400" />
                                   <span>Physical Bins in {z.zone_code}</span>
                                 </div>
+                                {canManageLayout && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => openCreateBinDialog(z)}
+                                    className="h-7 px-2 text-[11px]"
+                                  >
+                                    <Plus className="size-3 mr-1" /> Add Bin
+                                  </Button>
+                                )}
                               </div>
 
                               {binsInZone.length > 0 ? (
@@ -2445,6 +2958,8 @@ function MyStorePage() {
                               )}
                             </div>
                           )}
+                        </div>
+                        )}
                         </div>
                       );
                     })}
@@ -3217,6 +3732,141 @@ function MyStorePage() {
             </div>
           )}
 
+          {/* CREATE ZONE MODAL */}
+          <Dialog open={createZoneOpen} onOpenChange={setCreateZoneOpen}>
+            <DialogContent className="sm:max-w-md rounded-2xl">
+              <DialogHeader>
+                <DialogTitle className="text-base font-bold flex items-center gap-2">
+                  <Layers className="size-4 text-primary" /> Create Store Zone
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  Add a logical storage zone inside {store?.store_name}.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateZone} className="space-y-4 pt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Zone Code</Label>
+                  <Input value={previewZoneCode || "Generating..."} disabled className="font-mono text-xs" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Zone Name *</Label>
+                  <Input
+                    value={newZoneName}
+                    onChange={(event) => setNewZoneName(event.target.value)}
+                    placeholder="e.g. Battery Storage"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Description</Label>
+                  <Textarea
+                    value={newZoneDesc}
+                    onChange={(event) => setNewZoneDesc(event.target.value)}
+                    placeholder="Purpose, layout, or storage requirements"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setCreateZoneOpen(false)} disabled={creatingZone}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={creatingZone}>
+                    {creatingZone && <Loader2 className="size-4 mr-1.5 animate-spin" />}
+                    Create Zone
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* CREATE BIN MODAL */}
+          <Dialog open={createBinOpen} onOpenChange={setCreateBinOpen}>
+            <DialogContent className="sm:max-w-2xl rounded-3xl border-slate-300 bg-slate-50 p-8">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 text-2xl font-black text-slate-900">
+                  <Warehouse className="size-6 text-[#0d568d]" /> Add Rack (Capacity &amp; Auto QR)
+                </DialogTitle>
+                <DialogDescription className="pt-1 text-base font-bold leading-7 text-slate-900">
+                  Configure the rack capacity. Rack, bin, and QR codes are generated automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateBin} className="space-y-5 pt-5">
+                <div className="space-y-2">
+                  <Label className="text-base font-bold text-slate-900">Zone</Label>
+                  <Input
+                    value={targetZoneForBin ? `${targetZoneForBin.zone_code} - ${targetZoneForBin.zone_name}` : ""}
+                    readOnly
+                    className="h-12 rounded-xl border-slate-300 bg-[#e6eef9] px-4 text-base font-bold text-slate-900"
+                  />
+                </div>
+
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-base font-bold text-slate-900">Rack Code (auto-generated)</Label>
+                    <Input
+                      value={newBinRack}
+                      readOnly
+                      className="h-12 rounded-xl border-slate-300 bg-white px-4 font-mono text-base font-bold text-slate-900"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-base font-bold text-slate-900">Capacity UOM *</Label>
+                    <Select value={newBinCapacityUom} onValueChange={setNewBinCapacityUom}>
+                      <SelectTrigger className="h-12 rounded-xl border-slate-300 bg-white px-4 text-base font-bold text-slate-900">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PCS">PCS</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-base font-bold text-slate-900">Maximum Capacity ({newBinCapacityUom}) *</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={newBinCapacity}
+                      onChange={(event) => setNewBinCapacity(event.target.value)}
+                      required
+                      className="h-12 rounded-xl border-slate-300 bg-white px-4 text-base font-bold text-slate-900"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-base font-bold text-slate-900">Bin Code (auto-generated)</Label>
+                    <Input
+                      value={previewBinCode || "Generating..."}
+                      readOnly
+                      className="h-12 rounded-xl border-slate-300 bg-white px-4 font-mono text-base font-bold text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                <DialogFooter className="gap-3 pt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCreateBinOpen(false)}
+                    disabled={creatingBin}
+                    className="h-11 rounded-xl border-slate-300 bg-[#e6eef9] px-6 text-base font-extrabold text-slate-900"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={creatingBin || !previewBinCode || newBinRack === "Generating..."}
+                    className="h-11 rounded-xl border-2 border-slate-950 bg-[#0d568d] px-6 text-base font-extrabold text-white shadow-md hover:bg-[#0a4776]"
+                  >
+                    {creatingBin && <Loader2 className="size-4 mr-1.5 animate-spin" />}
+                    Create Rack
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
           {/* ZONE QR MODAL */}
           <Dialog open={qrModalOpen} onOpenChange={setQrModalOpen}>
             <DialogContent className="sm:max-w-md rounded-2xl text-center">
@@ -3380,6 +4030,9 @@ function MyStorePage() {
                           {executingTask.material_name}
                         </p>
                         <p className="font-mono text-muted-foreground">{executingTask.item_code}</p>
+                        <p className="font-mono text-[11px] font-semibold text-purple-600">
+                          Batch: {executingTask.batch_number || executingTask.batchNumber || "Unavailable"}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="font-black text-base text-primary">
@@ -3428,10 +4081,26 @@ function MyStorePage() {
                         Verify
                       </Button>
                     </div>
+                    <QrImageActions
+                      label="Material QR"
+                      onDecoded={(payload) => {
+                        setMatScanInput(payload);
+                        setVerifiedHU(null);
+                      }}
+                    />
                   </div>
 
                   {/* Step 2: Select Destination Zone & Bin */}
                   <div className="space-y-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-foreground">
+                        Destination Location QR
+                      </Label>
+                      <QrImageActions
+                        label="Location QR"
+                        onDecoded={handleLocationQrDecoded}
+                      />
+                    </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-foreground">
                         2. Destination Store Zone <span className="text-destructive">*</span>

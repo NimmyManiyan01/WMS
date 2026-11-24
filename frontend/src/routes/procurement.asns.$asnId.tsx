@@ -27,9 +27,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { getUserInfo } from "@/lib/auth-utils";
+import { getUserInfo, requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/procurement/asns/$asnId")({
+  beforeLoad: () => requireRole(["SUPPLIER", "PROCUREMENT", "ADMIN", "SUPERUSER"]),
   component: AsnTracking,
 });
 
@@ -94,10 +95,6 @@ function AsnTracking() {
       transporter: initialLogistics[0]?.transporter || asn.transporter || "",
       number_of_packages: initialLogistics[0]?.number_of_packages ?? asn.numberOfPackages ?? "",
       package_type: initialLogistics[0]?.package_type || asn.packageType || "",
-      invoice_number: asn.invoiceNumber || "",
-      invoice_date: asn.invoiceDate || "",
-      challan_number: asn.challanNumber || "",
-      challan_date: asn.challanDate || "",
       logistics: initialLogistics,
       lines: (asn.lines || []).map((line: any) => ({
         item_code: line.itemCode,
@@ -131,10 +128,6 @@ function AsnTracking() {
         transporter: firstLogistics.transporter || editData.transporter,
         number_of_packages: parseInt(firstLogistics.number_of_packages || editData.number_of_packages) || 0,
         package_type: firstLogistics.package_type || editData.package_type,
-        invoice_number: editData.invoice_number,
-        invoice_date: editData.invoice_date || null,
-        challan_number: editData.challan_number,
-        challan_date: editData.challan_date || null,
         status: "DISPATCHED",
         documents: (asn.documents || []).map((document: any) => ({
           document_type: document.documentType,
@@ -170,9 +163,9 @@ function AsnTracking() {
 
         const data = await api.getAsn(asnId);
         setAsn(data);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to fetch ASN:", error);
-        toast.error("Failed to load tracking data");
+        toast.error("Failed to load tracking data", { description: error.message });
       } finally {
         setLoading(false);
       }
@@ -648,66 +641,6 @@ function AsnTracking() {
                     </Button>
                   </div>
                 ))
-              )}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Invoice / Challan" icon={FileText}>
-            <div className="space-y-4">
-              {editing ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>Invoice Number</Label>
-                    <Input
-                      value={editData.invoice_number}
-                      onChange={(event) =>
-                        setEditData({ ...editData, invoice_number: event.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Invoice Date</Label>
-                    <Input
-                      type="date"
-                      value={editData.invoice_date}
-                      onChange={(event) =>
-                        setEditData({ ...editData, invoice_date: event.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Challan Number</Label>
-                    <Input
-                      value={editData.challan_number}
-                      onChange={(event) =>
-                        setEditData({ ...editData, challan_number: event.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Challan Date</Label>
-                    <Input
-                      type="date"
-                      value={editData.challan_date}
-                      onChange={(event) =>
-                        setEditData({ ...editData, challan_date: event.target.value })
-                      }
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Field label="Invoice Number" value={asn.invoiceNumber || "N/A"} mono />
-                  <Field
-                    label="Invoice Date"
-                    value={asn.invoiceDate ? new Date(asn.invoiceDate).toLocaleDateString() : "N/A"}
-                  />
-                  <Field label="Challan Number" value={asn.challanNumber || "N/A"} mono />
-                  <Field
-                    label="Challan Date"
-                    value={asn.challanDate ? new Date(asn.challanDate).toLocaleDateString() : "N/A"}
-                  />
-                </>
               )}
             </div>
           </SectionCard>

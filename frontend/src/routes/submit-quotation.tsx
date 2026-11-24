@@ -146,7 +146,7 @@ function SubmitQuotation() {
 
       setSupplierId(userInfo.supplierId || "sup-00001");
       setUsername(userInfo.username || "supplier_partner");
-      setSupplierName(userInfo.username || "Supplier Partner");
+      setSupplierName((userInfo as any).supplierName || userInfo.username || "Supplier Partner");
 
       if (!effectiveRfqId) {
         setLoading(false);
@@ -229,7 +229,7 @@ function SubmitQuotation() {
             freightCharges: String(
               Math.floor(parseFloat(existing.freightCharges || existing.freight_charges || "0")),
             ),
-            deliveryTime: existing.deliveryTime || existing.delivery_time || "",
+            deliveryTime: String(existing.deliveryTime || existing.delivery_time || "").match(/\d+/)?.[0] || "",
             expectedDeliveryDate:
               existing.expectedDeliveryDate || existing.expected_delivery_date || "",
             paymentTerms: existing.paymentTerms || existing.payment_terms || "Net 30",
@@ -292,7 +292,16 @@ function SubmitQuotation() {
 
   const handleMetaChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (isLocked) return;
-    const { name, value } = e.target;
+    const { name } = e.target;
+    let { value } = e.target;
+
+    if (["discount", "freightCharges"].includes(name)) {
+      value = value.replace(/[^0-9.]/g, "");
+      const [whole = "", ...decimalParts] = value.split(".");
+      value = decimalParts.length ? `${whole}.${decimalParts.join("").slice(0, 2)}` : whole;
+    }
+    if (name === "discount" && value && Number(value) > 100) value = "100";
+    if (name === "deliveryTime") value = value.replace(/\D/g, "").slice(0, 4);
 
     setMetaData((prev) => {
       const newState = { ...prev, [name]: value };
@@ -410,8 +419,28 @@ function SubmitQuotation() {
       return;
     }
     const gstRate = parseFloat(metaData.tax) || 0;
-    if (gstRate < 0 || gstRate > 100) {
-      toast.error("GST percentage must be between 0 and 100");
+    if (![0, 5, 12, 18, 28].includes(gstRate)) {
+      toast.error("GST must be one of the standard rates: 0%, 5%, 12%, 18%, or 28%");
+      return;
+    }
+    const discount = Number(metaData.discount);
+    if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
+      toast.error("Discount must be between 0% and 100%");
+      return;
+    }
+    const freight = Number(metaData.freightCharges);
+    if (!Number.isFinite(freight) || freight < 0) {
+      toast.error("Freight charges must be a valid non-negative INR amount");
+      return;
+    }
+    const deliveryDays = Number(metaData.deliveryTime);
+    if (!Number.isInteger(deliveryDays) || deliveryDays < 1 || deliveryDays > 9999) {
+      toast.error("Delivery time must be a whole number of days between 1 and 9999");
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+    if (!metaData.expectedDeliveryDate || metaData.expectedDeliveryDate < today) {
+      toast.error("Expected delivery date must be today or a future date");
       return;
     }
     for (let idx = 0; idx < rfq.items.length; idx++) {
@@ -450,7 +479,7 @@ function SubmitQuotation() {
         tax: parseFloat(metaData.tax) || 0,
         freight_charges: parseFloat(metaData.freightCharges) || 0,
         additional_charges: parseFloat((metaData as any).otherCharges || "0") || 0,
-        delivery_time: metaData.deliveryTime,
+        delivery_time: `${metaData.deliveryTime} days`,
         expected_delivery_date: metaData.expectedDeliveryDate || null,
         payment_terms: metaData.paymentTerms,
         mode_of_payment: metaData.modeOfPayment,
@@ -764,7 +793,7 @@ function SubmitQuotation() {
                   min="0"
                   max="100"
                   name="discount"
-                  step="1"
+                  step="0.01"
                   className="rounded-xl h-10 font-mono"
                   disabled={isLocked}
                   value={metaData.discount}
@@ -775,19 +804,12 @@ function SubmitQuotation() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Tax (GST %)</Label>
-              <div className="relative">
-                <Percent className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  type="number"
-                  min="0"
-                  name="tax"
-                  step="1"
-                  className="pl-9 rounded-xl h-10 font-mono"
-                  disabled={isLocked}
-                  value={metaData.tax}
-                  onChange={handleMetaChange}
-                />
-              </div>
+              <Select disabled={isLocked} value={metaData.tax} onValueChange={(value) => setMetaData((prev) => ({ ...prev, tax: value }))}>
+                <SelectTrigger className="rounded-xl h-10"><SelectValue placeholder="Select GST rate" /></SelectTrigger>
+                <SelectContent>
+                  {[0, 5, 12, 18, 28].map((rate) => <SelectItem key={rate} value={String(rate)}>{rate}%</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">
@@ -797,7 +819,7 @@ function SubmitQuotation() {
                   type="number"
                   min="0"
                   name="freightCharges"
-                  step="1"
+                  step="0.01"
                   className="rounded-xl h-10 font-mono"
                   disabled={isLocked}
                   value={metaData.freightCharges}
@@ -807,10 +829,14 @@ function SubmitQuotation() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs">Delivery Time (e.g. 7 days)</Label>
+              <Label className="text-xs">Delivery Time (days)</Label>
               <Input
+                type="number"
+                min="1"
+                max="9999"
+                step="1"
                 name="deliveryTime"
-                placeholder="e.g. 7 days"
+                placeholder="e.g. 7"
                 className="rounded-xl h-10"
                 disabled={isLocked}
                 value={metaData.deliveryTime}

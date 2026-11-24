@@ -140,6 +140,7 @@ async def list_grns(
                 received_by=g.received_by,
                 current_step=get_grn_wizard_progress(g)[0],
                 max_completed_step=get_grn_wizard_progress(g)[1],
+                batch_count=sum(len(line.batches or []) for line in (g.lines or [])),
             )
             for g in items
         ],
@@ -335,6 +336,43 @@ async def create_grn_header(
             )
 
     repo = SqlAlchemyGrnRepository(uow.session)
+    if request.receipt_type == "PO_RECEIPT":
+        authoritative_asn = await repo.find_latest_asn_for_po(
+            po_id=request.po_id,
+            po_number=request.po_number,
+        )
+        authoritative_gate = None
+        if authoritative_asn:
+            authoritative_gate = await repo.find_latest_gate_entry_for_asn(
+                authoritative_asn.id,
+            )
+        if not authoritative_gate and request.po_number:
+            authoritative_gate = await repo.find_latest_gate_entry_for_po(request.po_number)
+
+        expected_vehicle = (
+            (authoritative_gate.vehicle_number if authoritative_gate else None)
+            or (authoritative_asn.vehicle_number if authoritative_asn else None)
+        )
+        expected_driver = (
+            (authoritative_gate.driver_name if authoritative_gate else None)
+            or (authoritative_asn.driver_name if authoritative_asn else None)
+        )
+        vehicle_was_changed = (
+            expected_vehicle
+            and request.vehicle_number
+            and expected_vehicle.strip().upper() != request.vehicle_number.strip().upper()
+        )
+        driver_was_changed = (
+            expected_driver
+            and request.driver_name
+            and expected_driver.strip().casefold() != request.driver_name.strip().casefold()
+        )
+        if vehicle_was_changed or driver_was_changed:
+            raise HTTPException(
+                status_code=409,
+                detail="Vehicle number and driver name must match the Gate Entry / ASN details.",
+            )
+
     grn = await repo.create_or_update_grn_header(
         receipt_type=request.receipt_type,
         dock_number=request.dock_number,
@@ -559,11 +597,14 @@ async def create_batches_for_line(
     _perm=Depends(require_permission("receiving:write")),
 ) -> list[BatchWithQrResponse]:
     repo = SqlAlchemyGrnRepository(uow.session)
-    created_batches = await repo.create_batches_for_line(
-        grn_line_id=uuid.UUID(grn_line_id),
-        batch_quantities=[b.batch_quantity for b in batches],
-        created_by=user.username or "System User",
-    )
+    try:
+        created_batches = await repo.create_batches_for_line(
+            grn_line_id=uuid.UUID(grn_line_id),
+            batch_quantities=[b.batch_quantity for b in batches],
+            created_by=user.username or "System User",
+        )
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
     # Fetch line and QR safely without triggering un-awaited relationship lazy loading
     res_line = await uow.session.execute(
@@ -608,6 +649,43 @@ async def create_batches_for_line(
 # ============================================================================
 # PAGE 6B - DAMAGED GOODS QR GENERATION
 # ============================================================================
+
+@router.post("/lines/{grn_line_id}/damage-batches", response_model=list[GrnDamageLotResponse])
+async def create_damage_batches_for_line(
+    grn_line_id: str,
+    batches: list[BatchQuantityRequest],
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+    _perm=Depends(require_permission("receiving:write")),
+) -> list[GrnDamageLotResponse]:
+    repo = SqlAlchemyGrnRepository(uow.session)
+    try:
+        lots = await repo.create_damage_batches_for_line(
+            grn_line_id=uuid.UUID(grn_line_id),
+            batch_quantities=[batch.batch_quantity for batch in batches],
+            created_by=user.username or "System User",
+        )
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return [
+        GrnDamageLotResponse(
+            damage_lot_id=str(lot.id),
+            grn_line_id=str(lot.grn_line_id),
+            damage_lot_number=lot.damage_lot_number,
+            damaged_quantity=lot.damaged_quantity,
+            uom=lot.uom,
+            reason=lot.reason,
+            qa_status=lot.qa_status,
+            quarantine_location=lot.quarantine_location,
+            status=lot.status,
+            created_by=lot.created_by,
+            created_at=lot.created_at,
+            qr=None,
+        )
+        for lot in lots
+    ]
+
 
 @router.post("/{grn_id}/damage-qrs", response_model=list[GrnDamageLotResponse])
 async def generate_damage_qrs_for_grn(
@@ -1814,6 +1892,17 @@ async def get_grn_detail(
                 quality_approved_quantity=line.quality_approved_quantity,
                 balance_quantity=line.balance_quantity,
                 quality_result=line.quality_result,
+                batches=[
+                    {
+                        "batch_id": str(batch.id),
+                        "grn_line_id": str(batch.grn_line_id),
+                        "batch_number": batch.batch_number,
+                        "batch_quantity": batch.batch_quantity,
+                        "created_by": batch.created_by,
+                        "created_at": batch.created_at,
+                    }
+                    for batch in getattr(line, "batches", [])
+                ],
                 damage_lots=[
                     GrnDamageLotResponse(
                         damage_lot_id=str(dl.id),

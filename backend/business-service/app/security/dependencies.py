@@ -133,7 +133,7 @@ async def get_current_user(
                 role = {
                     "SUPER_ADMIN": "ADMIN",
                     "ADMIN_OFFICER": "ADMIN",
-                    "PROCUREMENT_MANAGER": "MANAGER",
+                    "PROCUREMENT_MANAGER": "PROCUREMENT",
                     "PROCUREMENT_OFFICER": "PROCUREMENT",
                     "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
                     "STORE_OPERATOR": "STORE_KEEPER",
@@ -189,6 +189,20 @@ async def get_current_user(
                 username="warehouse_manager",
                 roles=["WAREHOUSE", "ADMIN"],
                 permissions=["gate:read", "gate:entry:create", "gate:entry:read", "gate:entry:verify", "gate:write", "warehouse:write"],
+                raw_claims={},
+            )
+        elif token == "mock-jwt-approval-manager-token":
+            return CurrentUser(
+                subject="approval_manager",
+                username="manager",
+                roles=["MANAGER"],
+                permissions=[
+                    "supplier:read",
+                    "supplier:approve",
+                    "material_request:read",
+                    "material_request:approve",
+                    "procurement:read",
+                ],
                 raw_claims={},
             )
         elif token == "mock-jwt-gate-entry-token":
@@ -260,19 +274,6 @@ async def get_current_user(
                 username="finance",
                 roles=["FINANCE", "ADMIN"],
                 permissions=["gate:write", "gate:entry:create", "gate:entry:read", "gate:entry:verify"],
-                raw_claims={},
-            )
-        elif token == "mock-jwt-manager-token":
-            return CurrentUser(
-                subject="manager",
-                username="manager",
-                roles=["MANAGER"],
-                permissions=[
-                    "procurement:read",
-                    "procurement:approve",
-                    "gate:approve",
-                    "warehouse:read",
-                ],
                 raw_claims={},
             )
         elif token == "mock-jwt-warehouse-token":

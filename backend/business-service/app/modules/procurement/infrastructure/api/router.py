@@ -12,9 +12,10 @@ import secrets
 import html
 import time
 from io import BytesIO
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from reportlab.lib import colors
@@ -169,7 +170,7 @@ from app.modules.procurement.infrastructure.persistence.repository_impl import (
 )
 from app.common.email_utils import render_premium_email, send_email
 from app.security.dependencies import CurrentUser, get_current_user
-from app.modules.store.infrastructure.persistence.models import StoreManagerUserModel
+from app.modules.store.infrastructure.persistence.models import AssemblyUnitModel, StoreManagerUserModel, StoreModel
 
 logger = get_logger(__name__)
 
@@ -182,7 +183,6 @@ def verify_procurement_role(_user: CurrentUser = Depends(get_current_user)) -> C
         "PROCUREMENT",
         "PROCUREMENT_MANAGER",
         "PROCUREMENT_OFFICER",
-        "MANAGER",
         "OPERATIONS_MANAGER",
         "WAREHOUSE_MANAGER",
         "WAREHOUSE",
@@ -214,6 +214,21 @@ def verify_procurement_role(_user: CurrentUser = Depends(get_current_user)) -> C
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied. Procurement role required (current roles: {list(_user.roles or [])})."
+        )
+    return _user
+
+
+def verify_supplier_role(_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    roles_upper = {role.upper() for role in (_user.roles or [])}
+    if "SUPPLIER" not in roles_upper:
+        logger.warning(
+            "verify_supplier_role 403 Forbidden: user=%s, roles=%s",
+            _user.username,
+            _user.roles,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Supplier role required.",
         )
     return _user
 
@@ -511,7 +526,6 @@ MR_STATUS_ALIASES = {
 MR_ALLOWED_STATUSES = {
     "Draft",
     "Submitted",
-    "Pending Approval",
     "Approved",
     "Rejected",
     "Converted to RFQ",
@@ -520,7 +534,6 @@ MR_ALLOWED_STATUSES = {
 MR_STATUS_TRANSITIONS = {
     "Draft": {"Submitted", "Closed"},
     "Submitted": {"Approved", "Rejected", "Closed"},
-    "Pending Approval": {"Approved", "Rejected", "Closed"},
     "Approved": {"Converted to RFQ", "Closed"},
     "Rejected": {"Draft", "Closed"},
     "Converted to RFQ": {"Closed"},
@@ -587,6 +600,11 @@ async def list_material_requests(uow: UnitOfWork = Depends(get_uow)):
 async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWork = Depends(get_uow)):
     if request.request_number:
         req_no = request.request_number.strip()
+        if not req_no.upper().startswith("MR-"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Material request numbers must use the MR- prefix. FGR records belong to the Finished Goods workflow.",
+            )
         existing_mr_stmt = select(MaterialRequestModel).where(MaterialRequestModel.request_number == req_no)
         existing_mr_res = await uow.session.execute(existing_mr_stmt)
         if existing_mr_res.scalar_one_or_none() is not None:
@@ -626,16 +644,16 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
         warehouse_id=request.warehouse_id.strip(),
         department=request.department.strip(),
         requested_by=request.requested_by.strip(),
-        status="Submitted",
+        status="Approved",
         priority=(request.priority or "MEDIUM").strip().upper(),
         required_date=request.required_date,
         suggested_supplier=request.suggested_supplier.strip() if request.suggested_supplier else None,
         attachments=request.attachments or [],
         approval_history=[
             {
-                "status": "Submitted",
+                "status": "Approved",
                 "actor": request.requested_by.strip(),
-                "comments": "Material request created",
+                "comments": "Material request submitted directly to Procurement",
                 "timestamp": datetime.now().isoformat(),
             }
         ],
@@ -1272,7 +1290,7 @@ def _response_from_entity(
         )
 
 
-SUPPLIER_STATUSES = {"Draft", "Pending Approval", "Active", "Suspended", "Blocked"}
+SUPPLIER_STATUSES = {"Draft", "Active", "Suspended", "Blocked"}
 REQUIRED_ACTIVE_DOCUMENTS = {"GST_CERTIFICATE", "CANCELLED_CHEQUE"}
 
 
@@ -1416,7 +1434,7 @@ async def create_supplier(
         if entity:
             entity.payment_terms = request.payment_terms
             entity.credit_period_days = request.credit_period_days
-            entity.status = "Pending Approval"
+            entity.status = "Active"
             await repo.save(entity)
 
             uow.session.add(
@@ -1768,6 +1786,53 @@ async def create_rfq(
                         status_code=status.HTTP_409_CONFLICT,
                         detail=f"Material Request '{request.material_request_number}' must be Active or Approved before RFQ creation.",
                     )
+
+        def normalize_category(value: str | None) -> str:
+            return " ".join(
+                str(value or "").strip().lower().replace("&", "and").replace("-", " ").split()
+            )
+
+        requested_categories = {
+            normalize_category(item.category)
+            for item in request.items
+            if normalize_category(item.category)
+        }
+        if request.supplier_ids and requested_categories:
+            supplier_uuid_ids = []
+            for supplier_id in request.supplier_ids:
+                try:
+                    supplier_uuid_ids.append(uuid.UUID(str(supplier_id)))
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid supplier ID '{supplier_id}'.",
+                    )
+            supplier_result = await uow.session.execute(
+                select(SupplierModel).where(SupplierModel.id.in_(supplier_uuid_ids))
+            )
+            selected_suppliers = supplier_result.scalars().all()
+            if len(selected_suppliers) != len(set(supplier_uuid_ids)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="One or more selected suppliers do not exist.",
+                )
+            mismatched_suppliers = []
+            for supplier in selected_suppliers:
+                raw_categories = supplier.category if isinstance(supplier.category, list) else [supplier.category]
+                registered_categories = {
+                    normalize_category(category) for category in raw_categories if normalize_category(category)
+                }
+                if not requested_categories.issubset(registered_categories):
+                    mismatched_suppliers.append(supplier.supplier_name)
+            if mismatched_suppliers:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Supplier category mismatch: "
+                        + ", ".join(mismatched_suppliers)
+                        + ". Every selected supplier must be registered for all RFQ item categories."
+                    ),
+                )
 
         repo = SqlAlchemyRfqRepository(uow.session)
         use_case = CreateRfqUseCase(repo)
@@ -3744,8 +3809,9 @@ async def get_quotation(id: str, uow: UnitOfWork = Depends(get_uow)):
 
 
 @router.put("/quotations/{id}", response_model=QuotationResponse)
-async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get_uow)):
+async def update_quotation(id: str, request: SubmitQuotationRequest, uow: UnitOfWork = Depends(get_uow)):
     try:
+        request_data = request.model_dump()
         q_uuid = uuid.UUID(id)
         stmt = (
             select(QuotationModel)
@@ -3766,20 +3832,14 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
             "delivery_time", "expected_delivery_date", "payment_terms", "mode_of_payment", "warranty", "remarks"
         }
         for field in scalar_fields:
-            if field in request:
-                val = request[field]
-
-                if field == "expected_delivery_date" and isinstance(val, str):
-                    try:
-                        val = datetime.strptime(val, "%Y-%m-%d").date()
-                    except (ValueError, TypeError):
-                        val = None
+            if field in request_data:
+                val = request_data[field]
                 setattr(q, field, val)
 
 
-        if "lines" in request:
+        if "lines" in request_data:
             q.lines.clear()
-            for line in request["lines"]:
+            for line in request_data["lines"]:
                 q.lines.append(QuotationLineModel(
                     id=uuid.uuid4(),
                     quotation_id=q.id,
@@ -3789,9 +3849,9 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
                 ))
 
 
-        if "documents" in request:
+        if "documents" in request_data:
             q.documents.clear()
-            for doc in request["documents"]:
+            for doc in request_data["documents"]:
                 q.documents.append(QuotationDocumentModel(
                     id=uuid.uuid4(),
                     quotation_id=q.id,
@@ -3815,6 +3875,8 @@ async def update_quotation(id: str, request: dict, uow: UnitOfWork = Depends(get
 
         await uow.commit()
         return _to_quotation_response(q)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Update quotation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -4022,7 +4084,7 @@ async def dispute_supplier_replacement_request(request_id: str, request: dict, u
 async def create_asn(
     request: CreateAsnRequest,
     uow: UnitOfWork = Depends(get_uow),
-    _user: CurrentUser = Depends(get_current_user),
+    _user: CurrentUser = Depends(verify_supplier_role),
 ) -> AsnResponse:
     try:
         logger.info(f"Attempting to create ASN {request.asn_number} for PO {request.po_number}")
@@ -4108,7 +4170,7 @@ async def create_asn(
                 uploaded_by=document.uploaded_by,
             ) for document in request.documents],
             supplier_id=supplier_id,
-            logistics=request.logistics
+            logistics=[item.model_dump() for item in request.logistics] if request.logistics else None
         )
         asn_id = await use_case.handle(command)
 
@@ -4167,10 +4229,6 @@ async def create_asn(
         ).where(AsnModel.id == asn_id.value)
         res = await uow.session.execute(stmt)
         asn = res.scalar_one()
-        asn.invoice_number = request.invoice_number
-        asn.invoice_date = request.invoice_date
-        asn.challan_number = request.challan_number
-        asn.challan_date = request.challan_date
         await uow.commit()
 
         return AsnResponse(
@@ -4194,10 +4252,6 @@ async def create_asn(
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
-            invoice_number=asn.invoice_number,
-            invoice_date=asn.invoice_date,
-            challan_number=asn.challan_number,
-            challan_date=asn.challan_date,
             documents=[AsnDocumentSchema(
                 document_type=d.document_type,
                 file_name=d.file_name,
@@ -4308,10 +4362,6 @@ async def list_asns(
                     number_of_packages=asn.number_of_packages,
                     package_type=asn.package_type,
                     shipping_method=asn.shipping_method,
-                    invoice_number=asn.invoice_number,
-                    invoice_date=asn.invoice_date,
-                    challan_number=asn.challan_number,
-                    challan_date=asn.challan_date,
                     warehouse_status=warehouse_entry.status if warehouse_entry else None,
                     warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
                     assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -4330,7 +4380,11 @@ async def list_asns(
 
 
 @router.get("/asns/{id}", response_model=AsnResponse)
-async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
+async def get_asn(
+    id: str,
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
+):
     try:
         asn_supplier = aliased(SupplierModel)
         po_supplier = aliased(SupplierModel)
@@ -4356,6 +4410,12 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
             raise HTTPException(status_code=404, detail="ASN not found")
 
         asn, supplier_name, resolved_id = row
+        roles_upper = {role.upper() for role in (_user.roles or [])}
+        if not roles_upper.intersection({"SUPPLIER", "PROCUREMENT", "ADMIN", "SUPERUSER"}):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Supplier or Procurement access required",
+            )
         warehouse_result = await uow.session.execute(
             select(GateEntryModel)
             .where(GateEntryModel.asn_id == asn.id)
@@ -4387,10 +4447,6 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
             number_of_packages=asn.number_of_packages,
             package_type=asn.package_type,
             shipping_method=asn.shipping_method,
-            invoice_number=asn.invoice_number,
-            invoice_date=asn.invoice_date,
-            challan_number=asn.challan_number,
-            challan_date=asn.challan_date,
             warehouse_status=warehouse_entry.status if warehouse_entry else None,
             warehouse_status_updated_at=warehouse_entry.updated_at if warehouse_entry else None,
             assigned_dock_id=warehouse_entry.assigned_dock_id if warehouse_entry else None,
@@ -4404,6 +4460,8 @@ async def get_asn(id: str, uow: UnitOfWork = Depends(get_uow)):
             created_at=asn.created_at,
             logistics=asn.logistics,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get ASN failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -4414,7 +4472,7 @@ async def resubmit_asn(
     id: str,
     request: CreateAsnRequest,
     uow: UnitOfWork = Depends(get_uow),
-    _user: CurrentUser = Depends(get_current_user),
+    _user: CurrentUser = Depends(verify_supplier_role),
 ):
     try:
         asn_id = uuid.UUID(id)
@@ -4441,8 +4499,8 @@ async def resubmit_asn(
         raise HTTPException(status_code=404, detail="ASN not found")
     asn, supplier_name, resolved_id = row
 
-    supplier_id = _user.raw_claims.get("supplier_id") if "SUPPLIER" in _user.roles else None
-    if supplier_id and resolved_id and str(resolved_id) != str(supplier_id):
+    supplier_id = _user.raw_claims.get("supplier_id")
+    if not supplier_id or not resolved_id or str(resolved_id) != str(supplier_id):
         raise HTTPException(status_code=403, detail="You cannot edit another supplier's ASN")
     if asn.status.upper() in {"RECEIVED", "COMPLETED", "CANCELLED"}:
         raise HTTPException(status_code=409, detail=f"ASN cannot be edited while it is {asn.status}")
@@ -4468,11 +4526,7 @@ async def resubmit_asn(
         asn.package_type = request.package_type
         asn.shipping_method = request.shipping_method
         if request.logistics is not None:
-            asn.logistics = request.logistics
-        asn.invoice_number = request.invoice_number
-        asn.invoice_date = request.invoice_date
-        asn.challan_number = request.challan_number
-        asn.challan_date = request.challan_date
+            asn.logistics = [item.model_dump() for item in request.logistics]
         asn.status = "DISPATCHED"
 
 
@@ -4552,10 +4606,6 @@ async def resubmit_asn(
         number_of_packages=asn.number_of_packages,
         package_type=asn.package_type,
         shipping_method=asn.shipping_method,
-        invoice_number=asn.invoice_number,
-        invoice_date=asn.invoice_date,
-        challan_number=asn.challan_number,
-        challan_date=asn.challan_date,
         documents=[AsnDocumentSchema(
             document_type=document.document_type,
             file_name=document.file_name,
@@ -4789,6 +4839,17 @@ async def magic_login(
     user_id_str = str(user.id) if user else str(uuid.uuid4())
     effective_supplier_id = str(user.supplier_id) if user else str(supplier_id_str or "")
     effective_username = user.username if user else (username or "supplier")
+    supplier_display_name = effective_username
+    if effective_supplier_id:
+        try:
+            supplier_result = await uow.session.execute(
+                select(SupplierModel).where(SupplierModel.id == uuid.UUID(effective_supplier_id))
+            )
+            supplier = supplier_result.scalar_one_or_none()
+            if supplier:
+                supplier_display_name = supplier.supplier_name or supplier.registered_company_name or effective_username
+        except (TypeError, ValueError):
+            pass
     now = int(time.time())
     expires_in_hours = max(round((exp - now) / 3600, 1), 0.0)
 
@@ -4796,7 +4857,8 @@ async def magic_login(
         token=f"supplier-mock-token-{user_id_str}-{effective_supplier_id}",
         supplier_id=effective_supplier_id,
         supplierId=effective_supplier_id,
-        username=effective_username,
+        username=supplier_display_name,
+        supplier_name=supplier_display_name,
         must_change_password=False,
         roles=["SUPPLIER"],
         rfq_id=rfq_id_str,
@@ -4895,24 +4957,31 @@ async def dev_login(
             or_(
                 func.lower(StoreManagerUserModel.username) == request.username.strip().lower(),
                 func.upper(StoreManagerUserModel.employee_id) == request.username.strip().upper(),
+                func.lower(StoreManagerUserModel.full_name) == request.username.strip().lower(),
             ),
-            StoreManagerUserModel.status == "ACTIVE",
         )
+        .order_by(StoreManagerUserModel.created_at.desc())
+        .limit(1)
     )
     account = account_result.scalar_one_or_none()
+    if account and account.status != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This user account is inactive",
+        )
     if account and (
         account.password_hash == hashlib.sha256(request.password.encode()).hexdigest()
         or request.password in ("Store@123", "password", "Admin@123")
     ):
         session_token = secrets.token_urlsafe(48)
         account.auth_token_hash = hashlib.sha256(session_token.encode()).hexdigest()
-        account.last_login = datetime.utcnow()
+        account.last_login = datetime.now(timezone.utc)
         await uow.commit()
         role_key = account.role.strip().upper().replace(" ", "_")
         role = {
             "SUPER_ADMIN": "ADMIN",
             "ADMIN_OFFICER": "ADMIN",
-            "PROCUREMENT_MANAGER": "MANAGER",
+            "PROCUREMENT_MANAGER": "PROCUREMENT",
             "PROCUREMENT_OFFICER": "PROCUREMENT",
             "WAREHOUSE_MANAGER": "WAREHOUSE_MANAGER",
             "STORE_OPERATOR": "STORE_KEEPER",
@@ -4961,6 +5030,15 @@ async def dev_login(
             "roles": ["WAREHOUSE"]
         }
     elif (
+        normalized_username == settings.approval_manager_username.lower()
+        and request.password == settings.approval_manager_password
+    ):
+        return {
+            "token": "mock-jwt-approval-manager-token",
+            "username": settings.approval_manager_username,
+            "roles": ["MANAGER"],
+        }
+    elif (
         (hasattr(settings, "gate_security_username") and request.username == settings.gate_security_username and request.password == settings.gate_security_password)
         or (hasattr(settings, "gate_entry_username") and request.username == settings.gate_entry_username and request.password == settings.gate_entry_password)
     ):
@@ -4987,12 +5065,6 @@ async def dev_login(
             "username": request.username,
             "roles": ["GRN"]
         }
-    elif (hasattr(settings, "manager_username") and normalized_username == settings.manager_username.lower() and request.password == settings.manager_password) or (normalized_username in {"manager", "mgr", "procurement_manager"} and request.password in {getattr(settings, "manager_password", "Manager@123"), "Manager@123", "password", "manager123", "Admin@123"}):
-        return {
-            "token": "mock-jwt-manager-token",
-            "username": request.username,
-            "roles": ["MANAGER"]
-        }
     elif (hasattr(settings, "dispatch_username") and normalized_username == settings.dispatch_username.lower() and request.password == settings.dispatch_password) or normalized_username in {"dispatch", "dispatch_manager"}:
         return {
             "token": "mock-jwt-dispatch-token",
@@ -5010,6 +5082,251 @@ async def dev_login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
+
+
+ADMIN_ROLES = [
+    {"value": "SUPER_ADMIN", "label": "Super Administrator"},
+    {"value": "ADMIN", "label": "System Administrator"},
+    {"value": "WAREHOUSE_MANAGER", "label": "Warehouse Manager"},
+    {"value": "GATE_SECURITY", "label": "Gate Security"},
+    {"value": "GRN", "label": "GRN / Receiving"},
+    {"value": "ASSEMBLY_MANAGER", "label": "Assembly Manager"},
+    {"value": "QUALITY", "label": "Quality Inspector"},
+    {"value": "SUPPLIER", "label": "Supplier"},
+]
+
+
+def _require_admin(user: CurrentUser) -> None:
+    if not any(role.upper() in {"ADMIN", "SUPERUSER", "SUPER_ADMIN"} for role in (user.roles or [])):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+
+class AdminUserCreate(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    full_name: str = Field(..., min_length=2, max_length=128)
+    email: str = Field(..., min_length=3, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(..., max_length=64)
+    shift_name: str | None = Field("GENERAL", max_length=64)
+    assembly_unit_code: str | None = Field(None, max_length=64)
+    page_permissions: dict[str, str] = Field(default_factory=dict)
+
+
+class AdminUserUpdate(BaseModel):
+    username: str | None = Field(None, min_length=3, max_length=64)
+    full_name: str | None = Field(None, min_length=2, max_length=128)
+    email: str | None = Field(None, min_length=3, max_length=128)
+    password: str | None = Field(None, min_length=8, max_length=128)
+    role: str | None = Field(None, max_length=64)
+    shift_name: str | None = Field(None, max_length=64)
+    assembly_unit_code: str | None = Field(None, max_length=64)
+    page_permissions: dict[str, str] | None = None
+    status: str | None = Field(None, max_length=32)
+
+
+class AssemblyUnitCreate(BaseModel):
+    unit_name: str = Field(..., min_length=2, max_length=128)
+    description: str = Field("", max_length=255)
+
+
+class AssemblyUnitUpdate(BaseModel):
+    unit_name: str | None = Field(None, min_length=2, max_length=128)
+    description: str | None = Field(None, max_length=255)
+    status: str | None = Field(None, max_length=32)
+
+
+def _admin_user_response(account: StoreManagerUserModel) -> dict:
+    return {
+        "id": str(account.id), "username": account.username, "full_name": account.full_name,
+        "email": account.email, "employee_id": account.employee_id, "role": account.role,
+        "shift_name": account.shift_name or "GENERAL", "assembly_unit_code": account.assembly_unit_code,
+        "page_permissions": account.page_permissions or {}, "status": account.status,
+        "last_login": account.last_login, "can_manage_status": True,
+    }
+
+
+def _assembly_unit_response(unit: AssemblyUnitModel) -> dict:
+    return {"id": str(unit.id), "code": unit.code, "name": unit.name,
+            "description": unit.description or "", "status": unit.status}
+
+
+@router.get("/admin/roles")
+async def list_admin_roles(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    _require_admin(user)
+    return ADMIN_ROLES
+
+
+@router.get("/admin/users")
+async def list_admin_users(
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+) -> list[dict]:
+    """Return every identity that can sign in through the business service."""
+    _require_admin(user)
+
+    from app.config.settings import get_settings
+    settings = get_settings()
+    users: list[dict] = []
+    seen_usernames: set[str] = set()
+
+    account_result = await uow.session.execute(
+        select(StoreManagerUserModel)
+        .options(selectinload(StoreManagerUserModel.store))
+        .order_by(StoreManagerUserModel.employee_id.asc())
+    )
+    for account in account_result.scalars().all():
+        username_key = account.username.strip().lower()
+        seen_usernames.add(username_key)
+        users.append(_admin_user_response(account))
+
+    supplier_result = await uow.session.execute(
+        select(SupplierUserModel).options(
+            joinedload(SupplierUserModel.supplier).joinedload(SupplierModel.contact)
+        )
+    )
+    for account in supplier_result.scalars().unique().all():
+        username_key = account.username.strip().lower()
+        if username_key in seen_usernames:
+            continue
+        seen_usernames.add(username_key)
+        supplier = account.supplier
+        users.append({
+            "id": f"supplier:{account.id}",
+            "username": account.username,
+            "name": supplier.supplier_name if supplier else account.username,
+            "email": supplier.contact.primary_email if supplier and supplier.contact else "",
+            "employee_id": supplier.supplier_code if supplier and supplier.supplier_code else f"SUP-{str(account.supplier_id)[:8].upper()}",
+            "role": "Supplier",
+            "applications": ["Supplier Portal"],
+            "status": "ACTIVE" if supplier and supplier.status.lower() == "active" else "INACTIVE",
+            "last_activity": supplier.updated_at if supplier else None,
+            "unit": "GENERAL",
+            "source": "SUPPLIER",
+            "can_manage_status": False,
+        })
+
+    configured_accounts = [
+        (settings.admin_username, "Administrator", "ADMIN"),
+        (settings.procurement_username, "Procurement", "PROCUREMENT"),
+        (settings.finance_username, "Finance", "FINANCE"),
+        (settings.warehouse_username, "Warehouse", "WAREHOUSE"),
+        (settings.assembly_manager_username, "Assembly Manager", "ASSEMBLY_MANAGER"),
+        (settings.gate_entry_username, "Gate Security", "GATE_SECURITY"),
+        (settings.supplier_username, "Supplier Portal", "SUPPLIER"),
+        (settings.grn_username, "GRN Operations", "GRN"),
+        (settings.dispatch_username, "Dispatch", "DISPATCH"),
+    ]
+    for username, name, role in configured_accounts:
+        username_key = username.strip().lower()
+        if not username_key or username_key in seen_usernames:
+            continue
+        seen_usernames.add(username_key)
+        users.append({
+            "id": f"configured:{role.lower()}",
+            "username": username,
+            "name": name,
+            "email": f"{username_key}@kaizenx.local",
+            "employee_id": f"SYSTEM-{role}",
+            "role": role.replace("_", " ").title(),
+            "applications": ["WMS"],
+            "status": "ACTIVE",
+            "last_activity": None,
+            "unit": "GENERAL",
+            "source": "CONFIGURED",
+            "can_manage_status": False,
+        })
+
+    return sorted(users, key=lambda entry: (entry["role"], (entry.get("full_name") or entry.get("name") or "").lower()))
+
+
+@router.post("/admin/users", status_code=status.HTTP_201_CREATED)
+async def create_admin_user(payload: AdminUserCreate, uow: UnitOfWork = Depends(get_uow),
+                            user: CurrentUser = Depends(get_current_user)) -> dict:
+    _require_admin(user)
+    clean_username, clean_email = payload.username.strip().lower(), payload.email.strip().lower()
+    duplicate = await uow.session.execute(select(StoreManagerUserModel).where(or_(
+        func.lower(StoreManagerUserModel.username) == clean_username,
+        func.lower(StoreManagerUserModel.email) == clean_email,
+    )))
+    if duplicate.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="That username or email is already in use")
+    store = (await uow.session.execute(select(StoreModel).order_by(StoreModel.created_at.asc()))).scalars().first()
+    if not store:
+        raise HTTPException(status_code=409, detail="Create a store before creating staff accounts")
+    count = (await uow.session.execute(select(func.count()).select_from(StoreManagerUserModel))).scalar_one()
+    employee_id = f"EMP-{count + 1:05d}"
+    while (await uow.session.execute(select(StoreManagerUserModel.id).where(StoreManagerUserModel.employee_id == employee_id))).first():
+        count += 1
+        employee_id = f"EMP-{count + 1:05d}"
+    account = StoreManagerUserModel(
+        store_id=store.id, employee_id=employee_id, username=clean_username,
+        full_name=payload.full_name.strip(), email=clean_email,
+        password_hash=hashlib.sha256(payload.password.encode()).hexdigest(), role=payload.role,
+        applications=["WMS"], shift_name=payload.shift_name,
+        assembly_unit_code=payload.assembly_unit_code, page_permissions=payload.page_permissions,
+        status="ACTIVE",
+    )
+    uow.session.add(account)
+    await uow.session.flush(); await uow.commit()
+    return _admin_user_response(account)
+
+
+@router.patch("/admin/users/{user_id}")
+async def update_admin_user(user_id: uuid.UUID, payload: AdminUserUpdate,
+                            uow: UnitOfWork = Depends(get_uow),
+                            user: CurrentUser = Depends(get_current_user)) -> dict:
+    _require_admin(user)
+    account = await uow.session.get(StoreManagerUserModel, user_id)
+    if not account: raise HTTPException(status_code=404, detail="User not found")
+    changes = payload.model_dump(exclude_unset=True)
+    password = changes.pop("password", None)
+    if password: account.password_hash = hashlib.sha256(password.encode()).hexdigest()
+    for key, value in changes.items():
+        if key in {"username", "email"} and value: value = value.strip().lower()
+        if key == "status" and value: value = value.upper()
+        setattr(account, key, value)
+    account.updated_at = datetime.now(timezone.utc)
+    try:
+        await uow.session.flush(); await uow.commit()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="That username or email is already in use")
+    return _admin_user_response(account)
+
+
+@router.get("/admin/assembly-units")
+async def list_admin_assembly_units(uow: UnitOfWork = Depends(get_uow),
+                                    user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    _require_admin(user)
+    units = (await uow.session.execute(select(AssemblyUnitModel).order_by(AssemblyUnitModel.code))).scalars().all()
+    return [_assembly_unit_response(unit) for unit in units]
+
+
+@router.post("/admin/assembly-units", status_code=status.HTTP_201_CREATED)
+async def create_admin_assembly_unit(payload: AssemblyUnitCreate, uow: UnitOfWork = Depends(get_uow),
+                                     user: CurrentUser = Depends(get_current_user)) -> dict:
+    _require_admin(user)
+    count = (await uow.session.execute(select(func.count()).select_from(AssemblyUnitModel))).scalar_one()
+    code = f"AU-{count + 1:03d}"
+    while (await uow.session.execute(select(AssemblyUnitModel.id).where(AssemblyUnitModel.code == code))).first():
+        count += 1; code = f"AU-{count + 1:03d}"
+    unit = AssemblyUnitModel(code=code, name=payload.unit_name.strip(), description=payload.description.strip())
+    uow.session.add(unit); await uow.session.flush(); await uow.commit()
+    return _assembly_unit_response(unit)
+
+
+@router.patch("/admin/assembly-units/{unit_id}")
+async def update_admin_assembly_unit(unit_id: uuid.UUID, payload: AssemblyUnitUpdate,
+                                     uow: UnitOfWork = Depends(get_uow),
+                                     user: CurrentUser = Depends(get_current_user)) -> dict:
+    _require_admin(user)
+    unit = await uow.session.get(AssemblyUnitModel, unit_id)
+    if not unit: raise HTTPException(status_code=404, detail="Assembly unit not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "unit_name" in changes: unit.name = changes.pop("unit_name").strip()
+    for key, value in changes.items(): setattr(unit, key, value.upper() if key == "status" else value)
+    unit.updated_at = datetime.now(timezone.utc)
+    await uow.session.flush(); await uow.commit()
+    return _assembly_unit_response(unit)
 
 
 @router.get("/global-search", response_model=GlobalSearchResponse)
@@ -5080,7 +5397,6 @@ async def global_search(
                 AsnModel.driver_name.ilike(search_term),
                 AsnModel.driver_contact.ilike(search_term),
                 AsnModel.transporter.ilike(search_term),
-                AsnModel.invoice_number.ilike(search_term),
                 AsnModel.status.ilike(search_term),
                 AsnModel.warehouse_id.ilike(search_term)
             )
@@ -5231,14 +5547,6 @@ async def get_user_navigation(
             "items": [
                 {"label": "Dashboard", "to": "/finance-dashboard", "icon": "LayoutDashboard"},
                 {"label": "Pending Approvals", "to": "/finance/approvals", "icon": "FileCheck2"},
-            ]
-        },
-        "MANAGER": {
-            "module_label": "Manager Portal",
-            "items": [
-                {"label": "Dashboard", "to": "/manager-dashboard", "icon": "LayoutDashboard"},
-                {"label": "Supplier Approvals", "to": "/master-data?module=manager&status=pending-approval", "icon": "Building2"},
-                {"label": "Material Request Approvals", "to": "/procurement/material-requests?module=manager&status=manager-approval", "icon": "ClipboardList"},
             ]
         },
         "GATE_SECURITY": {

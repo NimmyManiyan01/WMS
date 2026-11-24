@@ -274,6 +274,7 @@ function WarehouseAssemblyRequisitionsPage() {
       .map((it: any) => {
         const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
         const resQ = Number(it.reserved_quantity ?? 0);
+        const availableQ = Number(it.available_quantity ?? it.availableQuantity ?? 0);
         const shortageQ = Number(it.shortage_quantity ?? Math.max(0, reqQ - resQ));
         if (shortageQ > 0) {
           return {
@@ -288,10 +289,15 @@ function WarehouseAssemblyRequisitionsPage() {
               it.customMaterialName ||
               "Material",
             quantity: shortageQ,
+            required_quantity: reqQ,
+            available_quantity: availableQ,
+            reserved_quantity: resQ,
+            shortage_quantity: shortageQ,
             uom: it.uom || "PCS",
             category: it.category || "Raw Materials",
             is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
             custom_material_name: it.custom_material_name || it.customMaterialName || null,
+            source_locked: true,
           };
         }
         return null;

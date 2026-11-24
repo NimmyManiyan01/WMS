@@ -55,9 +55,14 @@ function ManagerDashboard() {
   const loadData = async (quiet = false) => {
     try {
       if (!quiet) setLoading(true);
+      const withTimeout = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+        Promise.race([
+          promise,
+          new Promise<T>((resolve) => window.setTimeout(() => resolve(fallback), 8000)),
+        ]).catch(() => fallback);
       const [requests, supplierData] = await Promise.all([
-        api.getMaterialRequests(),
-        api.getSuppliers(),
+        withTimeout(api.getMaterialRequests(), []),
+        withTimeout(api.getSuppliers(), []),
       ]);
       setMaterialRequests(Array.isArray(requests) ? requests : []);
       setSuppliers(Array.isArray(supplierData) ? supplierData : []);

@@ -258,6 +258,7 @@ def task_response(task: PutawayTaskModel) -> dict:
         "grn_number": task.grn_number,
         "handling_unit_id": str(task.handling_unit_id) if task.handling_unit_id else None,
         "item_code": task.item_code,
+        "batch_number": task.batch_number,
         "material_name": task.material_name,
         "material_qr": (task.placement_metadata or {}).get("unit_qr") if task.finished_goods_id else None,
         "barcode_value": None,
@@ -476,6 +477,7 @@ async def enrich_putaway_tasks(tasks: list[PutawayTaskModel], session) -> list[d
                 "grn_number": None if t.finished_goods_id else t.grn_number,
                 "handling_unit_id": str(t.handling_unit_id) if t.handling_unit_id else None,
                 "item_code": t.item_code,
+                "batch_number": t.batch_number,
                 "material_name": t.material_name,
                 "material_qr": mat_qr,
                 "barcode_value": hu.barcode_value if hu else None,
@@ -944,15 +946,17 @@ async def assign_storage_location(
     uow: UnitOfWork = Depends(get_uow),
 ):
     """
-    Warehouse assigns the destination Store to the Putaway task and triggers notification.
+    Warehouse personnel can assign destination stores and racks. Store personnel
+    can assign a rack only for a putaway task already routed to their own store.
     """
     roles_upper = {r.upper() for r in user.roles}
     is_wh = "WAREHOUSE" in roles_upper or "WAREHOUSE_MANAGER" in roles_upper or "ADMIN" in roles_upper or "SUPERUSER" in roles_upper or "gate:approve" in user.permissions
+    is_store_user = "STORE_MANAGER" in roles_upper or "STORE_KEEPER" in roles_upper
 
-    if not is_wh:
+    if not is_wh and not is_store_user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Warehouse personnel can assign destination Stores to Putaway tasks",
+            detail="Only Warehouse or assigned Store personnel can assign racks to Putaway tasks",
         )
 
     task = await uow.session.get(PutawayTaskModel, task_id)
@@ -960,6 +964,21 @@ async def assign_storage_location(
         raise HTTPException(status_code=404, detail="Putaway task not found")
     if task.status in ("PUTAWAY_COMPLETED", "STORED"):
         raise HTTPException(status_code=409, detail="Completed putaway tasks cannot be reassigned")
+
+    if is_store_user and not is_wh:
+        user_store_id = await get_user_store_id(user, uow)
+        if not user_store_id or task.destination_store_id != user_store_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Store personnel can only assign racks for tasks routed to their assigned store",
+            )
+
+        requested_store_id = request.store_id
+        if requested_store_id and requested_store_id != user_store_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The selected rack belongs to a different store",
+            )
 
     # Destination Store selection
     if request.store_id:
@@ -1203,6 +1222,27 @@ async def complete_putaway(
     # 1. Validate Material QR
     raw_scan = request.material_scan.strip()
     scanned_hu = normalize_hu_scan(raw_scan)
+    scanned_batch_number = None
+    if raw_scan.startswith("{"):
+        try:
+            payload = json.loads(raw_scan)
+            scanned_batch_number = payload.get("batch_number") or payload.get("batch")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+    if not scanned_batch_number:
+        for line in raw_scan.splitlines():
+            label, separator, value = line.partition(":")
+            if separator and label.strip().upper() in {"BATCH", "BATCH NUMBER", "LOT"}:
+                scanned_batch_number = value.strip()
+                break
+    if task.batch_number and (
+        not scanned_batch_number
+        or scanned_batch_number.strip().upper() != task.batch_number.strip().upper()
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Scan the QR for batch {task.batch_number} to complete this task",
+        )
     handling_unit = None
     if task.handling_unit_id:
         hu_result = await uow.session.execute(
@@ -1762,6 +1802,49 @@ async def resolve_grn_qr(
         except Exception:
             pass
 
+    # Printed GRN batch labels use a human-readable payload such as:
+    # "Material Code: ITEM Material Name: ... Batch: LOT-... Size: ...".
+    # QR decoders may preserve newlines or collapse them into spaces, so parse
+    # values by looking ahead to the next known field label.
+    if not item_code or not batch_number or not grn_number:
+        field_names = (
+            "QR Code|PO Number|GRN Number|Material Code|Item Code|Material Name|"
+            "Batch Number|Batch|Size|Color|Warehouse|Grade|UOM|QA Status|"
+            "Inspection Status|Batch Quantity"
+        )
+
+        def _printed_qr_field(*labels: str) -> str | None:
+            label_pattern = "|".join(re.escape(label) for label in labels)
+            match = re.search(
+                rf"(?:^|[\s|])(?:{label_pattern})\s*:\s*(.*?)"
+                rf"(?=(?:\s|\|)+(?:{field_names})\s*:|$)",
+                raw_code,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            return match.group(1).strip() if match and match.group(1).strip() else None
+
+        item_code = item_code or _printed_qr_field("Material Code", "Item Code")
+        grn_number = grn_number or _printed_qr_field("GRN Number")
+        batch_number = batch_number or _printed_qr_field("Batch Number", "Batch")
+
+    # A persisted batch number uniquely identifies its GRN line. Resolve it
+    # even when the printed QR payload does not include a GRN number.
+    if batch_number and not grn_number:
+        batch_match = (
+            await uow.session.execute(
+                select(GrnBatchModel).where(
+                    func.upper(GrnBatchModel.batch_number) == batch_number.upper()
+                )
+            )
+        ).scalars().first()
+        if batch_match:
+            batch_line = await uow.session.get(GrnLineModel, batch_match.grn_line_id)
+            if batch_line:
+                item_code = batch_line.item_code
+                batch_grn = await uow.session.get(GrnModel, batch_line.grn_id)
+                if batch_grn:
+                    grn_number = batch_grn.grn_number
+
     # Step 2: Match GrnBatchQrModel
     if not item_code:
         res_bqr = await uow.session.execute(
@@ -1918,12 +2001,15 @@ async def resolve_grn_qr(
 
     # Locate existing Putaway Task if any
     if task_obj is None:
-        res_t = await uow.session.execute(
-            select(PutawayTaskModel).where(
+        task_query = select(PutawayTaskModel).where(
                 PutawayTaskModel.grn_id == grn.id,
                 func.upper(PutawayTaskModel.item_code) == item_code.upper(),
             )
-        )
+        if batch_number:
+            task_query = task_query.where(
+                func.upper(PutawayTaskModel.batch_number) == batch_number.upper()
+            )
+        res_t = await uow.session.execute(task_query)
         task_obj = res_t.scalars().first()
 
     # Calculate quantities. A batch QR represents only that batch, not the

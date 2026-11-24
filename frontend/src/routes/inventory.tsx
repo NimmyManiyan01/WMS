@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState, useMemo, useCallback, lazy, Suspense } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Boxes,
   Search,
@@ -56,18 +56,13 @@ export const Route = createFileRoute("/inventory")({
   component: InventoryPage,
 });
 
-const InventoryScene = lazy(() => import("@/components/wms/inventory-scene"));
-
 function InventoryPage() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  const [activeTab, setActiveTab] = useState<"scene" | "matrix" | "ledger">("scene");
+  const [activeTab, setActiveTab] = useState<"matrix" | "ledger">("matrix");
   const [summaryList, setSummaryList] = useState<any[]>([]);
   const [ledgerList, setLedgerList] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -106,7 +101,6 @@ function InventoryPage() {
         setLedgerList(ledgerData || []);
         setStats(statsData);
         setStores(storesData || []);
-        setLastUpdatedAt(new Date());
       } catch (error: any) {
         toast.error(error.message || "Failed to load authoritative inventory");
       } finally {
@@ -289,7 +283,6 @@ function InventoryPage() {
       <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border/40 pb-3">
           <TabsList className="bg-muted/40 p-1 rounded-xl">
-            <TabsTrigger value="scene" className="rounded-lg text-xs font-semibold"><Boxes className="size-3.5 mr-1.5" />3D Warehouse</TabsTrigger>
             <TabsTrigger value="matrix" className="rounded-lg text-xs font-semibold">
               <Building2 className="size-3.5 mr-1.5" />
               Stock by Location Matrix (Store → Zone → Bin)
@@ -357,9 +350,6 @@ function InventoryPage() {
           </form>
         </div>
 
-        <TabsContent value="scene">
-          {loading || !mounted ? <div className="grid h-96 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div> : <Suspense fallback={<div className="grid h-96 place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div>}><InventoryScene items={filteredSummary} onInspect={handleOpenItemTraceability} lastUpdatedAt={lastUpdatedAt} /></Suspense>}
-        </TabsContent>
         {/* TAB 1: STOCK BY STORE & ZONE & BIN MATRIX */}
         <TabsContent value="matrix" className="space-y-4">
           {loading ? (

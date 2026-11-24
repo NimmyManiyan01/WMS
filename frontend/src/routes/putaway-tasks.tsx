@@ -71,11 +71,13 @@ type Task = {
   grn_id: string;
   grn_number: string;
   handling_unit_id?: string;
+  batch_number?: string;
   item_code: string;
   material_name: string;
   material_qr?: string;
   barcode_value?: string;
   quantity: number;
+  putaway_quantity?: number;
   uom: string;
   warehouse_id: string;
   source_location: string;
@@ -175,6 +177,42 @@ type BinResolvedData = {
   occupancy_percentage: number;
   status: string;
 };
+
+type StorageLocation = {
+  id: string;
+  location_code: string;
+  warehouse_id: string;
+  store_id?: string;
+  zone_id?: string;
+  bin_id?: string;
+  zone: string;
+  rack: string;
+  bin: string;
+  capacity: number;
+  occupied_quantity: number;
+  available_capacity: number;
+  utilization_percent: number;
+  active: boolean;
+};
+
+function normalizeMaterialQrForLookup(rawValue: string): string {
+  const value = rawValue.trim();
+  if (!value || value.startsWith("{")) return value;
+
+  const fieldNames =
+    "QR Code|PO Number|GRN Number|Material Code|Item Code|Material Name|Batch Number|Batch|Size|Color|Warehouse|Grade|UOM|QA Status|Inspection Status|Batch Quantity";
+  const extract = (...labels: string[]) => {
+    const labelPattern = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    return value.match(
+      new RegExp(
+        `(?:^|[\\s|])(?:${labelPattern})\\s*:\\s*(.*?)(?=(?:\\s|\\|)+(?:${fieldNames})\\s*:|$)`,
+        "i",
+      ),
+    )?.[1]?.trim();
+  };
+
+  return extract("Batch Number", "Batch") || extract("Material Code", "Item Code") || value;
+}
 
 // Reusable QR / Barcode Scanner component with Camera, File Upload, and Direct Input
 function QrScanWidget({
@@ -461,6 +499,117 @@ function QrScanWidget({
   );
 }
 
+function CompactQrInput({
+  label,
+  placeholder,
+  value,
+  onValueChange,
+  onScan,
+  disabled = false,
+  showInfo = false,
+  onViewQr,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  onScan: (value: string) => void;
+  disabled?: boolean;
+  showInfo?: boolean;
+  onViewQr?: () => void;
+}) {
+  const decodeImage = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.drawImage(image, 0, 0);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(imageData.data, imageData.width, imageData.height);
+        if (!result?.data) {
+          toast.error("No QR code was detected in that image.");
+          return;
+        }
+        const code = result.data.trim();
+        onValueChange(code);
+        onScan(code);
+      };
+      image.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="text-base font-black text-slate-900">{label}</label>
+        {showInfo && <Info className="size-4 text-slate-700" />}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <Input
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && value.trim()) {
+              event.preventDefault();
+              onScan(value.trim());
+            }
+          }}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="h-12 rounded-xl border-slate-300 bg-white px-4 text-base font-bold text-slate-900"
+        />
+        <label className={cn(
+          "flex h-12 cursor-pointer items-center justify-center gap-3 rounded-xl border border-blue-300 bg-[#e6eef9] px-6 text-base font-extrabold text-slate-900",
+          disabled && "pointer-events-none opacity-50",
+        )}>
+          <Camera className="size-5" /> Scan with Camera
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            disabled={disabled}
+            onChange={(event) => {
+              decodeImage(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <label className={cn(
+          "inline-flex h-10 cursor-pointer items-center rounded-xl border border-blue-300 bg-white px-4 text-base font-bold text-slate-900",
+          disabled && "pointer-events-none opacity-50",
+        )}>
+          Upload QR Image
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={disabled}
+            onChange={(event) => {
+              decodeImage(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+        </label>
+        {onViewQr && (
+          <Button type="button" variant="outline" className="h-10 rounded-xl border-blue-300 bg-white px-4 text-base font-bold" onClick={onViewQr}>
+            View QR
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WarehousePutawayTasksPage() {
   const userInfo = getUserInfo();
   const userRoles = useMemo(() => (userInfo?.roles || []).map((r) => r.toUpperCase()), [userInfo]);
@@ -480,6 +629,13 @@ function WarehousePutawayTasksPage() {
   const [storeFilter, setStoreFilter] = useState("ALL");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const [selectedTaskDetails, setSelectedTaskDetails] = useState<Task | null>(null);
+  const [selectedGrnTasks, setSelectedGrnTasks] = useState<Task[] | null>(null);
+  const [executionTask, setExecutionTask] = useState<Task | null>(null);
+  const [assignRackTasks, setAssignRackTasks] = useState<Task[] | null>(null);
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [assigningRack, setAssigningRack] = useState(false);
 
   // Putaway Execution Modal State
   const [isPutawayModalOpen, setIsPutawayModalOpen] = useState(false);
@@ -491,6 +647,8 @@ function WarehousePutawayTasksPage() {
   const [grnData, setGrnData] = useState<GrnResolvedData | null>(null);
   const [binData, setBinData] = useState<BinResolvedData | null>(null);
   const [putawayQuantity, setPutawayQuantity] = useState<string>("");
+  const [materialScanValue, setMaterialScanValue] = useState("");
+  const [binScanValue, setBinScanValue] = useState("");
   const [executionResult, setExecutionResult] = useState<any | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
@@ -533,22 +691,19 @@ function WarehousePutawayTasksPage() {
       );
       return;
     }
+    setExecutionTask(task);
+    setSelectedGrnTasks(null);
     setIsPutawayModalOpen(true);
     setPutawayStep(1);
     setGrnData(null);
     setBinData(null);
-    setPutawayQuantity("");
+    setPutawayQuantity(
+      String(Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0))),
+    );
+    setMaterialScanValue("");
+    setBinScanValue("");
     setExecutionResult(null);
 
-    // Inbound GRN tasks may not have a persisted QR value yet. The GRN
-    // resolver also accepts the material/item code, so use it as the
-    // task-specific fallback when Put Away is clicked.
-    const qrCode = task.material_qr || task.barcode_value || task.item_code;
-    if (!qrCode) {
-      toast.error("This task has no material code or recorded QR code.");
-      return;
-    }
-    void handleResolveGrnQr(qrCode);
   };
 
   const handleOpenPutawayModal = () => {
@@ -559,18 +714,23 @@ function WarehousePutawayTasksPage() {
       return;
     }
     setIsPutawayModalOpen(true);
+    setExecutionTask(null);
     setPutawayStep(1);
     setGrnData(null);
     setBinData(null);
     setPutawayQuantity("");
+    setMaterialScanValue("");
+    setBinScanValue("");
     setExecutionResult(null);
   };
 
   const handleResolveGrnQr = async (qrCode: string) => {
     setIsResolvingGrn(true);
     try {
-      const res = await api.resolveGrnQr(qrCode);
+      const lookupCode = normalizeMaterialQrForLookup(qrCode);
+      const res = await api.resolveGrnQr(lookupCode);
       if (res && res.valid) {
+        setMaterialScanValue(qrCode);
         setGrnData(res);
         setPutawayQuantity(String(res.available_quantity));
         setPutawayStep(2);
@@ -595,6 +755,7 @@ function WarehousePutawayTasksPage() {
     try {
       const res = await api.resolveBinQr(binScan, grnData?.store_id);
       if (res && res.valid) {
+        setBinScanValue(binScan);
         setBinData(res);
         setPutawayStep(3);
         toast.success(`Destination Bin Identified: ${res.bin_code}`, {
@@ -714,6 +875,144 @@ function WarehousePutawayTasksPage() {
       return matchesStatus && matchesStore && matchesSearch;
     });
   }, [tasks, search, statusFilter, storeFilter]);
+
+  const groupedTasks = useMemo(() => {
+    const groups = new Map<string, Task[]>();
+    filteredTasks.forEach((task) => {
+      const key = task.grn_number || task.task_number;
+      groups.set(key, [...(groups.get(key) || []), task]);
+    });
+    return Array.from(groups.entries()).map(([grnNumber, groupTasks]) => {
+      const remaining = groupTasks.reduce((sum, task) => {
+        const completed = ["PUTAWAY_COMPLETED", "COMPLETED", "STORED"].includes(
+          (task.status || "").toUpperCase(),
+        );
+        return (
+          sum +
+          (completed
+            ? 0
+            : Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0)))
+        );
+      }, 0);
+      const completed = remaining === 0;
+      const assignedRack = groupTasks.find(
+        (task) => task.destination_bin_code || task.destination_bin || task.destination_rack,
+      );
+      return {
+        grnNumber,
+        tasks: groupTasks,
+        materialNames: Array.from(new Set(groupTasks.map((task) => task.material_name))),
+        remaining,
+        uom: groupTasks[0]?.uom || "",
+        completed,
+        allAssigned: groupTasks.every(
+          (task) =>
+            ["PUTAWAY_COMPLETED", "COMPLETED", "STORED"].includes(
+              (task.status || "").toUpperCase(),
+            ) || Boolean(task.destination_location_id || task.destination_bin_code),
+        ),
+        assignedRack:
+          assignedRack?.destination_bin_code ||
+          assignedRack?.destination_bin ||
+          assignedRack?.destination_rack ||
+          "Not assigned",
+      };
+    });
+  }, [filteredTasks]);
+
+  const openAssignRack = async (groupTasks: Task[]) => {
+    if (isTrackingOnly) {
+      toast.info(
+        "Warehouse users can track putaway tasks, but rack assignment and physical putaway are performed by Store Managers.",
+      );
+      return;
+    }
+    const unfinished = groupTasks.filter(
+      (task) =>
+        !["PUTAWAY_COMPLETED", "COMPLETED", "STORED"].includes(
+          (task.status || "").toUpperCase(),
+        ),
+    );
+    setAssignRackTasks(unfinished);
+    setSelectedLocationId("");
+    setLoadingLocations(true);
+    try {
+      const [locations, hierarchy] = await Promise.all([
+        api.getStorageLocations(unfinished[0]?.warehouse_id).catch(() => []),
+        api.getStoreHierarchy().catch(() => []),
+      ]);
+      const hierarchyRacks: StorageLocation[] = (hierarchy || []).flatMap((store: any) =>
+        (store.zones || []).flatMap((zone: any) =>
+          (zone.bins || [])
+            .filter((bin: any) => ["ACTIVE", "AVAILABLE"].includes((bin.status || "ACTIVE").toUpperCase()))
+            .map((bin: any) => ({
+              id: bin.id,
+              location_code: bin.bin_code,
+              warehouse_id: store.warehouse_id || unfinished[0]?.warehouse_id,
+              store_id: store.id,
+              zone_id: zone.id,
+              bin_id: bin.id,
+              zone: zone.zone_code,
+              rack: bin.rack || bin.bin_code,
+              bin: bin.bin_code,
+              capacity: Number(bin.capacity || 0),
+              occupied_quantity: Number(bin.occupied_quantity || 0),
+              available_capacity: Number(
+                bin.available_capacity ?? Number(bin.capacity || 0) - Number(bin.occupied_quantity || 0),
+              ),
+              utilization_percent: Number(bin.occupancy_percentage || 0),
+              active: true,
+            })),
+        ),
+      );
+      setStorageLocations(
+        hierarchyRacks.length
+          ? hierarchyRacks
+          : (locations || []).filter((location: StorageLocation) => location.active),
+      );
+    } catch (error) {
+      toast.error("Unable to load available racks", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      setStorageLocations([]);
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
+  const handleAssignRack = async () => {
+    if (isTrackingOnly) return;
+    if (!assignRackTasks?.length || !selectedLocationId) return;
+    setAssigningRack(true);
+    try {
+      const location = storageLocations.find((item) => item.id === selectedLocationId);
+      if (!location) throw new Error("Selected rack is no longer available.");
+      await Promise.all(
+        assignRackTasks.map((task) =>
+          location.bin_id
+            ? api.assignPutawayLocation(
+                task.id,
+                undefined,
+                location.store_id,
+                location.zone_id,
+                location.bin_id,
+              )
+            : api.assignPutawayLocation(task.id, location.id),
+        ),
+      );
+      toast.success("Rack assigned successfully", {
+        description: `${assignRackTasks.length} unfinished batch${assignRackTasks.length === 1 ? "" : "es"} updated.`,
+      });
+      setAssignRackTasks(null);
+      await load();
+    } catch (error) {
+      toast.error("Unable to assign rack", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setAssigningRack(false);
+    }
+  };
 
   const metrics = useMemo(() => {
     const total = tasks.length;
@@ -880,6 +1179,107 @@ function WarehousePutawayTasksPage() {
       </div>
 
       {/* Main Task Content */}
+      <Card className="overflow-hidden rounded-3xl border border-slate-300 bg-slate-50 shadow-sm">
+        <div className="p-5 sm:p-6">
+          <h2 className="mb-5 text-xl font-black uppercase tracking-wide text-slate-950">
+            {isTrackingOnly
+              ? "Putaway Tracking Queue"
+              : "Putaway Work Queue (Assign Storage Locations & Confirm)"}
+          </h2>
+
+          {loading ? (
+            <div className="grid h-48 place-items-center">
+              <Loader2 className="size-7 animate-spin text-primary" />
+            </div>
+          ) : groupedTasks.length === 0 ? (
+            <div className="grid h-48 place-items-center rounded-2xl border border-dashed text-sm font-semibold text-muted-foreground">
+              No putaway tasks match the selected filters.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-[#0d568d] text-white">
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">GRN / TASK NO</th>
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">MATERIAL</th>
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">BATCH</th>
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">REMAINING QTY</th>
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">ASSIGNED RACK</th>
+                    <th className="border border-blue-200 px-4 py-4 text-sm font-extrabold">
+                      <span className="flex items-center gap-2">STATUS <Info className="size-4" /></span>
+                    </th>
+                    <th className="border border-blue-200 px-4 py-4 text-center text-sm font-extrabold">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedTasks.map((group) => (
+                    <tr key={group.grnNumber} className="bg-[#eef5ff] text-slate-950">
+                      <td className="border border-blue-200 px-4 py-4 font-black">{group.grnNumber}</td>
+                      <td className="border border-blue-200 px-4 py-4 font-bold">
+                        {group.materialNames.join(", ")}
+                      </td>
+                      <td className="border border-blue-200 px-4 py-4">
+                        <Badge className="rounded-xl bg-slate-200 px-3 py-1.5 font-mono text-slate-950 hover:bg-slate-200">
+                          {group.tasks.length} {group.tasks.length === 1 ? "batch" : "batches"}
+                        </Badge>
+                      </td>
+                      <td className="border border-blue-200 px-4 py-4 font-black">
+                        {group.remaining.toLocaleString()} {group.uom}
+                      </td>
+                      <td className="border border-blue-200 px-4 py-4">
+                        <Badge variant="outline" className="rounded-full border-green-700 bg-green-50 px-3 py-1 font-mono font-bold text-green-950">
+                          {group.assignedRack}
+                        </Badge>
+                      </td>
+                      <td className="border border-blue-200 px-4 py-4">
+                        <Badge className={cn(
+                          "rounded-full px-3 py-1 font-extrabold",
+                          group.completed
+                            ? "bg-green-800 text-white hover:bg-green-800"
+                            : "border border-amber-700 bg-amber-50 text-amber-900 hover:bg-amber-50",
+                        )}>
+                          {group.completed ? "COMPLETED" : "PENDING"}
+                        </Badge>
+                      </td>
+                      <td className="border border-blue-200 px-4 py-3">
+                        <div className="flex flex-col gap-2">
+                          {!isTrackingOnly && !group.completed && (
+                            <Button
+                              variant="outline"
+                              className="h-10 rounded-xl bg-slate-100 font-extrabold text-slate-950"
+                              onClick={() =>
+                                group.allAssigned
+                                  ? setSelectedGrnTasks(group.tasks)
+                                  : void openAssignRack(group.tasks)
+                              }
+                            >
+                              {group.allAssigned ? "Scan QR" : "Assign Rack"}
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            className="h-10 rounded-xl bg-slate-100 font-extrabold text-slate-950"
+                            onClick={() => setSelectedTaskDetails(group.tasks[0])}
+                          >
+                            View Details
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="mt-4 text-base font-extrabold text-slate-950">
+            Showing {groupedTasks.length} of {groupedTasks.length} tasks
+          </p>
+        </div>
+      </Card>
+
+      {false && (
+      <>
       {loading ? (
         <div className="grid h-64 place-items-center">
           <Loader2 className="size-7 animate-spin text-primary" />
@@ -1206,15 +1606,190 @@ function WarehousePutawayTasksPage() {
           })}
         </div>
       )}
+      </>
+      )}
+
+      <Dialog open={!isTrackingOnly && !!assignRackTasks} onOpenChange={(open) => !open && !assigningRack && setAssignRackTasks(null)}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-3xl border-slate-300 bg-slate-50 p-7">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black text-slate-900">Assign Rack</DialogTitle>
+            <DialogDescription className="text-base font-bold text-slate-800">
+              Select an available storage rack for all unfinished batches in {assignRackTasks?.[0]?.grn_number}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {(() => {
+            const required = (assignRackTasks || []).reduce(
+              (sum, task) =>
+                sum +
+                Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0)),
+              0,
+            );
+            const eligibleLocations = storageLocations.filter(
+              (location) => Number(location.available_capacity || 0) >= required,
+            );
+            return (
+              <div className="space-y-5 pt-2">
+                <div className="grid grid-cols-2 gap-4 rounded-2xl bg-[#e7f0fb] p-5 md:grid-cols-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">GRN Number</p>
+                    <p className="font-mono text-base font-black text-slate-950">{assignRackTasks?.[0]?.grn_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">Unfinished Batches</p>
+                    <p className="text-base font-black text-slate-950">{assignRackTasks?.length || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">Required Capacity</p>
+                    <p className="text-base font-black text-slate-950">{required.toLocaleString()} {assignRackTasks?.[0]?.uom}</p>
+                  </div>
+                </div>
+
+                {loadingLocations ? (
+                  <div className="grid h-40 place-items-center">
+                    <Loader2 className="size-7 animate-spin text-[#0d568d]" />
+                  </div>
+                ) : eligibleLocations.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center font-semibold text-slate-600">
+                    No active rack has enough available capacity for this GRN.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {eligibleLocations.map((location) => {
+                      const selected = selectedLocationId === location.id;
+                      return (
+                        <button
+                          type="button"
+                          key={location.id}
+                          onClick={() => setSelectedLocationId(location.id)}
+                          className={cn(
+                            "rounded-2xl border-2 p-4 text-left transition-colors",
+                            selected
+                              ? "border-[#0d568d] bg-blue-50 shadow-sm"
+                              : "border-slate-200 bg-white hover:border-blue-300",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-mono text-base font-black text-slate-950">{location.rack || location.bin}</p>
+                              <p className="mt-1 font-mono text-sm font-semibold text-slate-600">{location.zone} / {location.bin}</p>
+                            </div>
+                            {selected && <CheckCircle2 className="size-5 text-[#0d568d]" />}
+                          </div>
+                          <div className="mt-4 flex justify-between text-sm font-bold text-slate-700">
+                            <span>Available Capacity</span>
+                            <span>{Number(location.available_capacity).toLocaleString()}</span>
+                          </div>
+                          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-[#0876bd]"
+                              style={{ width: `${Math.min(100, Number(location.utilization_percent || 0))}%` }}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button variant="outline" className="h-11 rounded-xl px-6 font-bold" onClick={() => setAssignRackTasks(null)} disabled={assigningRack}>
+                    Cancel
+                  </Button>
+                  <Button className="h-11 rounded-xl bg-[#0d568d] px-6 font-extrabold hover:bg-[#0a4776]" onClick={() => void handleAssignRack()} disabled={!selectedLocationId || assigningRack}>
+                    {assigningRack && <Loader2 className="size-4 animate-spin" />}
+                    Assign Rack
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!isTrackingOnly && !!selectedGrnTasks} onOpenChange={(open) => !open && setSelectedGrnTasks(null)}>
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto rounded-3xl border-slate-300 bg-slate-50 p-7">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black text-slate-900">
+              Scan QR / Select Assigned Batch
+            </DialogTitle>
+            <DialogDescription className="text-base font-bold text-slate-800">
+              {selectedGrnTasks?.[0]?.grn_number}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedGrnTasks && (() => {
+            const unfinished = selectedGrnTasks.filter(
+              (task) => !["PUTAWAY_COMPLETED", "COMPLETED", "STORED"].includes((task.status || "").toUpperCase()),
+            );
+            const remaining = unfinished.reduce(
+              (sum, task) =>
+                sum +
+                Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0)),
+              0,
+            );
+            return (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-300 bg-slate-50 p-5 md:grid-cols-4">
+                  <div><p className="font-bold">GRN Number</p><p className="font-mono text-base">{selectedGrnTasks[0].grn_number}</p></div>
+                  <div><p className="font-bold">Materials</p><p className="text-base font-black">{new Set(selectedGrnTasks.map((task) => task.item_code)).size}</p></div>
+                  <div><p className="font-bold">Batches</p><p className="text-base font-black">{unfinished.length}</p></div>
+                  <div><p className="font-bold">Remaining to Put Away</p><p className="text-base font-black">{remaining.toLocaleString()} {selectedGrnTasks[0].uom}</p></div>
+                </div>
+
+                <p className="text-base font-bold text-slate-900">
+                  Only assigned, unfinished batches are shown. Select a batch to scan its material and rack QR and confirm putaway.
+                </p>
+
+                <div className="overflow-hidden rounded-2xl border border-blue-200">
+                  <table className="w-full border-collapse text-left">
+                    <thead className="bg-[#0d568d] text-white">
+                      <tr>
+                        <th className="border-r border-blue-200 px-5 py-4 font-extrabold">Material / Batch</th>
+                        <th className="border-r border-blue-200 px-5 py-4 font-extrabold">Remaining to Put Away</th>
+                        <th className="border-r border-blue-200 px-5 py-4 font-extrabold">Assigned Rack</th>
+                        <th className="px-5 py-4 text-right font-extrabold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unfinished.map((task) => (
+                        <tr key={task.id} className="bg-[#eef5ff] text-slate-950">
+                          <td className="border-r border-t border-blue-200 px-5 py-4">
+                            <p className="font-black">{task.material_name}</p>
+                            <p className="mt-2 font-mono font-bold">{task.batch_number || task.handling_unit_id || task.task_number}</p>
+                          </td>
+                          <td className="border-r border-t border-blue-200 px-5 py-4 font-black">
+                            {Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0)).toLocaleString()} {task.uom}
+                          </td>
+                          <td className="border-r border-t border-blue-200 px-5 py-4">
+                            <Badge variant="outline" className="rounded-full px-3 py-1 font-mono font-bold">
+                              {task.destination_bin_code || task.destination_bin || task.destination_rack || "Not assigned"}
+                            </Badge>
+                          </td>
+                          <td className="border-t border-blue-200 px-5 py-4 text-right">
+                            <Button variant="outline" className="min-w-32 rounded-xl bg-slate-100 font-extrabold" onClick={() => handleOpenPutawayForTask(task)}>
+                              Scan QR
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* ========================================================================= */}
       {/* 3-STEP QR PUTAWAY EXECUTION MODAL (PRIMARY REQUIREMENT)                  */}
       {/* ========================================================================= */}
       <Dialog
-        open={isPutawayModalOpen}
+        open={!isTrackingOnly && isPutawayModalOpen}
         onOpenChange={(open) => !isExecuting && setIsPutawayModalOpen(open)}
       >
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl p-6">
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl border-slate-300 bg-slate-50 p-7">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1222,17 +1797,39 @@ function WarehousePutawayTasksPage() {
                   <QrCode className="size-5" />
                 </div>
                 <div>
-                  <DialogTitle className="text-base font-bold">Putaway Execution</DialogTitle>
-                  <DialogDescription className="text-xs">
-                    Scan GRN Material QR and Destination Bin QR to confirm inventory placement.
+                  <DialogTitle className="text-2xl font-black text-slate-900">Scan Material &amp; BIN</DialogTitle>
+                  <DialogDescription className="text-base font-bold text-slate-900">
+                    Scan the existing material QR first, then scan the assigned BIN QR.
                   </DialogDescription>
                 </div>
               </div>
             </div>
           </DialogHeader>
 
-          {/* Stepper Progress Bar */}
-          <div className="grid grid-cols-3 gap-2 border-y py-3">
+          {executionTask && (
+            <div className="grid grid-cols-2 gap-4 rounded-2xl bg-[#e7f0fb] p-5 text-slate-950">
+              <div className="col-span-2 text-lg font-black">{executionTask.material_name}</div>
+              <div>
+                <p className="font-bold">GRN</p>
+                <p className="font-mono text-base font-black">{executionTask.grn_number}</p>
+              </div>
+              <div>
+                <p className="font-bold">Pending quantity</p>
+                <p className="text-base font-black">
+                  {Math.max(0, Number(executionTask.quantity || 0) - Number(executionTask.putaway_quantity || 0)).toLocaleString()} {executionTask.uom}
+                </p>
+              </div>
+              <div className="col-span-2">
+                <p className="font-bold">Batch</p>
+                <p className="font-mono text-base font-black">
+                  {executionTask.batch_number || executionTask.handling_unit_id || executionTask.task_number}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Internal progress state; hidden to match the streamlined scanner reference. */}
+          <div className="hidden grid-cols-3 gap-2 border-y py-3">
             <div
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer",
@@ -1288,6 +1885,84 @@ function WarehousePutawayTasksPage() {
           </div>
 
           {/* SUCCESS BANNER WHEN COMPLETED */}
+          {executionResult ? (
+            <div className="space-y-5 py-6 text-center">
+              <CheckCircle2 className="mx-auto size-14 text-emerald-600" />
+              <div>
+                <h3 className="text-xl font-black text-slate-900">Putaway Confirmed</h3>
+                <p className="mt-1 text-base text-slate-600">{executionResult.message}</p>
+              </div>
+              <Button className="h-11 rounded-xl px-6 font-extrabold" onClick={() => setIsPutawayModalOpen(false)}>
+                Close
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-7 py-3">
+              <CompactQrInput
+                label="Material QR"
+                placeholder="Scan material QR"
+                value={materialScanValue}
+                onValueChange={setMaterialScanValue}
+                onScan={(value) => void handleResolveGrnQr(value)}
+                disabled={isResolvingGrn || isExecuting}
+                showInfo
+              />
+
+              <CompactQrInput
+                label="BIN QR"
+                placeholder="Scan BIN QR"
+                value={binScanValue}
+                onValueChange={setBinScanValue}
+                onScan={(value) => void handleResolveBinQr(value)}
+                disabled={!grnData || isResolvingBin || isExecuting}
+                onViewQr={() => {
+                  const assignedBin = executionTask?.destination_bin_code || executionTask?.destination_bin;
+                  if (assignedBin) {
+                    void navigator.clipboard.writeText(assignedBin);
+                    toast.success("Assigned BIN QR copied", { description: assignedBin });
+                  } else {
+                    toast.info("No assigned BIN is recorded for this batch.");
+                  }
+                }}
+              />
+
+              <div className="space-y-2">
+                <label className="text-base font-black text-slate-900">
+                  Stored quantity ({grnData?.uom || executionTask?.uom || "PCS"})
+                </label>
+                <Input
+                  type="number"
+                  min="0.0001"
+                  step="any"
+                  value={putawayQuantity}
+                  onChange={(event) => setPutawayQuantity(event.target.value)}
+                  disabled={!grnData || isExecuting}
+                  className="h-12 rounded-xl border-slate-300 bg-white px-4 text-base font-bold"
+                />
+                <p className="text-base font-bold text-slate-900">
+                  Rack space available: {binData ? Number(binData.available_capacity).toLocaleString() : "—"} {grnData?.uom || executionTask?.uom || "PCS"}.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-4 border-t border-slate-200 pt-5">
+                <Button type="button" variant="outline" className="h-11 rounded-xl bg-[#e6eef9] px-6 text-base font-extrabold" onClick={() => setIsPutawayModalOpen(false)} disabled={isExecuting}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="h-11 rounded-xl border-2 border-slate-700 bg-[#1683c5] px-6 text-base font-extrabold text-white hover:bg-[#0d6fa9]"
+                  onClick={() => void handleConfirmPutaway()}
+                  disabled={!grnData || !binData || !putawayQuantity || Number(putawayQuantity) <= 0 || isExecuting}
+                >
+                  {isExecuting && <Loader2 className="size-4 animate-spin" />}
+                  Confirm Putaway
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {false && (
+          <>
           {executionResult ? (
             <div className="space-y-4 py-4 text-center">
               <div className="mx-auto size-14 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
@@ -1783,6 +2458,8 @@ function WarehousePutawayTasksPage() {
               )}
             </div>
           )}
+          </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -2033,22 +2710,7 @@ function WarehousePutawayTasksPage() {
                 </div>
               </div>
 
-              <div className="flex justify-between pt-1">
-                {!isTrackingOnly &&
-                (selectedTaskDetails.status || "").toUpperCase() !== "PUTAWAY_COMPLETED" ? (
-                  <Button
-                    className="rounded-xl text-xs font-bold gap-1"
-                    onClick={() => {
-                      const t = selectedTaskDetails;
-                      setSelectedTaskDetails(null);
-                      handleOpenPutawayForTask(t);
-                    }}
-                  >
-                    <QrCode className="size-3.5" /> Execute Putaway
-                  </Button>
-                ) : (
-                  <div />
-                )}
+              <div className="flex justify-end pt-1">
                 <Button
                   variant="outline"
                   className="rounded-xl text-xs"

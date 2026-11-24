@@ -26,11 +26,16 @@ import { cn } from "@/lib/utils";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/supplier/asns/new")({
-  beforeLoad: () => {},
+  beforeLoad: () => requireRole("SUPPLIER"),
   component: NewAsn,
 });
 
 const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background focus:ring-primary/20";
+const identifierPattern = "[A-Za-z0-9][A-Za-z0-9/_-]{0,49}";
+const vehiclePattern = "[A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)*";
+const namePattern = "[A-Za-z][A-Za-z .'-]{1,99}";
+const textPattern = "[A-Za-z0-9][A-Za-z0-9 .,'()&/-]{1,249}";
+const phonePattern = "[6-9][0-9]{9}";
 
 function NewAsn() {
   const navigate = useNavigate();
@@ -64,10 +69,6 @@ function NewAsn() {
     transporter: "",
     number_of_packages: "",
     package_type: "",
-    invoice_number: "",
-    invoice_date: "",
-    challan_number: "",
-    challan_date: "",
   });
 
   const [lines, setLines] = useState<any[]>([]);
@@ -111,20 +112,11 @@ function NewAsn() {
           setFormData((current) => ({ ...current, shipment_type: "REPLACEMENT", original_asn_number: request.original_asn_id || "", replacement_for_asn: request.original_asn_id || "", replacement_reason: request.reason }));
         }
 
-        let userInfo = getUserInfo();
-        if (!userInfo || !userInfo.supplierId) {
-          userInfo = {
-            token: "mock-jwt-supplier-token",
-            username: "supplier_partner",
-            roles: ["SUPPLIER"],
-            supplierId: "sup-00001",
-          };
-          try {
-            localStorage.setItem("kaizen_x_user", JSON.stringify(userInfo));
-            localStorage.setItem("kaizen_x_token", userInfo.token);
-          } catch {}
+        const userInfo = getUserInfo();
+        if (!userInfo?.supplierId) {
+          throw new Error("Your supplier account is not linked to a supplier record. Please contact support.");
         }
-        const supplierId = userInfo.supplierId || "sup-00001";
+        const supplierId = userInfo.supplierId;
 
         // 2. Fetch PO details if poId is provided
         if (poId) {
@@ -269,6 +261,24 @@ function NewAsn() {
       return;
     }
 
+    const invalidLogistics = logisticsList.findIndex((item) => {
+      const contact = String(item.driver_contact || "").trim();
+      return (
+        !new RegExp(`^${textPattern}$`).test(String(item.transporter || "").trim()) ||
+        !new RegExp(`^${vehiclePattern}$`).test(String(item.vehicle_number || "").trim()) ||
+        !Number.isInteger(Number(item.number_of_packages)) ||
+        Number(item.number_of_packages) < 1 ||
+        !new RegExp(`^${textPattern}$`).test(String(item.package_type || "").trim()) ||
+        !new RegExp(`^${namePattern}$`).test(String(item.driver_name || "").trim()) ||
+        !new RegExp(`^${phonePattern}$`).test(contact)
+      );
+    });
+    if (invalidLogistics >= 0) {
+      toast.error(`Invalid logistics details for Vehicle ${invalidLogistics + 1}`, {
+        description: "Complete every field using a valid vehicle number, driver name, contact number, package count and descriptive text.",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       if (formData.shipment_type === "RETURN" && (!formData.return_reason || !formData.original_asn_number || !formData.refund_days || !formData.return_method)) {
@@ -325,10 +335,6 @@ function NewAsn() {
         transporter: String(firstLogistics.transporter || ""),
         number_of_packages: parseInt(firstLogistics.number_of_packages) || 0,
         package_type: String(firstLogistics.package_type || ""),
-        invoice_number: String(formData.invoice_number || ""),
-        invoice_date: formData.invoice_date || null,
-        challan_number: String(formData.challan_number || ""),
-        challan_date: formData.challan_date || null,
         shipment_type: formData.shipment_type,
         return_reason: formData.return_reason || null,
         refund_days: formData.refund_days ? Number(formData.refund_days) : null,
@@ -454,19 +460,19 @@ function NewAsn() {
                   <div className="sm:col-span-2 grid gap-4 rounded-xl border border-amber-300/50 bg-amber-50/60 p-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="return_reason">Return Reason</Label>
-                      <Input id="return_reason" name="return_reason" placeholder="Damaged, rejected, excess, etc." className={inputClass} value={formData.return_reason} onChange={handleInputChange} required />
+                      <Input id="return_reason" name="return_reason" placeholder="Damaged, rejected, excess, etc." className={inputClass} value={formData.return_reason} onChange={handleInputChange} pattern={textPattern} minLength={2} maxLength={250} title="Use letters, numbers, spaces, and normal punctuation only." required />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="return_method">Return Method</Label>
-                      <Input id="return_method" name="return_method" placeholder="Courier, pickup, transport, etc." className={inputClass} value={formData.return_method} onChange={handleInputChange} required />
+                      <Input id="return_method" name="return_method" placeholder="Courier, pickup, transport, etc." className={inputClass} value={formData.return_method} onChange={handleInputChange} pattern={textPattern} minLength={2} maxLength={250} title="Use letters, numbers, spaces, and normal punctuation only." required />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="refund_days">Refund Within (Days)</Label>
-                      <Input id="refund_days" name="refund_days" type="number" min="0" placeholder="e.g. 7" className={inputClass} value={formData.refund_days} onChange={handleInputChange} required />
+                      <Input id="refund_days" name="refund_days" type="number" min="1" max="365" step="1" placeholder="e.g. 7" className={inputClass} value={formData.refund_days} onChange={handleInputChange} required />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="original_asn_number">Original ASN Number</Label>
-                      <Input id="original_asn_number" name="original_asn_number" placeholder="ASN-..." className={inputClass} value={formData.original_asn_number} onChange={handleInputChange} required />
+                      <Input id="original_asn_number" name="original_asn_number" placeholder="ASN-..." className={inputClass} value={formData.original_asn_number} onChange={handleInputChange} pattern={identifierPattern} maxLength={50} title="Use letters, numbers, hyphens, slashes, or underscores." required />
                     </div>
                     <p className="sm:col-span-2 text-xs text-amber-900">Procurement will be notified with the return method and promised refund timeline. Attach inspection or rejection evidence below.</p>
                   </div>
@@ -475,11 +481,11 @@ function NewAsn() {
                   <div className="sm:col-span-2 grid gap-4 rounded-xl border border-blue-300/50 bg-blue-50/60 p-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="replacement_reason">Replacement Reason</Label>
-                      <Input id="replacement_reason" name="replacement_reason" placeholder="Defective, short supplied, warranty, etc." className={inputClass} value={formData.replacement_reason} onChange={handleInputChange} required />
+                      <Input id="replacement_reason" name="replacement_reason" placeholder="Defective, short supplied, warranty, etc." className={inputClass} value={formData.replacement_reason} onChange={handleInputChange} pattern={textPattern} minLength={2} maxLength={250} title="Use letters, numbers, spaces, and normal punctuation only." required />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="replacement_for_asn">Replacement For ASN</Label>
-                      <Input id="replacement_for_asn" name="replacement_for_asn" placeholder="ASN-..." className={inputClass} value={formData.replacement_for_asn} onChange={handleInputChange} required />
+                      <Input id="replacement_for_asn" name="replacement_for_asn" placeholder="ASN-..." className={inputClass} value={formData.replacement_for_asn} onChange={handleInputChange} pattern={identifierPattern} maxLength={50} title="Use letters, numbers, hyphens, slashes, or underscores." required />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label htmlFor="replacement_dispatch_date">Expected Replacement Dispatch Date</Label>
@@ -505,7 +511,13 @@ function NewAsn() {
                 <div className="space-y-1.5">
                   <Label>PO Expected Date</Label>
                   <div className="h-11 flex items-center px-4 rounded-xl bg-muted/50 border border-border font-medium text-sm text-muted-foreground">
-                    {po?.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString() : "Not Specified"}
+                    {po?.expectedDeliveryDate
+                      ? new Date(po.expectedDeliveryDate).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })
+                      : "Not Specified"}
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -520,55 +532,6 @@ function NewAsn() {
                     value={formData.expected_arrival_date}
                     onChange={handleInputChange}
                     required
-                  />
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Invoice / Challan Details" icon={FileText}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="invoice_number">Invoice Number</Label>
-                  <Input
-                    id="invoice_number"
-                    name="invoice_number"
-                    placeholder="Supplier invoice no."
-                    className={inputClass}
-                    value={formData.invoice_number}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="invoice_date">Invoice Date</Label>
-                  <Input
-                    id="invoice_date"
-                    name="invoice_date"
-                    type="date"
-                    className={inputClass}
-                    value={formData.invoice_date}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="challan_number">Challan Number</Label>
-                  <Input
-                    id="challan_number"
-                    name="challan_number"
-                    placeholder="Delivery challan no."
-                    className={inputClass}
-                    value={formData.challan_number}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="challan_date">Challan Date</Label>
-                  <Input
-                    id="challan_date"
-                    name="challan_date"
-                    type="date"
-                    className={inputClass}
-                    value={formData.challan_date}
-                    onChange={handleInputChange}
                   />
                 </div>
               </div>
@@ -751,6 +714,11 @@ function NewAsn() {
                         className={inputClass}
                         value={logisticsItem.transporter}
                         onChange={(e) => handleLogisticsChange(index, "transporter", e.target.value)}
+                        pattern={textPattern}
+                        minLength={2}
+                        maxLength={250}
+                        title="Use letters, numbers, spaces, and normal punctuation only."
+                        required
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -761,6 +729,10 @@ function NewAsn() {
                         className={cn(inputClass, "uppercase")}
                         value={logisticsItem.vehicle_number}
                         onChange={(e) => handleLogisticsChange(index, "vehicle_number", e.target.value)}
+                        pattern={vehiclePattern}
+                        minLength={4}
+                        maxLength={20}
+                        title="Use letters and numbers separated only by spaces or hyphens."
                         required
                       />
                     </div>
@@ -770,11 +742,14 @@ function NewAsn() {
                         <Input
                           id={`number_of_packages_${index}`}
                           type="number"
-                          min="0"
+                          min="1"
+                          max="100000"
+                          step="1"
                           placeholder="0"
                           className={inputClass}
                           value={logisticsItem.number_of_packages}
                           onChange={(e) => handleLogisticsChange(index, "number_of_packages", e.target.value)}
+                          required
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -785,6 +760,11 @@ function NewAsn() {
                           className={inputClass}
                           value={logisticsItem.package_type}
                           onChange={(e) => handleLogisticsChange(index, "package_type", e.target.value)}
+                          pattern={textPattern}
+                          minLength={2}
+                          maxLength={250}
+                          title="Use letters, numbers, spaces, and normal punctuation only."
+                          required
                         />
                       </div>
                     </div>
@@ -796,16 +776,33 @@ function NewAsn() {
                         className={inputClass}
                         value={logisticsItem.driver_name}
                         onChange={(e) => handleLogisticsChange(index, "driver_name", e.target.value)}
+                        pattern={namePattern}
+                        minLength={2}
+                        maxLength={100}
+                        title="Use letters, spaces, apostrophes, periods, or hyphens only."
+                        required
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor={`driver_contact_${index}`}>Driver Contact</Label>
                       <Input
                         id={`driver_contact_${index}`}
-                        placeholder="+91 XXXXX XXXXX"
+                        placeholder="10-digit mobile number"
                         className={inputClass}
                         value={logisticsItem.driver_contact}
-                        onChange={(e) => handleLogisticsChange(index, "driver_contact", e.target.value)}
+                        onChange={(e) =>
+                          handleLogisticsChange(
+                            index,
+                            "driver_contact",
+                            e.target.value.replace(/\D/g, "").slice(0, 10),
+                          )
+                        }
+                        type="tel"
+                        inputMode="numeric"
+                        pattern={phonePattern}
+                        maxLength={10}
+                        title="Enter a 10-digit Indian mobile number beginning with 6–9."
+                        required
                       />
                     </div>
                   </div>

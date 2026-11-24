@@ -842,6 +842,33 @@ class SqlAlchemyGrnRepository(GrnRepository):
             is_unexpected=is_unexpected,
         )
 
+        # PO receipt transport details are owned by Gate Entry / ASN. Never
+        # persist client-provided edits for these fields.
+        if not is_unexpected and (po_id or po_number):
+            authoritative_asn = await self.find_latest_asn_for_po(
+                po_id=po_id,
+                po_number=po_number,
+            )
+            authoritative_gate = None
+            if authoritative_asn:
+                authoritative_gate = await self.find_latest_gate_entry_for_asn(
+                    authoritative_asn.id,
+                )
+            if not authoritative_gate and po_number:
+                authoritative_gate = await self.find_latest_gate_entry_for_po(po_number)
+
+            vehicle_number = (
+                (authoritative_gate.vehicle_number if authoritative_gate else None)
+                or (authoritative_asn.vehicle_number if authoritative_asn else None)
+            )
+            driver_name = (
+                (authoritative_gate.driver_name if authoritative_gate else None)
+                or (authoritative_asn.driver_name if authoritative_asn else None)
+            )
+            if authoritative_gate:
+                gate_entry_id = str(authoritative_gate.id)
+                gate_entry_number = authoritative_gate.gate_entry_number
+
         if not grn_uuid and (po_id or po_number):
             existing_snapshot = await self.find_grn_header_by_po(po_id=po_id, po_number=po_number)
             if existing_snapshot:
@@ -1119,7 +1146,9 @@ class SqlAlchemyGrnRepository(GrnRepository):
         created_by: str,
     ) -> list[GrnBatchModel]:
         res = await self._session.execute(
-            select(GrnLineModel).where(GrnLineModel.id == grn_line_id)
+            select(GrnLineModel)
+            .options(selectinload(GrnLineModel.batches))
+            .where(GrnLineModel.id == grn_line_id)
         )
         line = res.scalar_one_or_none()
         if not line:
@@ -1127,9 +1156,16 @@ class SqlAlchemyGrnRepository(GrnRepository):
 
         now = datetime.now(timezone.utc)
 
+        # A Step 4 resave replaces the allocation; it must not accumulate
+        # stale batches and later create extra QR/task rows.
+        line.batches.clear()
+        await self._session.flush()
+
         approved_qty = line.quality_approved_quantity if (line.quality_approved_quantity is not None and line.quality_approved_quantity > Decimal("0")) else line.good_quantity
         if approved_qty <= Decimal("0"):
             return []
+        if not batch_quantities or sum(batch_quantities, Decimal("0")) != approved_qty:
+            raise ValueError("Total batch quantity must equal the quality-approved quantity")
 
         # Fetch warehouse name for QR payload
         wh_res = await self._session.execute(
@@ -1184,6 +1220,73 @@ class SqlAlchemyGrnRepository(GrnRepository):
         await self._session.flush()
         return created_batches
 
+    async def create_damage_batches_for_line(
+        self,
+        grn_line_id: uuid.UUID,
+        batch_quantities: list[Decimal],
+        created_by: str,
+    ) -> list[GrnDamageLotModel]:
+        res = await self._session.execute(
+            select(GrnLineModel)
+            .options(
+                selectinload(GrnLineModel.damage_evidence),
+                selectinload(GrnLineModel.damage_lots).selectinload(GrnDamageLotModel.qr_code),
+            )
+            .where(GrnLineModel.id == grn_line_id)
+        )
+        line = res.scalar_one_or_none()
+        if not line:
+            raise ValueError(f"GRN Line not found: {grn_line_id}")
+
+        damaged_qty = (
+            line.damaged_quantity
+            if line.damaged_quantity > Decimal("0")
+            else line.rejected_quantity
+        )
+        if damaged_qty <= Decimal("0"):
+            raise ValueError("This GRN line has no damaged quantity")
+        if not batch_quantities or any(quantity <= Decimal("0") for quantity in batch_quantities):
+            raise ValueError("Every damaged batch quantity must be greater than zero")
+        if sum(batch_quantities, Decimal("0")) != damaged_qty:
+            raise ValueError("Total damaged batch quantity must equal the damaged quantity")
+
+        grn_res = await self._session.execute(
+            select(GrnModel).where(GrnModel.id == line.grn_id)
+        )
+        grn = grn_res.scalar_one()
+        reason = next(
+            (evidence.reason for evidence in line.damage_evidence if evidence.reason),
+            "Damaged/Rejected during receiving inspection",
+        )
+
+        line.damage_lots.clear()
+        await self._session.flush()
+
+        now = datetime.now(timezone.utc)
+        lots: list[GrnDamageLotModel] = []
+        for index, quantity in enumerate(batch_quantities, 1):
+            lot = GrnDamageLotModel(
+                id=uuid.uuid4(),
+                grn_line_id=line.id,
+                grn_line=line,
+                damage_lot_number=(
+                    f"DMG-LOT-{grn.grn_number}-{line.item_code}-{index:03d}-{uuid.uuid4().hex[:4].upper()}"
+                ),
+                damaged_quantity=quantity,
+                uom=line.uom or "PCS",
+                reason=reason,
+                qa_status=line.quality_result or "REJECTED",
+                quarantine_location="QUARANTINE-ZONE-A",
+                status="DAMAGED",
+                created_by=created_by,
+                created_at=now,
+            )
+            self._session.add(lot)
+            lots.append(lot)
+
+        await self._session.flush()
+        return lots
+
     async def create_or_get_damage_lots_for_grn(
         self,
         grn_id: uuid.UUID,
@@ -1222,7 +1325,54 @@ class SqlAlchemyGrnRepository(GrnRepository):
             if line.damaged_quantity != damaged_qty:
                 line.damaged_quantity = damaged_qty
 
-            # 1. Reuse existing Damage Lot for line if present AND update quantity if changed
+            # User-created damaged batches are preserved as separate damage
+            # lots, each with its own quarantine QR.
+            if len(line.damage_lots) > 1:
+                allocated_qty = sum(
+                    (lot.damaged_quantity for lot in line.damage_lots),
+                    Decimal("0"),
+                )
+                if allocated_qty != damaged_qty:
+                    raise ValueError(
+                        f"Damaged batch total for {line.item_code} must equal {damaged_qty}"
+                    )
+
+                wh_name = grn.warehouse_name or "Main Warehouse"
+                for index, lot in enumerate(line.damage_lots, 1):
+                    qr_code_str = f"DMG-{grn.grn_number}-{line.item_code}-{index:02d}"
+                    qr_payload = "\n".join([
+                        f"Material Code: {line.item_code}",
+                        f"Material Name: {line.material_name or line.item_code}",
+                        f"Material Category: {line.material_category or 'Raw Materials'}",
+                        f"Material Variant Code: {line.variant_code or f'{line.item_code}-V001'}",
+                        f"Batch: {lot.damage_lot_number}",
+                        f"Warehouse: {wh_name}",
+                        f"UOM: {line.uom or 'PCS'}",
+                        "Inspection Status: DAMAGED",
+                        f"Batch Quantity: {lot.damaged_quantity} {line.uom or 'PCS'}",
+                    ])
+                    if not lot.qr_code:
+                        lot.qr_code = GrnDamageQrModel(
+                            id=uuid.uuid4(),
+                            damage_lot_id=lot.id,
+                            grn_line_id=line.id,
+                            grn_number=grn.grn_number or "",
+                            item_code=line.item_code,
+                            qr_code=qr_code_str,
+                            qr_payload=qr_payload,
+                            generated_by=created_by,
+                            generated_at=now,
+                        )
+                        self._session.add(lot.qr_code)
+                    else:
+                        lot.qr_code.qr_code = qr_code_str
+                        lot.qr_code.qr_payload = qr_payload
+                    damage_lots.append(lot)
+
+                await self._session.flush()
+                continue
+
+            # Reuse a legacy single Damage Lot for the line if present.
             if line.damage_lots:
                 lot = line.damage_lots[0]
                 if lot.damaged_quantity != damaged_qty:
@@ -1516,6 +1666,12 @@ class SqlAlchemyGrnRepository(GrnRepository):
                         INSERT INTO inventory_receipt_posting
                         (id, grn_id, grn_number, po_id, po_number, asn_id, asn_number, supplier_name, item_code, material_name, uom, warehouse_id, posted_quantity, on_hand_before, on_hand_after, posted_by, posted_at)
                         VALUES (:id, :grn_id, :grn_num, :po_id, :po_num, :asn_id, :asn_num, :supplier, :code, :name, :uom, :wh, :qty, :before, :after, :user, :now)
+                        ON CONFLICT (grn_id, item_code) DO UPDATE SET
+                            posted_quantity = EXCLUDED.posted_quantity,
+                            on_hand_before = EXCLUDED.on_hand_before,
+                            on_hand_after = EXCLUDED.on_hand_after,
+                            posted_by = EXCLUDED.posted_by,
+                            posted_at = EXCLUDED.posted_at
                     """),
                     {
                         "id": uuid.uuid4(),
@@ -1530,7 +1686,7 @@ class SqlAlchemyGrnRepository(GrnRepository):
                         "name": line.material_name or line.item_code,
                         "uom": line.uom or "PCS",
                         "wh": grn.warehouse_id or "WH-MAIN",
-                        "qty": 0,
+                        "qty": post_qty,
                         "before": on_hand_before,
                         "after": on_hand_after,
                         "user": posted_by,
@@ -1538,44 +1694,27 @@ class SqlAlchemyGrnRepository(GrnRepository):
                     },
                 )
 
-                # 3. Create putaway task for line or batches
-                if line.batches and len(line.batches) > 0:
-                    for batch in line.batches:
-                        if batch.batch_quantity and batch.batch_quantity > Decimal("0"):
-                            task_num = f"PT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
-                            await self._session.execute(
-                                text("""
-                                    INSERT INTO putaway_task
-                                    (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at, batch_number)
-                                    VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now, :batch_number)
-                                """),
-                                {
-                                    "id": uuid.uuid4(),
-                                    "task_num": task_num,
-                                    "grn_id": grn.id,
-                                    "grn_num": grn.grn_number,
-                                    "code": line.item_code,
-                                    "name": line.material_name or line.item_code,
-                                    "qty": batch.batch_quantity,
-                                    "uom": line.uom or "PCS",
-                                    "wh": grn.warehouse_id or "WH-MAIN",
-                                    "source": f"RECEIVING_DOCK_{grn.dock_number or '1'}",
-                                    "dest_store_id": dest_store_id,
-                                    "assigned_to": assigned_to,
-                                    "assigned_by": assigned_by,
-                                    "assigned_at": assigned_at,
-                                    "user": posted_by,
-                                    "now": now,
-                                    "batch_number": batch.batch_number,
-                                },
-                            )
-                else:
+                # 3. Each approved GRN batch/QR is an independently executable
+                # putaway task. Damaged batches remain quarantine lots.
+                task_batches = [
+                    (batch.batch_number, batch.batch_quantity)
+                    for batch in line.batches
+                    if batch.batch_quantity and batch.batch_quantity > Decimal("0")
+                ] or [(f"UNBATCHED-{line.item_code}", post_qty)]
+
+                for batch_number, batch_quantity in task_batches:
                     task_num = f"PT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
                     await self._session.execute(
                         text("""
                             INSERT INTO putaway_task
-                            (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at)
-                            VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now)
+                            (id, task_number, grn_id, grn_number, item_code, material_name, quantity, uom, warehouse_id, source_location, destination_store_id, assigned_to, assigned_by, assigned_at, status, created_by, created_at, batch_number)
+                            VALUES (:id, :task_num, :grn_id, :grn_num, :code, :name, :qty, :uom, :wh, :source, :dest_store_id, :assigned_to, :assigned_by, :assigned_at, 'PUTAWAY_PENDING', :user, :now, :batch_number)
+                            ON CONFLICT (grn_id, item_code, batch_number) DO UPDATE SET
+                                quantity = EXCLUDED.quantity,
+                                destination_store_id = COALESCE(putaway_task.destination_store_id, EXCLUDED.destination_store_id),
+                                assigned_to = COALESCE(putaway_task.assigned_to, EXCLUDED.assigned_to),
+                                assigned_by = COALESCE(putaway_task.assigned_by, EXCLUDED.assigned_by),
+                                assigned_at = COALESCE(putaway_task.assigned_at, EXCLUDED.assigned_at)
                         """),
                         {
                             "id": uuid.uuid4(),
@@ -1584,7 +1723,7 @@ class SqlAlchemyGrnRepository(GrnRepository):
                             "grn_num": grn.grn_number,
                             "code": line.item_code,
                             "name": line.material_name or line.item_code,
-                            "qty": post_qty,
+                            "qty": batch_quantity,
                             "uom": line.uom or "PCS",
                             "wh": grn.warehouse_id or "WH-MAIN",
                             "source": f"RECEIVING_DOCK_{grn.dock_number or '1'}",
@@ -1594,6 +1733,7 @@ class SqlAlchemyGrnRepository(GrnRepository):
                             "assigned_at": assigned_at,
                             "user": posted_by,
                             "now": now,
+                            "batch_number": batch_number,
                         },
                     )
 
@@ -1607,7 +1747,9 @@ class SqlAlchemyGrnRepository(GrnRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[GrnModel], int]:
-        stmt = select(GrnModel).options(selectinload(GrnModel.lines))
+        stmt = select(GrnModel).options(
+            selectinload(GrnModel.lines).selectinload(GrnLineModel.batches)
+        )
         conditions = []
         if status and status.strip() and status.strip().upper() != "ALL":
             s = status.strip().upper().replace(" ", "_").replace("-", "_")

@@ -101,7 +101,7 @@ function QrScanWidget({ onDetected, disabled }: { onDetected: (code: string) => 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [error, setError] = useState("");
-  const [uploadMode, setUploadMode] = useState(false);
+  const [uploadMode, setUploadMode] = useState(true);
   const [manual, setManual] = useState("");
 
   useEffect(() => {

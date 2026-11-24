@@ -126,6 +126,7 @@ function MaterialMasterSearchCombobox({
   placeholder = "Pick Material Master",
   className,
   size = "md",
+  disabled = false,
 }: {
   value: string;
   onSelect: (val: string) => void;
@@ -135,6 +136,7 @@ function MaterialMasterSearchCombobox({
   placeholder?: string;
   className?: string;
   size?: "sm" | "md";
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -174,6 +176,7 @@ function MaterialMasterSearchCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className={cn(
             "w-full justify-between rounded-xl font-normal text-xs bg-background hover:bg-accent/40 border-input",
             size === "sm" ? "h-9 px-2.5" : "h-9 px-3",
@@ -365,7 +368,15 @@ function WarehouseMaterialRequests() {
       api.getSuppliers({ status: "Active" })
         .then((sups) => setActiveSuppliers(sups || []))
         .catch(() => {});
-      setRequests(reqData);
+      setRequests(
+        (Array.isArray(reqData) ? reqData : []).filter((request: any) => {
+          const requestNumber = String(request.requestNumber || request.request_number || "")
+            .trim()
+            .toUpperCase();
+          const department = String(request.department || "").trim().toLowerCase();
+          return !requestNumber.startsWith("FGR-") && department !== "assembly";
+        }),
+      );
       setMasterMaterials(matData);
       const warehouseIds = [...new Set(locationData.map((row: any) => row.warehouse_id).filter(Boolean))] as string[];
       setWarehouses(warehouseIds.sort());
@@ -393,6 +404,12 @@ function WarehouseMaterialRequests() {
   useEffect(() => {
     if (searchParams.source_requisition_id || searchParams.items_json) {
       const handlePreFill = async () => {
+        setIsCreating(true);
+        setNextRequestNumber("Generating...");
+        setFormData((prev) => ({
+          ...prev,
+          request_number: "Generating...",
+        }));
         try {
           const { requestNumber, nextMaterialSequence } =
             (await api.getNextMaterialRequestNumber().catch(() => ({
@@ -419,6 +436,7 @@ function WarehouseMaterialRequests() {
                   .map((it: any) => {
                     const reqQ = Number(it.required_quantity ?? it.requested_quantity ?? it.quantity ?? 0);
                     const resQ = Number(it.reserved_quantity ?? 0);
+                    const availableQ = Number(it.available_quantity ?? it.availableQuantity ?? 0);
                     const shortageQ = Number(it.shortage_quantity ?? Math.max(0, reqQ - resQ));
                     if (shortageQ > 0) {
                       return {
@@ -433,10 +451,15 @@ function WarehouseMaterialRequests() {
                           it.customMaterialName ||
                           "Material",
                         quantity: shortageQ,
+                        required_quantity: reqQ,
+                        available_quantity: availableQ,
+                        reserved_quantity: resQ,
+                        shortage_quantity: shortageQ,
                         uom: it.uom || "PCS",
                         category: it.category || "Raw Materials",
                         is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
                         custom_material_name: it.custom_material_name || it.customMaterialName || null,
+                        source_locked: true,
                       };
                     }
                     return null;
@@ -462,10 +485,15 @@ function WarehouseMaterialRequests() {
                   it.customMaterialName ||
                   "Material",
                 quantity: it.quantity || 1,
+                required_quantity: Number(it.required_quantity ?? it.requiredQuantity ?? 0),
+                available_quantity: Number(it.available_quantity ?? it.availableQuantity ?? 0),
+                reserved_quantity: Number(it.reserved_quantity ?? it.reservedQuantity ?? 0),
+                shortage_quantity: Number(it.shortage_quantity ?? it.shortageQuantity ?? 0),
                 uom: it.uom || "PCS",
                 category: it.category || "Raw Materials",
                 is_custom: Boolean(it.is_custom || it.isCustom || !it.material_id),
                 custom_material_name: it.custom_material_name || it.customMaterialName || null,
+                source_locked: Boolean(it.source_locked ?? it.sourceLocked ?? true),
               })),
             );
           }
@@ -488,9 +516,12 @@ function WarehouseMaterialRequests() {
                 : prev.remarks),
             requested_by: user?.username?.trim() || prev.requested_by || "",
           }));
-          setIsCreating(true);
         } catch {
-          setIsCreating(true);
+          setNextRequestNumber("MR-PENDING");
+          setFormData((prev) => ({
+            ...prev,
+            request_number: prev.request_number === "Generating..." ? "MR-PENDING" : prev.request_number,
+          }));
         }
       };
       handlePreFill();
@@ -759,6 +790,24 @@ function WarehouseMaterialRequests() {
     }
   };
   const startCreating = async () => {
+    setIsCreating(true);
+    setNextRequestNumber("Generating...");
+    setFormData((prev) => ({
+      ...prev,
+      request_number: "Generating...",
+      warehouse_id: "Main Warehouse",
+    }));
+    setItems([
+      {
+        material_id: "",
+        material_variant_id: "",
+        material_code: "",
+        variant_code: "",
+        material_name: "",
+        quantity: 1,
+        uom: "",
+      },
+    ]);
     try {
       const { requestNumber, nextMaterialSequence } =
         (await api.getNextMaterialRequestNumber()) as any;
@@ -781,8 +830,12 @@ function WarehouseMaterialRequests() {
           uom: "",
         },
       ]);
-      setIsCreating(true);
     } catch (error) {
+      setNextRequestNumber("MR-PENDING");
+      setFormData((prev) => ({
+        ...prev,
+        request_number: "MR-PENDING",
+      }));
       toast.error("Failed to generate request number");
     }
   };
@@ -1023,6 +1076,14 @@ function WarehouseMaterialRequests() {
               </div>
 
               <div className="space-y-3">
+                {searchParams.source_requisition_number && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                    <strong>From Assembly Requisition {searchParams.source_requisition_number}:</strong>{" "}
+                    material details and current stock are carried over automatically. Only the
+                    order quantity needs adjustment; it may be higher than the shortage for future
+                    stock.
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <Label className="text-xs font-semibold text-foreground">
                     Material Items
@@ -1040,14 +1101,15 @@ function WarehouseMaterialRequests() {
 
                 <div className="rounded-2xl border border-border/60 overflow-hidden bg-card shadow-inner">
                   <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-left text-sm border-collapse min-w-[800px]">
+                    <table className="w-full table-fixed text-left text-sm border-collapse min-w-[920px]">
                       <colgroup>
-                        <col className="w-[20%]" />
                         <col className="w-[18%]" />
-                        <col className="w-[24%]" />
-                        <col className="w-[15%]" />
-                        <col className="w-[10%]" />
-                        <col className="w-[8%]" />
+                        <col className="w-[16%]" />
+                        <col className="w-[21%]" />
+                        <col className="w-[13%]" />
+                        <col className="w-[13%]" />
+                        <col className="w-[9%]" />
+                        <col className="w-[6%]" />
                         <col className="w-[5%]" />
                       </colgroup>
                       <thead>
@@ -1056,7 +1118,8 @@ function WarehouseMaterialRequests() {
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Specification</th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Material Description</th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Category</th>
-                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">Qty</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center">Stock Position</th>
+                          <th className="p-3 text-[10px] uppercase font-black text-muted-foreground text-center truncate">Order Qty</th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">UOM</th>
                           <th className="p-3 text-right"></th>
                         </tr>
@@ -1069,6 +1132,8 @@ function WarehouseMaterialRequests() {
                               <td className="p-2 min-w-0">
                                 <MaterialMasterSearchCombobox
                                   value={item.material_id || "CUSTOM"}
+                                  disabled={item.source_locked}
+                                  className={item.source_locked ? "bg-muted/50" : undefined}
                                   unavailableMaterialIds={items
                                     .filter((otherItem, otherIdx) => otherIdx !== idx)
                                     .map((otherItem) => otherItem.material_id)
@@ -1094,7 +1159,7 @@ function WarehouseMaterialRequests() {
                                 <Select
                                   value={item.material_variant_id || selectedMat?.variants?.[0]?.id || ""}
                                   onValueChange={(val) => handleSelectVariant(idx, val)}
-                                  disabled={!selectedMat?.variants?.length}
+                                  disabled={item.source_locked || !selectedMat?.variants?.length}
                                 >
                                   <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
                                     <SelectValue placeholder="No spec" />
@@ -1130,6 +1195,7 @@ function WarehouseMaterialRequests() {
                                 <Select
                                   value={item.category || selectedMat?.category || "Raw Materials"}
                                   onValueChange={(val) => handleItemChange(idx, "category", val)}
+                                  disabled={item.source_locked}
                                 >
                                   <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
                                     <SelectValue placeholder="Category..." />
@@ -1144,6 +1210,18 @@ function WarehouseMaterialRequests() {
                                 </Select>
                               </td>
                               <td className="p-2 min-w-0">
+                                <div className="rounded-xl border border-border/60 bg-muted/30 px-2 py-1.5 text-center leading-tight">
+                                  <div className="font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                                    {Number(item.available_quantity ?? 0).toLocaleString()} available
+                                  </div>
+                                  {item.source_locked && (
+                                    <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
+                                      Need {Number(item.required_quantity ?? 0).toLocaleString()} · Short {Number(item.shortage_quantity ?? 0).toLocaleString()}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-2 min-w-0">
                                 <Input
                                   type="number"
                                   min="1"
@@ -1156,6 +1234,7 @@ function WarehouseMaterialRequests() {
                                 <Select
                                   value={item.uom}
                                   onValueChange={(value) => handleItemChange(idx, "uom", value)}
+                                  disabled={item.source_locked}
                                 >
                                   <SelectTrigger className="h-9 w-full rounded-xl bg-background text-xs truncate">
                                     <SelectValue placeholder="UOM" />
@@ -1843,8 +1922,8 @@ function WarehouseMaterialRequests() {
 
       {/* PRE-SUBMISSION MATERIAL REQUEST CONFIRMATION POPUP MODAL */}
       <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
-          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+        <DialogContent className="max-w-2xl w-[calc(100%-2rem)] max-h-[calc(100vh-2rem)] rounded-3xl p-0 overflow-hidden border-none shadow-2xl flex flex-col">
+          <div className="shrink-0 p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <DialogTitle className="text-xl font-bold tracking-tight text-white">
@@ -1860,7 +1939,7 @@ function WarehouseMaterialRequests() {
             </div>
           </div>
 
-          <div className="p-6 space-y-5">
+          <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-5">
             {/* Request Summary Metadata */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
               <div>
@@ -1996,7 +2075,7 @@ function WarehouseMaterialRequests() {
             })()}
           </div>
 
-          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+          <div className="shrink-0 p-4 bg-background border-t border-border/60 flex items-center justify-between gap-3">
             <Button
               type="button"
               variant="ghost"

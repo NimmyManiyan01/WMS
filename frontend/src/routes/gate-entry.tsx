@@ -1727,7 +1727,7 @@ function GateEntry() {
           }}
           className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none items-center justify-center overflow-hidden bg-transparent p-4 open:flex backdrop:bg-black/65 backdrop:backdrop-blur-sm"
         >
-          <div className="relative max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-hidden rounded-3xl border border-border/50 bg-card p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="relative max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border border-border/50 bg-card p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <Button
               variant="ghost"
               size="icon"
@@ -1845,7 +1845,7 @@ function GateEntry() {
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-6 flex items-center justify-end gap-3 border-t border-border/50 bg-card/95 px-6 py-4 backdrop-blur sm:-mx-8 sm:-mb-8 sm:px-8">
               <Button
                 variant="outline"
                 className="rounded-xl font-bold px-6"

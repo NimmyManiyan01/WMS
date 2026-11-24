@@ -356,7 +356,7 @@ function PhotoEditor({ lineId, damagedQuantity, reason, onSuccess, initialPrevie
                         setCameraOpen(true);
                     }}
                 >
-                    Open Camera
+                    {preview ? "Retake Photo" : "Open Camera"}
                 </Button>
             )}
 

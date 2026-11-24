@@ -394,6 +394,7 @@ class GrnLineResponse(ApiModel):
 
     balance_quantity: Decimal = Decimal("0")
     quality_result: str | None = None
+    batches: list[dict] = Field(default_factory=list)
     damage_lots: list[GrnDamageLotResponse] = Field(default_factory=list)
     damage_evidence: list[DamageEvidenceResponse] = Field(default_factory=list)
 
@@ -737,6 +738,7 @@ class GrnSummaryResponse(ApiModel):
     received_by: str | None = None
     current_step: int = 1
     max_completed_step: int = 0
+    batch_count: int = 0
 
 
 class GrnListResponse(ApiModel):

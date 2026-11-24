@@ -3,7 +3,7 @@ from decimal import Decimal
 import re
 from typing import Any, List, Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.common.api_model import ApiModel
 
@@ -277,10 +277,10 @@ class SubmitQuotationRequest(ApiModel):
     supplier_id: str
     lines: List[QuotationLineSchema]
     status: str = "SUBMITTED"
-    discount: Decimal = Field(default=Decimal("0.0"), ge=0)
+    discount: Decimal = Field(default=Decimal("0.0"), ge=0, le=100, max_digits=5, decimal_places=2)
     tax: Decimal = Field(default=Decimal("0.0"), ge=0, le=100)
-    freight_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
-    additional_charges: Decimal = Field(default=Decimal("0.0"), ge=0)
+    freight_charges: Decimal = Field(default=Decimal("0.0"), ge=0, max_digits=14, decimal_places=2)
+    additional_charges: Decimal = Field(default=Decimal("0.0"), ge=0, max_digits=14, decimal_places=2)
     delivery_time: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     payment_terms: Optional[str] = None
@@ -289,6 +289,47 @@ class SubmitQuotationRequest(ApiModel):
     quotation_validity: Optional[date] = None
     remarks: Optional[str] = None
     documents: List[QuotationDocumentSchema] = []
+
+    @field_validator("tax")
+    @classmethod
+    def validate_gst_rate(cls, value: Decimal) -> Decimal:
+        allowed_rates = {Decimal("0"), Decimal("5"), Decimal("12"), Decimal("18"), Decimal("28")}
+        if value not in allowed_rates:
+            raise ValueError("GST must be one of the standard rates: 0, 5, 12, 18, or 28 percent")
+        return value
+
+    @field_validator("delivery_time")
+    @classmethod
+    def validate_delivery_time(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        match = re.fullmatch(r"([1-9][0-9]{0,3})(?:\s*days?)?", value.strip(), re.IGNORECASE)
+        if not match:
+            raise ValueError("Delivery time must be a whole number from 1 to 9999 days")
+        return f"{int(match.group(1))} days"
+
+    @field_validator("expected_delivery_date")
+    @classmethod
+    def validate_delivery_date(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value < date.today():
+            raise ValueError("Expected delivery date cannot be in the past")
+        return value
+
+    @field_validator("payment_terms")
+    @classmethod
+    def validate_payment_terms(cls, value: Optional[str]) -> Optional[str]:
+        allowed = {"Net 30", "Net 60", "Immediate", "COD", "Advance"}
+        if value is not None and value not in allowed:
+            raise ValueError("Invalid payment terms")
+        return value
+
+    @field_validator("mode_of_payment")
+    @classmethod
+    def validate_payment_mode(cls, value: Optional[str]) -> Optional[str]:
+        allowed = {"Bank Transfer", "Wire Transfer", "Letter of Credit", "Cheque", "UPI / Net Banking", "Cash"}
+        if value is not None and value not in allowed:
+            raise ValueError("Invalid mode of payment")
+        return value
 
 
 class QuotationResponse(ApiModel):
@@ -334,6 +375,60 @@ class AsnDocumentSchema(ApiModel):
     uploaded_at: Optional[datetime] = None
 
 
+ASN_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9/_-]{0,49}$")
+ASN_VEHICLE_PATTERN = re.compile(r"^[A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)*$")
+ASN_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z .'-]{1,99}$")
+ASN_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,'()&/-]{1,249}$")
+
+
+def _validate_asn_text(value: Optional[str], pattern: re.Pattern, label: str) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not pattern.fullmatch(cleaned):
+        raise ValueError(f"{label} contains invalid characters")
+    return cleaned
+
+
+class AsnLogisticsSchema(ApiModel):
+    transporter: str
+    vehicle_number: str
+    number_of_packages: int = Field(ge=1, le=100000)
+    package_type: str
+    driver_name: str
+    driver_contact: str
+
+    @field_validator("transporter", "package_type")
+    @classmethod
+    def validate_descriptive_fields(cls, value: str, info):
+        return _validate_asn_text(value, ASN_TEXT_PATTERN, info.field_name.replace("_", " ").title())
+
+    @field_validator("vehicle_number")
+    @classmethod
+    def validate_vehicle_number(cls, value: str):
+        cleaned = _validate_asn_text(value, ASN_VEHICLE_PATTERN, "Vehicle number")
+        if cleaned is None or not 4 <= len(cleaned) <= 20:
+            raise ValueError("Vehicle number must contain 4 to 20 characters")
+        return cleaned.upper()
+
+    @field_validator("driver_name")
+    @classmethod
+    def validate_driver_name(cls, value: str):
+        return _validate_asn_text(value, ASN_NAME_PATTERN, "Driver name")
+
+    @field_validator("driver_contact")
+    @classmethod
+    def validate_driver_contact(cls, value: str):
+        cleaned = value.strip()
+        if not re.fullmatch(r"(?:\+91[ -]?)?[6-9][0-9]{4}[ -]?[0-9]{5}", cleaned):
+            raise ValueError(
+                "Driver contact must be a 10-digit Indian mobile number beginning with 6-9, optionally prefixed with +91"
+            )
+        return cleaned
+
+
 class CreateAsnRequest(ApiModel):
     asn_number: str
     lines: List[AsnLineSchema]
@@ -345,16 +440,12 @@ class CreateAsnRequest(ApiModel):
     driver_name: Optional[str] = None
     driver_contact: Optional[str] = None
     transporter: Optional[str] = None
-    number_of_packages: Optional[int] = None
+    number_of_packages: Optional[int] = Field(None, ge=1, le=100000)
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
-    invoice_number: Optional[str] = None
-    invoice_date: Optional[date] = None
-    challan_number: Optional[str] = None
-    challan_date: Optional[date] = None
     shipment_type: Optional[str] = "STANDARD"
     return_reason: Optional[str] = None
-    refund_days: Optional[int] = None
+    refund_days: Optional[int] = Field(None, ge=1, le=365)
     return_method: Optional[str] = None
     original_asn_number: Optional[str] = None
     replacement_reason: Optional[str] = None
@@ -363,8 +454,39 @@ class CreateAsnRequest(ApiModel):
     replacement_request_id: Optional[str] = None
     status: Optional[str] = "SUBMITTED"
     documents: List[AsnDocumentSchema] = []
-    logistics: Optional[List[dict]] = None
+    logistics: Optional[List[AsnLogisticsSchema]] = None
 
+    @field_validator("asn_number", "po_number", "original_asn_number", "replacement_for_asn")
+    @classmethod
+    def validate_identifiers(cls, value: Optional[str], info):
+        return _validate_asn_text(value, ASN_IDENTIFIER_PATTERN, info.field_name.replace("_", " ").title())
+
+    @field_validator("vehicle_number")
+    @classmethod
+    def validate_primary_vehicle(cls, value: Optional[str]):
+        if value is None:
+            return None
+        cleaned = _validate_asn_text(value, ASN_VEHICLE_PATTERN, "Vehicle number")
+        if cleaned is not None and not 4 <= len(cleaned) <= 20:
+            raise ValueError("Vehicle number must contain 4 to 20 characters")
+        return cleaned.upper() if cleaned else None
+
+    @field_validator("driver_name")
+    @classmethod
+    def validate_primary_driver(cls, value: Optional[str]):
+        return _validate_asn_text(value, ASN_NAME_PATTERN, "Driver name")
+
+    @field_validator("transporter", "package_type", "return_reason", "return_method", "replacement_reason")
+    @classmethod
+    def validate_text_fields(cls, value: Optional[str], info):
+        return _validate_asn_text(value, ASN_TEXT_PATTERN, info.field_name.replace("_", " ").title())
+
+    @field_validator("driver_contact")
+    @classmethod
+    def validate_primary_contact(cls, value: Optional[str]):
+        if value is None or not value.strip():
+            return None
+        return AsnLogisticsSchema.validate_driver_contact(value)
 
 class AsnResponse(ApiModel):
     id: str
@@ -384,10 +506,6 @@ class AsnResponse(ApiModel):
     number_of_packages: Optional[int] = None
     package_type: Optional[str] = None
     shipping_method: Optional[str] = None
-    invoice_number: Optional[str] = None
-    invoice_date: Optional[date] = None
-    challan_number: Optional[str] = None
-    challan_date: Optional[date] = None
     documents: List[AsnDocumentSchema] = []
     logistics: Optional[List[dict]] = None
     warehouse_status: Optional[str] = None
@@ -759,6 +877,7 @@ class MagicLoginResponse(ApiModel):
     supplier_id: str
     supplierId: str
     username: str
+    supplier_name: Optional[str] = None
     must_change_password: bool
     roles: List[str] = ["SUPPLIER"]
     rfq_id: Optional[str] = None

@@ -105,7 +105,7 @@ const rejectionReasons = [
 ] as const;
 
 export const Route = createFileRoute("/procurement/quotations")({
-  beforeLoad: () => requireRole(["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"]),
+  beforeLoad: () => requireRole(["PROCUREMENT", "ADMIN", "SUPERUSER"]),
   component: Quotations,
   validateSearch: (search: Record<string, unknown>): QuotationsSearch => {
     return {

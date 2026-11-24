@@ -233,12 +233,9 @@ export const api = {
         username.toLowerCase().includes("grn") || username.toLowerCase().includes("receiving");
       const isAssembly = username.toLowerCase().includes("assembly");
       const isStore = username.toLowerCase().includes("store");
-      const isManager = username.toLowerCase().includes("manager") && !isAssembly && !isStore;
       const mockUser = {
         token: isFinance
           ? "mock-jwt-finance-token"
-          : isManager
-            ? "mock-jwt-manager-token"
           : isProcurement
             ? "mock-jwt-procurement-token"
             : isWarehouse
@@ -255,8 +252,6 @@ export const api = {
         username,
         roles: isFinance
           ? ["FINANCE"]
-          : isManager
-            ? ["MANAGER"]
           : isProcurement
             ? ["PROCUREMENT"]
             : isWarehouse
@@ -298,7 +293,8 @@ export const api = {
     );
     const supplierUser = {
       token: response.token,
-      username: response.username,
+      username: response.supplierName || response.supplier_name || response.username,
+      supplierName: response.supplierName || response.supplier_name || response.username,
       roles: ["SUPPLIER"],
       supplierId: response.supplierId || response.supplier_id,
       mustChangePassword: false,
@@ -313,6 +309,7 @@ export const api = {
       link_type: response.linkType || response.link_type,
       linkType: response.linkType || response.link_type,
       email: response.email,
+      supplierName: response.supplierName || response.supplier_name || response.username,
       expires_in_hours: response.expiresInHours || response.expires_in_hours,
       expiresInHours: response.expiresInHours || response.expires_in_hours,
     };
@@ -2147,6 +2144,37 @@ export const api = {
   async getStoreManagers(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/stores/managers`);
   },
+  async getAdminUsers(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/admin/users`, {
+      cache: "no-store",
+    });
+  },
+  async getAdminRoles(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/admin/roles`);
+  },
+  async createAdminUser(data: Record<string, unknown>): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/admin/users`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+  },
+  async updateAdminUser(id: string, data: Record<string, unknown>): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/admin/users/${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+  },
+  async getAdminAssemblyUnits(): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/admin/assembly-units`);
+  },
+  async createAdminAssemblyUnit(data: Record<string, unknown>): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/admin/assembly-units`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+  },
+  async updateAdminAssemblyUnit(id: string, data: Record<string, unknown>): Promise<any> {
+    return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/admin/assembly-units/${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+  },
   async getNextStoreCode(): Promise<{ suggested_store_code: string }> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/stores/next-code`);
   },
@@ -2710,6 +2738,19 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(batches),
     });
+  },
+  async createGrnDamageBatches(
+    grnLineId: string,
+    batches: { batch_quantity: number }[],
+  ): Promise<any[]> {
+    return request<any[]>(
+      `${BUSINESS_API_URL}/api/receiving/grn/lines/${encodeURIComponent(grnLineId)}/damage-batches`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batches),
+      },
+    );
   },
   async generateDamageQrs(grnId: string): Promise<any[]> {
     return request<any[]>(

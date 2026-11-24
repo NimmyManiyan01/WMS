@@ -27,6 +27,8 @@ from app.modules.assembly.infrastructure.persistence.models import (
     BillOfMaterialsItemModel,
 )
 from app.modules.procurement.infrastructure.persistence.models import (
+    MaterialModel,
+    MaterialVariantModel,
     MaterialIssueModel,
     MaterialStockModel,
     MaterialRequestModel,
@@ -1433,7 +1435,7 @@ async def get_assembly_finished_goods_request(
 
 
 class BOMItemCreate(BaseModel):
-    material_id: Optional[str] = None
+    material_id: uuid.UUID
     material_code: str
     material_name: str
     variant_code: Optional[str] = None
@@ -1456,6 +1458,40 @@ class BOMUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     items: Optional[list[BOMItemCreate]] = None
+
+
+async def _validate_bom_materials(items: list[BOMItemCreate], uow: UnitOfWork) -> None:
+    """Ensure every BOM component is an active material from the warehouse master."""
+    material_ids = {item.material_id for item in items}
+    result = await uow.session.execute(
+        select(MaterialModel.id).where(
+            MaterialModel.id.in_(material_ids),
+            func.lower(MaterialModel.status) == "active",
+        )
+    )
+    active_material_ids = set(result.scalars().all())
+    missing_ids = material_ids - active_material_ids
+    if missing_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Every BOM component must be selected from active warehouse materials.",
+        )
+
+    for item in items:
+        if not item.variant_code:
+            continue
+        variant_exists = await uow.session.scalar(
+            select(MaterialVariantModel.id).where(
+                MaterialVariantModel.material_id == item.material_id,
+                MaterialVariantModel.variant_code == item.variant_code,
+                func.lower(MaterialVariantModel.status) == "active",
+            )
+        )
+        if not variant_exists:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Variant {item.variant_code} is not active for the selected warehouse material.",
+            )
 
 
 @router.get("/bom")
@@ -1526,6 +1562,7 @@ async def get_bom(bom_id: str, uow: UnitOfWork = Depends(get_uow)):
 
 @router.post("/bom", status_code=201)
 async def create_bom(payload: BOMCreate, uow: UnitOfWork = Depends(get_uow)):
+    await _validate_bom_materials(payload.items, uow)
     # Check if a BOM already exists for this product to prevent duplicate BOM definitions
     conditions = []
     if payload.product_code:
@@ -1555,15 +1592,9 @@ async def create_bom(payload: BOMCreate, uow: UnitOfWork = Depends(get_uow)):
             await uow.session.delete(old_item)
 
         for it in payload.items:
-            mat_uuid = None
-            if it.material_id:
-                try:
-                    mat_uuid = uuid.UUID(it.material_id)
-                except ValueError:
-                    pass
             itm = BillOfMaterialsItemModel(
                 bom_id=existing.id,
-                material_id=mat_uuid,
+                material_id=it.material_id,
                 material_code=it.material_code.strip(),
                 material_name=it.material_name.strip(),
                 variant_code=it.variant_code.strip() if it.variant_code else None,
@@ -1598,15 +1629,9 @@ async def create_bom(payload: BOMCreate, uow: UnitOfWork = Depends(get_uow)):
     await uow.session.flush()
 
     for it in payload.items:
-        mat_uuid = None
-        if it.material_id:
-            try:
-                mat_uuid = uuid.UUID(it.material_id)
-            except ValueError:
-                pass
         item_model = BillOfMaterialsItemModel(
             bom_id=bom.id,
-            material_id=mat_uuid,
+            material_id=it.material_id,
             material_code=it.material_code.strip(),
             material_name=it.material_name.strip(),
             variant_code=it.variant_code.strip() if it.variant_code else None,
@@ -1651,19 +1676,14 @@ async def update_bom(bom_id: str, payload: BOMUpdate, uow: UnitOfWork = Depends(
         bom.status = payload.status
 
     if payload.items is not None:
+        await _validate_bom_materials(payload.items, uow)
         for old_item in (bom.items or []):
             await uow.session.delete(old_item)
 
         for it in payload.items:
-            mat_uuid = None
-            if it.material_id:
-                try:
-                    mat_uuid = uuid.UUID(it.material_id)
-                except ValueError:
-                    pass
             item_model = BillOfMaterialsItemModel(
                 bom_id=bom.id,
-                material_id=mat_uuid,
+                material_id=it.material_id,
                 material_code=it.material_code.strip(),
                 material_name=it.material_name.strip(),
                 variant_code=it.variant_code.strip() if it.variant_code else None,

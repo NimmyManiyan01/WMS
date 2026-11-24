@@ -156,6 +156,9 @@ class StoreManagerUserModel(Base):
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     role: Mapped[str] = mapped_column(String(64), nullable=False, default="Store Manager")
     applications: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=lambda: ["WMS"])
+    shift_name: Mapped[str | None] = mapped_column(String(64), nullable=True, default="GENERAL")
+    assembly_unit_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    page_permissions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     auth_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE", index=True)
@@ -172,3 +175,22 @@ class StoreManagerUserModel(Base):
     )
 
     store: Mapped[StoreModel] = relationship("StoreModel", back_populates="managers")
+
+
+class AssemblyUnitModel(Base):
+    __tablename__ = "assembly_unit"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

@@ -128,15 +128,13 @@ function LoginPage() {
     toast.success(`Welcome back, ${data.username}!`);
     const targetPath = redirectPath || getDefaultRouteForUser(data);
 
-    setTimeout(() => {
-      // Keep route transitions internal. `redirectPath` has already rejected external URLs.
-      const target = new URL(targetPath, window.location.origin);
-      navigate({
-        to: target.pathname as any,
-        search: Object.fromEntries(target.searchParams) as any,
-        hash: target.hash,
-      });
-    }, 500);
+    // Keep route transitions internal. `redirectPath` has already rejected external URLs.
+    const target = new URL(targetPath, window.location.origin);
+    void navigate({
+      to: target.pathname as any,
+      search: Object.fromEntries(target.searchParams) as any,
+      hash: target.hash,
+    });
   };
 
   const handleForgotPassword = () => {

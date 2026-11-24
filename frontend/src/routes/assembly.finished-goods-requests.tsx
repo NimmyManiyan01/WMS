@@ -67,6 +67,30 @@ function formatDisplayDate(dateStr: string | null | undefined): string {
   });
 }
 
+function generateUniqueProductCode(productName: string, requests: any[]): string {
+  const nameToken = productName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 12) || "PRODUCT";
+  const prefix = `FG-${nameToken}-`;
+  const usedCodes = new Set(
+    requests.flatMap((request) =>
+      [request.product_code, request.finished_goods_code, request.bom?.product_code]
+        .filter(Boolean)
+        .map((code) => String(code).trim().toUpperCase()),
+    ),
+  );
+  let sequence = 1;
+  let candidate = `${prefix}${String(sequence).padStart(3, "0")}`;
+  while (usedCodes.has(candidate)) {
+    sequence += 1;
+    candidate = `${prefix}${String(sequence).padStart(3, "0")}`;
+  }
+  return candidate;
+}
+
 interface BOMItemRow {
   material_id: string;
   material_code: string;
@@ -180,7 +204,11 @@ function AssemblyFinishedGoodsRequests() {
   // --- Handlers for BOM modal ---
   const handleOpenCreateBom = (req: any) => {
     const pName = req.product_name || req.finished_goods_name || "";
-    const pCode = req.product_code || req.finished_goods_code || "";
+    const requestedCode = String(req.product_code || req.finished_goods_code || "").trim();
+    const pCode =
+      !requestedCode || requestedCode.toLowerCase() === pName.trim().toLowerCase()
+        ? generateUniqueProductCode(pName, requests)
+        : requestedCode;
     setBomModal({
       open: true,
       mode: "create",
@@ -246,12 +274,22 @@ function AssemblyFinishedGoodsRequests() {
     setBomRows(bomRows.filter((_, i) => i !== index));
   };
 
-  const handleSelectMasterMaterialForBom = (index: number, matId: string) => {
+  const handleSelectMasterMaterialForBom = (index: number, selection: string) => {
+    const [matId, selectedVariantCode = ""] = selection.split("::");
     const found = masterMaterials.find((m) => m.id === matId);
     if (!found) return;
-    const defaultVariant = found.variants?.[0];
-    const specDetails = defaultVariant
-      ? [defaultVariant.size, defaultVariant.color, defaultVariant.grade].filter(Boolean).join(", ")
+    const selectedVariant = selectedVariantCode
+      ? found.variants?.find((variant: any) => variant.variant_code === selectedVariantCode)
+      : found.variants?.[0];
+    const specDetails = selectedVariant
+      ? [
+          selectedVariant.specification,
+          selectedVariant.size,
+          selectedVariant.color,
+          selectedVariant.grade,
+        ]
+          .filter(Boolean)
+          .join(", ")
       : "";
     const nameWithSpec = specDetails ? `${found.material_name} (${specDetails})` : found.material_name;
 
@@ -263,8 +301,8 @@ function AssemblyFinishedGoodsRequests() {
               material_id: found.id,
               material_code: found.material_code,
               material_name: nameWithSpec,
-              variant_code: defaultVariant?.variant_code || "",
-              uom: defaultVariant?.uom || found.base_uom || "PCS",
+              variant_code: selectedVariant?.variant_code || "",
+              uom: selectedVariant?.uom || found.base_uom || "PCS",
             }
           : row
       )
@@ -279,8 +317,8 @@ function AssemblyFinishedGoodsRequests() {
     }
     for (let i = 0; i < bomRows.length; i++) {
       const r = bomRows[i];
-      if (!r.material_code.trim() || !r.material_name.trim()) {
-        toast.error(`Please select or specify a material for component row ${i + 1}`);
+      if (!r.material_id) {
+        toast.error(`Please select a warehouse material for component row ${i + 1}`);
         return;
       }
       const q = Number(r.quantity_per_unit);
@@ -1056,33 +1094,67 @@ function AssemblyFinishedGoodsRequests() {
                               <span className="font-semibold text-foreground">{row.material_name}</span>
                             ) : (
                               <div className="space-y-1">
-                                {masterMaterials.length > 0 && (
+                                {masterMaterials.length > 0 ? (
                                   <Select
-                                    value={row.material_id || ""}
+                                    value={
+                                      row.material_id
+                                        ? `${row.material_id}::${row.variant_code || ""}`
+                                        : ""
+                                    }
                                     onValueChange={(val) => handleSelectMasterMaterialForBom(idx, val)}
                                   >
                                     <SelectTrigger className="h-8 text-xs rounded-lg">
-                                      <SelectValue placeholder="Select from Master Materials..." />
+                                      <SelectValue placeholder="Select from Master Materials...">
+                                        {(() => {
+                                          if (!row.material_id) return null;
+                                          const material = masterMaterials.find(
+                                            (item) => item.id === row.material_id,
+                                          );
+                                          const variant = material?.variants?.find(
+                                            (item: any) => item.variant_code === row.variant_code,
+                                          );
+                                          const specification =
+                                            variant?.specification?.trim() ||
+                                            [variant?.size, variant?.color, variant?.grade]
+                                              .filter(Boolean)
+                                              .join(", ") ||
+                                            "Standard specification";
+                                          return material
+                                            ? `${material.material_name} · ${specification}`
+                                            : row.material_name;
+                                        })()}
+                                      </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {masterMaterials.map((mat) => (
-                                        <SelectItem key={mat.id} value={mat.id}>
-                                          {mat.material_name} ({mat.material_code})
-                                        </SelectItem>
-                                      ))}
+                                      {masterMaterials.flatMap((mat) => {
+                                        const variants = Array.isArray(mat.variants) && mat.variants.length
+                                          ? mat.variants
+                                          : [null];
+                                        return variants.map((variant: any) => {
+                                          const specification =
+                                            variant?.specification?.trim() ||
+                                            [variant?.size, variant?.color, variant?.grade]
+                                              .filter(Boolean)
+                                              .join(", ") ||
+                                            "Standard specification";
+                                          const variantCode = variant?.variant_code || "";
+                                          return (
+                                            <SelectItem
+                                              key={`${mat.id}-${variantCode || "base"}`}
+                                              value={`${mat.id}::${variantCode}`}
+                                            >
+                                              {mat.material_name} · {specification}
+                                            </SelectItem>
+                                          );
+                                        });
+                                      })}
                                     </SelectContent>
                                   </Select>
+                                ) : (
+                                  <p className="text-[11px] font-medium text-amber-700">
+                                    No active warehouse materials are available.
+                                  </p>
                                 )}
-                                <Input
-                                  placeholder="Or enter component name..."
-                                  value={row.material_name}
-                                  onChange={(e) =>
-                                    setBomRows(
-                                      bomRows.map((r, i) => (i === idx ? { ...r, material_name: e.target.value } : r))
-                                    )
-                                  }
-                                  className="h-8 text-xs rounded-lg"
-                                />
                               </div>
                             )}
                           </td>
@@ -1093,11 +1165,8 @@ function AssemblyFinishedGoodsRequests() {
                               <Input
                                 placeholder="Code"
                                 value={row.material_code}
-                                onChange={(e) =>
-                                  setBomRows(
-                                    bomRows.map((r, i) => (i === idx ? { ...r, material_code: e.target.value } : r))
-                                  )
-                                }
+                                readOnly
+                                tabIndex={-1}
                                 className="h-8 text-xs font-mono rounded-lg"
                               />
                             )}

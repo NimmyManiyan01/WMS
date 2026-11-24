@@ -211,9 +211,9 @@ function DockManagement() {
     maintenance_docks: number;
     pending_allocations_count: number;
   }>({
-    total_docks: 10,
-    available_docks: 6,
-    occupied_docks: 4,
+    total_docks: 0,
+    available_docks: 0,
+    occupied_docks: 0,
     reserved_docks: 0,
     maintenance_docks: 0,
     pending_allocations_count: 0,
@@ -370,7 +370,7 @@ function DockManagement() {
         ).length;
         const maint = docksRes.filter((d: Dock) => d.status === "MAINTENANCE").length;
         setMetrics({
-          total_docks: docksRes.length || 10,
+          total_docks: docksRes.length,
           available_docks: avail,
           occupied_docks: occ,
           reserved_docks: 0,

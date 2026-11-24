@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from app.database.session import UnitOfWork, get_uow
 from app.modules.gate.infrastructure.persistence.models import DamageReportModel, ReceivingLineModel, ReplacementShipmentModel, SupplierDamageClaimModel, SupplierReturnModel
+from app.modules.receiving.infrastructure.persistence.models import GrnDamageEvidenceModel, GrnDamageLotModel, GrnLineModel, GrnModel
 from app.modules.procurement.infrastructure.persistence.models import MaterialStockModel, NotificationModel
 from app.security.dependencies import CurrentUser, get_current_user
 
@@ -65,24 +66,6 @@ async def list_claims(user: CurrentUser = Depends(get_current_user), uow: UnitOf
         .join(ReceivingLineModel, ReceivingLineModel.id == DamageReportModel.receiving_line_id)
         .order_by(SupplierDamageClaimModel.created_at.desc()))).all()
     result=[]
-    if not rows:
-        return [{
-            "id": "11111111-1111-1111-1111-111111111111",
-            "claim_number": "DC-202610-001",
-            "status": "SUPPLIER_SENT",
-            "response": None,
-            "resolution": None,
-            "supplier_remarks": None,
-            "return_required": False,
-            "po_number": "PO-2026-0002",
-            "grn_number": "GRN-20261005-0001",
-            "material": "MAT-001",
-            "item_code": "MAT-001",
-            "damaged_quantity": 2.0,
-            "uom": "PCS",
-            "shipment": None,
-            "return": None
-        }]
     for claim, report, line in rows:
         shipment=(await uow.session.execute(select(ReplacementShipmentModel).where(ReplacementShipmentModel.claim_id==claim.id))).scalar_one_or_none()
         returned=(await uow.session.execute(select(SupplierReturnModel).where(SupplierReturnModel.claim_id==claim.id))).scalar_one_or_none()
@@ -94,6 +77,78 @@ async def list_claims(user: CurrentUser = Depends(get_current_user), uow: UnitOf
             "received_quantity":float(shipment.received_quantity) if shipment.received_quantity is not None else None,"accepted_quantity":float(shipment.accepted_quantity) if shipment.accepted_quantity is not None else None,
             "damaged_quantity":float(shipment.damaged_quantity) if shipment.damaged_quantity is not None else None,"putaway_location":shipment.putaway_location},
           "return":None if not returned else {"id":str(returned.id),"return_number":returned.return_number,"status":returned.status,"vehicle_number":returned.vehicle_number}})
+
+    # GRN inspection rejections are stored independently from gate damage claims.
+    # Include them here so Procurement can see every rejected receipt and its proof.
+    if "SUPPLIER" not in user.roles:
+        rejected_rows = (await uow.session.execute(
+            select(GrnModel, GrnLineModel)
+            .join(GrnLineModel, GrnLineModel.grn_id == GrnModel.id)
+            .where((GrnLineModel.rejected_quantity > 0) | (GrnLineModel.damaged_quantity > 0))
+            .order_by(GrnModel.created_at.desc())
+        )).all()
+        for grn, line in rejected_rows:
+            evidence = (await uow.session.execute(
+                select(GrnDamageEvidenceModel)
+                .where(GrnDamageEvidenceModel.grn_line_id == line.id)
+                .order_by(GrnDamageEvidenceModel.uploaded_at)
+            )).scalars().all()
+            lot = (await uow.session.execute(
+                select(GrnDamageLotModel).where(GrnDamageLotModel.grn_line_id == line.id)
+            )).scalars().first()
+            rejected_qty = line.rejected_quantity if (line.rejected_quantity or 0) > 0 else line.damaged_quantity
+            reason = next((item.reason for item in evidence if item.reason), None) or (lot.reason if lot else None)
+            grn_record = {
+                "id": f"grn-rejection-{line.id}",
+                "source": "GRN_REJECTION",
+                "claim_number": lot.damage_lot_number if lot else f"REJ-{grn.grn_number or str(grn.id)[:8]}-{line.item_code}",
+                "status": lot.status if lot else (line.quality_result or "REJECTED"),
+                "response": None,
+                "resolution": None,
+                "supplier_remarks": None,
+                "return_required": False,
+                "po_number": grn.po_number,
+                "grn_number": grn.grn_number,
+                "asn_number": grn.asn_number,
+                "gate_entry_number": grn.gate_entry_number,
+                "supplier_name": grn.supplier_company_name or grn.supplier_name,
+                "warehouse_name": grn.warehouse_name,
+                "dock_number": grn.dock_number,
+                "vehicle_number": grn.vehicle_number,
+                "invoice_number": grn.invoice_number,
+                "receipt_date": grn.receipt_date.isoformat() if grn.receipt_date else None,
+                "received_by": grn.received_by,
+                "material": line.material_name or line.item_code,
+                "item_code": line.item_code,
+                "ordered_quantity": float(line.ordered_quantity or 0),
+                "received_quantity": float(line.received_quantity or 0),
+                "accepted_quantity": float(line.accepted_quantity or line.good_quantity or 0),
+                "damaged_quantity": float(rejected_qty or 0),
+                "rejected_quantity": float(line.rejected_quantity or 0),
+                "uom": line.uom,
+                "reason": reason or "Rejected during GRN inspection",
+                "remarks": next((item.remarks for item in evidence if item.remarks), None),
+                "quarantine_location": lot.quarantine_location if lot else None,
+                "proofs": [{
+                    "file_name": item.file_name,
+                    "file_path": item.file_path,
+                    "reason": item.reason,
+                    "remarks": item.remarks,
+                    "uploaded_by": item.uploaded_by,
+                    "uploaded_at": item.uploaded_at.isoformat() if item.uploaded_at else None,
+                } for item in evidence],
+                "shipment": None,
+                "return": None,
+            }
+            existing = next((item for item in result if item.get("grn_number") == grn.grn_number and item.get("item_code") == line.item_code), None)
+            if existing:
+                workflow = {key: existing.get(key) for key in ("id", "claim_number", "status", "response", "resolution", "supplier_remarks", "return_required", "shipment", "return")}
+                existing.update(grn_record)
+                existing.update(workflow)
+                existing["source"] = "DAMAGE_CLAIM"
+                existing["grn_rejection"] = True
+            else:
+                result.append(grn_record)
     return result
 
 def ensure_supplier_owns_claim(user: CurrentUser, claim: SupplierDamageClaimModel):
