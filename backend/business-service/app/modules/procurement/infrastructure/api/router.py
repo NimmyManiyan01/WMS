@@ -644,16 +644,16 @@ async def create_material_request(request: CreateMaterialRequest, uow: UnitOfWor
         warehouse_id=request.warehouse_id.strip(),
         department=request.department.strip(),
         requested_by=request.requested_by.strip(),
-        status="Approved",
+        status="Submitted",
         priority=(request.priority or "MEDIUM").strip().upper(),
         required_date=request.required_date,
         suggested_supplier=request.suggested_supplier.strip() if request.suggested_supplier else None,
         attachments=request.attachments or [],
         approval_history=[
             {
-                "status": "Approved",
+                "status": "Submitted",
                 "actor": request.requested_by.strip(),
-                "comments": "Material request submitted directly to Procurement",
+                "comments": "Material request submitted for manager approval",
                 "timestamp": datetime.now().isoformat(),
             }
         ],
@@ -1290,7 +1290,7 @@ def _response_from_entity(
         )
 
 
-SUPPLIER_STATUSES = {"Draft", "Active", "Suspended", "Blocked"}
+SUPPLIER_STATUSES = {"Draft", "Pending Approval", "Active", "Suspended", "Blocked"}
 REQUIRED_ACTIVE_DOCUMENTS = {"GST_CERTIFICATE", "CANCELLED_CHEQUE"}
 
 
@@ -1434,15 +1434,15 @@ async def create_supplier(
         if entity:
             entity.payment_terms = request.payment_terms
             entity.credit_period_days = request.credit_period_days
-            entity.status = "Active"
+            entity.status = "Pending Approval"
             await repo.save(entity)
 
             uow.session.add(
                 NotificationModel(
                     id=uuid.uuid4(),
-                    user_role="PROCUREMENT",
-                    title="New Supplier Registered",
-                    message=f"Supplier {entity.supplier_name or 'N/A'} registered (Vendor Type: {entity.vendor_type or 'N/A'}).",
+                    user_role="MANAGER",
+                    title="Supplier Approval Required",
+                    message=f"Supplier {entity.supplier_name or 'N/A'} is waiting for onboarding approval (Vendor Type: {entity.vendor_type or 'N/A'}).",
                     link=f"/supplier/{supplier_id}",
                     created_at=datetime.now(),
                 )
@@ -1773,18 +1773,21 @@ async def create_rfq(
     _user: CurrentUser = Depends(verify_procurement_role),
 ) -> RfqResponse:
     try:
+        mr = None
         if request.material_request_number:
-            mr_stmt = select(MaterialRequestModel).where(
+            mr_stmt = select(MaterialRequestModel).options(
+                selectinload(MaterialRequestModel.items).selectinload(MaterialRequestItemModel.material)
+            ).where(
                 MaterialRequestModel.request_number == request.material_request_number
-            )
+            ).with_for_update()
             mr_res = await uow.session.execute(mr_stmt)
             mr = mr_res.scalar_one_or_none()
             if mr:
                 mr_status = _normalize_mr_status(mr.status)
-                if mr_status not in ["Approved", "Submitted", "Pending Approval", "Converted to RFQ"]:
+                if mr_status not in {"Approved", "Converted to RFQ"}:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Material Request '{request.material_request_number}' must be Active or Approved before RFQ creation.",
+                        detail=f"Material Request '{request.material_request_number}' must be approved before RFQ creation.",
                     )
 
         def normalize_category(value: str | None) -> str:
@@ -1797,6 +1800,32 @@ async def create_rfq(
             for item in request.items
             if normalize_category(item.category)
         }
+        remaining_categories = set()
+        if mr:
+            mr_response = _material_request_response(mr)
+            source_categories = [
+                normalize_category(item.category or "Raw Materials") for item in mr_response.items
+            ]
+            linked_categories = await uow.session.scalars(
+                select(RfqItemModel.category)
+                .join(RfqModel, RfqItemModel.rfq_id == RfqModel.id)
+                .where(RfqModel.material_request_number == mr.request_number)
+            )
+            covered_categories = {normalize_category(category) for category in linked_categories}
+            remaining_categories = set(source_categories) - covered_categories
+            if source_categories and (
+                not requested_categories
+                or not requested_categories.issubset(remaining_categories)
+                or any(
+                    sum(normalize_category(item.category) == category for item in request.items)
+                    != source_categories.count(category)
+                    for category in requested_categories
+                )
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Include every material in the selected categories that have not already been quoted.",
+                )
         if request.supplier_ids and requested_categories:
             supplier_uuid_ids = []
             for supplier_id in request.supplier_ids:
@@ -1822,7 +1851,7 @@ async def create_rfq(
                 registered_categories = {
                     normalize_category(category) for category in raw_categories if normalize_category(category)
                 }
-                if not requested_categories.issubset(registered_categories):
+                if (supplier.status or "").strip().lower() != "active" or not requested_categories.issubset(registered_categories):
                     mismatched_suppliers.append(supplier.supplier_name)
             if mismatched_suppliers:
                 raise HTTPException(
@@ -1847,13 +1876,8 @@ async def create_rfq(
             remarks=request.remarks,
         )
         rfq_id = await use_case.handle(command)
-        if request.material_request_number:
-            mr_stmt = select(MaterialRequestModel).where(
-                MaterialRequestModel.request_number == request.material_request_number
-            )
-            mr_res = await uow.session.execute(mr_stmt)
-            mr = mr_res.scalar_one_or_none()
-            if mr:
+        if mr:
+            if not (remaining_categories - requested_categories):
                 mr.status = "Converted to RFQ"
                 history = list(getattr(mr, "approval_history", None) or [])
                 history.append({
@@ -2071,7 +2095,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
                     f"{portal_link}\n\n"
                     f"Note: This link is valid for 24 hours and will expire automatically for security. No password is required.\n\n"
                     f"Regards,\n"
-                    f"KaizenX Procurement Team\n"
+                    f"Warehub 360 degree Procurement Team\n"
                 )
 
                 html_body = (
@@ -2094,7 +2118,7 @@ async def _notify_suppliers_rfq(rfq_id: str):
                     f"  </p>\n"
                     f"  <p style='margin-top:24px;color:#334155;'>\n"
                     f"    Regards,<br>\n"
-                    f"    <strong>KaizenX Procurement Team</strong>\n"
+                    f"    <strong>Warehub 360 degree Procurement Team</strong>\n"
                     f"  </p>\n"
                     f"</body>\n"
                     f"</html>"
@@ -2505,12 +2529,12 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
 
     buffer = BytesIO()
     styles = getSampleStyleSheet()
-    app_blue = colors.HexColor("#2563eb")
-    app_teal = colors.HexColor("#0d9488")
-    app_ink = colors.HexColor("#0f172a")
-    app_muted = colors.HexColor("#64748b")
-    app_line = colors.HexColor("#dbe5f0")
-    app_soft = colors.HexColor("#eff6ff")
+    app_navy = colors.HexColor("#0B2A55")
+    app_blue = colors.HexColor("#0866FF")
+    app_ink = colors.HexColor("#101D3A")
+    app_muted = colors.HexColor("#526580")
+    app_line = colors.HexColor("#DCE6F3")
+    app_soft = colors.HexColor("#EBF3FF")
     right_style = ParagraphStyle("Right", parent=styles["BodyText"], alignment=TA_RIGHT, fontSize=8, leading=10, textColor=app_ink)
     title_style = ParagraphStyle("PoTitle", parent=styles["Title"], alignment=TA_CENTER, textColor=colors.white, fontSize=20, leading=24, spaceAfter=0)
     subtitle_style = ParagraphStyle("PoSubtitle", parent=styles["BodyText"], alignment=TA_CENTER, textColor=colors.HexColor("#dbeafe"), fontSize=8, leading=11)
@@ -2569,12 +2593,12 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         Table(
             [
                 [Paragraph("PURCHASE ORDER", title_style)],
-                [Paragraph(f"KaizenX Procurement | {po.po_number}", subtitle_style)],
+                [Paragraph(f"Warehub 360 degree Procurement | {po.po_number}", subtitle_style)],
             ],
             colWidths=[180 * mm],
             style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), app_blue),
-                ("BOX", (0, 0), (-1, -1), 0.8, app_blue),
+                ("BACKGROUND", (0, 0), (-1, -1), app_navy),
+                ("BOX", (0, 0), (-1, -1), 0.8, app_navy),
                 ("TOPPADDING", (0, 0), (-1, 0), 10),
                 ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
                 ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
@@ -2590,11 +2614,11 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
             ],
             colWidths=[28 * mm, 62 * mm, 34 * mm, 56 * mm],
             style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFD")),
                 ("BACKGROUND", (0, 0), (0, -1), app_soft),
                 ("BACKGROUND", (2, 0), (2, -1), app_soft),
                 ("GRID", (0, 0), (-1, -1), 0.45, app_line),
-                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#bfdbfe")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CBE0FC")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
@@ -2624,12 +2648,12 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         repeatRows=1,
         colWidths=[8 * mm, 24 * mm, 58 * mm, 18 * mm, 16 * mm, 28 * mm, 28 * mm],
         style=TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), app_ink),
+            ("BACKGROUND", (0, 0), (-1, 0), app_navy),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFD")]),
             ("GRID", (0, 0), (-1, -1), 0.4, app_line),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#bfdbfe")),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CBE0FC")),
             ("ALIGN", (0, 0), (0, -1), "CENTER"),
             ("ALIGN", (3, 1), (3, -1), "RIGHT"),
             ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
@@ -2659,10 +2683,10 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
             style=TableStyle([
                 ("SPAN", (1, 0), (2, 0)),
                 ("BACKGROUND", (1, 0), (2, 0), app_soft),
-                ("BACKGROUND", (1, 1), (2, 5), colors.HexColor("#f8fafc")),
-                ("BACKGROUND", (1, 6), (2, 6), colors.HexColor("#dbeafe")),
+                ("BACKGROUND", (1, 1), (2, 5), colors.HexColor("#F8FAFD")),
+                ("BACKGROUND", (1, 6), (2, 6), colors.HexColor("#D5E8FF")),
                 ("LINEABOVE", (1, 6), (2, 6), 1.0, app_blue),
-                ("BOX", (1, 0), (2, 6), 0.8, colors.HexColor("#bfdbfe")),
+                ("BOX", (1, 0), (2, 6), 0.8, colors.HexColor("#CBE0FC")),
                 ("INNERGRID", (1, 0), (2, 6), 0.35, app_line),
                 ("LEFTPADDING", (1, 0), (2, 6), 8),
                 ("RIGHTPADDING", (1, 0), (2, 6), 8),
@@ -2672,7 +2696,7 @@ async def download_purchase_order_pdf(id: str, uow: UnitOfWork = Depends(get_uow
         ),
         Spacer(1, 5 * mm),
         Paragraph(
-            "This purchase order is generated from backend procurement records. Amounts reflect the approved PO values stored in KaizenX.",
+            "This purchase order is generated from backend procurement records. Amounts reflect the approved PO values stored in Warehub 360 degree.",
             small_style,
         ),
     ])
@@ -2928,7 +2952,7 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"{portal_link}\n\n"
             f"Note: This link is valid for 24 hours and will expire automatically for security. No password is required.\n\n"
             f"Regards,\n"
-            f"KaizenX Procurement Team\n"
+            f"Warehub 360 degree Procurement Team\n"
         )
 
         html_body = (
@@ -2951,7 +2975,7 @@ async def send_po_to_supplier(id: str, background_tasks: BackgroundTasks, uow: U
             f"  </p>\n"
             f"  <p style='margin-top:24px;color:#334155;'>\n"
             f"    Regards,<br>\n"
-            f"    <strong>KaizenX Procurement Team</strong>\n"
+            f"    <strong>Warehub 360 degree Procurement Team</strong>\n"
             f"  </p>\n"
             f"</body>\n"
             f"</html>"
@@ -4229,6 +4253,29 @@ async def create_asn(
         ).where(AsnModel.id == asn_id.value)
         res = await uow.session.execute(stmt)
         asn = res.scalar_one()
+        if asn.status == "SUBMITTED":
+            vehicle_numbers = list(dict.fromkeys(
+                item.vehicle_number for item in request.logistics or []
+            ))
+            if not vehicle_numbers and asn.vehicle_number:
+                vehicle_numbers = [asn.vehicle_number]
+
+            shipment_details = [
+                f"ASN: {asn.asn_number}",
+                f"PO: {asn.po_number or 'Not specified'}",
+                f"Vehicle: {', '.join(vehicle_numbers) or 'Not specified'}",
+            ]
+            if asn.expected_arrival_at:
+                shipment_details.append(
+                    f"Expected arrival: {asn.expected_arrival_at:%d %b %Y}"
+                )
+            uow.session.add(NotificationModel(
+                id=uuid.uuid4(),
+                user_role="GATE_SECURITY",
+                title="Vehicle shipped",
+                message=" · ".join(shipment_details),
+                link="/gate-entry",
+            ))
         await uow.commit()
 
         return AsnResponse(
@@ -4278,8 +4325,14 @@ async def get_next_asn_number(uow: UnitOfWork = Depends(get_uow)):
 @router.get("/asns", response_model=List[AsnResponse])
 async def list_asns(
     supplier_id: Optional[str] = Query(None),
-    uow: UnitOfWork = Depends(get_uow)
+    uow: UnitOfWork = Depends(get_uow),
+    _user: CurrentUser = Depends(get_current_user),
 ):
+    roles_upper = {role.upper() for role in (_user.roles or [])}
+    if "SUPPLIER" in roles_upper and not roles_upper.intersection({"PROCUREMENT", "ADMIN", "SUPERUSER"}):
+        supplier_id = _user.raw_claims.get("supplier_id")
+        if not supplier_id:
+            raise HTTPException(status_code=403, detail="Supplier identity required")
     try:
         asn_supplier = aliased(SupplierModel)
         po_supplier = aliased(SupplierModel)
@@ -4416,6 +4469,10 @@ async def get_asn(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Supplier or Procurement access required",
             )
+        if not roles_upper.intersection({"PROCUREMENT", "ADMIN", "SUPERUSER"}):
+            supplier_id = _user.raw_claims.get("supplier_id")
+            if not supplier_id or not resolved_id or str(resolved_id) != str(supplier_id):
+                raise HTTPException(status_code=404, detail="ASN not found")
         warehouse_result = await uow.session.execute(
             select(GateEntryModel)
             .where(GateEntryModel.asn_id == asn.id)
@@ -4666,23 +4723,45 @@ async def list_arrival_notifications(uow: UnitOfWork = Depends(get_uow)):
 
 
 
-@router.get("/notifications", response_model=List[NotificationResponse])
-async def list_notifications(role: str = Query(...), uow: UnitOfWork = Depends(get_uow)):
-    normalized_role = role.strip().upper()
-    if normalized_role in ("GRN", "RECEIVING"):
-        roles_to_match = ["GRN", "RECEIVING", "WAREHOUSE", "STORE_MANAGER"]
-    elif normalized_role == "WAREHOUSE":
-        roles_to_match = ["WAREHOUSE", "GRN", "RECEIVING", "STORE_MANAGER", "QUALITY_INSPECTOR"]
-    elif normalized_role in ("DISPATCH", "DISPATCH_MANAGER"):
-        roles_to_match = ["DISPATCH", "DISPATCH_MANAGER"]
-    elif normalized_role == "STORE_MANAGER":
-        roles_to_match = ["STORE_MANAGER", "WAREHOUSE", "GRN", "RECEIVING"]
-    elif normalized_role == "QUALITY_INSPECTOR":
-        roles_to_match = ["QUALITY_INSPECTOR", "WAREHOUSE", "GRN"]
-    else:
-        roles_to_match = [normalized_role]
+def _canonical_notification_role(role: str) -> str:
+    normalized = str(role or "").strip().upper()
+    aliases = {
+        "DISPATCH_MANAGER": "DISPATCH",
+        "DISPATCH_OFFICER": "DISPATCH",
+        "DISPATCH_OPERATOR": "DISPATCH",
+        "GRN_MANAGER": "GRN",
+        "RECEIVING": "GRN",
+        "OPERATIONS": "GRN",
+        "OPERATIONS_MANAGER": "GRN",
+        "ASSEMBLY_MANAGER": "ASSEMBLY",
+        "GATE_OPERATOR": "GATE_SECURITY",
+    }
+    return aliases.get(normalized, normalized)
 
-    stmt = select(NotificationModel).where(NotificationModel.user_role.in_(roles_to_match)).order_by(NotificationModel.created_at.desc())
+
+def _authorized_notification_role(user: CurrentUser, requested_role: str) -> str:
+    requested = _canonical_notification_role(requested_role)
+    allowed = {_canonical_notification_role(role) for role in (user.roles or [])}
+    if requested not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Notification role '{requested}' is not assigned to the current user.",
+        )
+    return requested
+
+
+@router.get("/notifications", response_model=List[NotificationResponse])
+async def list_notifications(
+    role: str = Query(...),
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+):
+    notification_role = _authorized_notification_role(user, role)
+    stmt = (
+        select(NotificationModel)
+        .where(NotificationModel.user_role == notification_role)
+        .order_by(NotificationModel.created_at.desc())
+    )
     res = await uow.session.execute(stmt)
     notifications = res.scalars().all()
     return [
@@ -4701,8 +4780,16 @@ async def list_notifications(role: str = Query(...), uow: UnitOfWork = Depends(g
 
 
 @router.post("/notifications/{id}/read")
-async def mark_notification_read(id: str, uow: UnitOfWork = Depends(get_uow)):
-    stmt = select(NotificationModel).where(NotificationModel.id == uuid.UUID(id))
+async def mark_notification_read(
+    id: str,
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+):
+    allowed_roles = {_canonical_notification_role(role) for role in (user.roles or [])}
+    stmt = select(NotificationModel).where(
+        NotificationModel.id == uuid.UUID(id),
+        NotificationModel.user_role.in_(allowed_roles),
+    )
     res = await uow.session.execute(stmt)
     n = res.scalar_one_or_none()
     if n:
@@ -4712,18 +4799,18 @@ async def mark_notification_read(id: str, uow: UnitOfWork = Depends(get_uow)):
 
 
 @router.post("/notifications/read-all")
-async def mark_all_notifications_read(role: str = Query(...), uow: UnitOfWork = Depends(get_uow)):
-    normalized_role = role.strip().upper()
-    if normalized_role in ("GRN", "RECEIVING"):
-        roles_to_match = ["GRN", "RECEIVING", "WAREHOUSE", "STORE_MANAGER"]
-    elif normalized_role == "WAREHOUSE":
-        roles_to_match = ["WAREHOUSE", "GRN", "RECEIVING", "STORE_MANAGER", "QUALITY_INSPECTOR"]
-    else:
-        roles_to_match = [normalized_role]
-
+async def mark_all_notifications_read(
+    role: str = Query(...),
+    uow: UnitOfWork = Depends(get_uow),
+    user: CurrentUser = Depends(get_current_user),
+):
+    notification_role = _authorized_notification_role(user, role)
     result = await uow.session.execute(
         update(NotificationModel)
-        .where(NotificationModel.user_role.in_(roles_to_match), NotificationModel.is_read.is_(False))
+        .where(
+            NotificationModel.user_role == notification_role,
+            NotificationModel.is_read.is_(False),
+        )
         .values(is_read=True)
     )
     await uow.commit()
@@ -5142,6 +5229,7 @@ def _admin_user_response(account: StoreManagerUserModel) -> dict:
         "shift_name": account.shift_name or "GENERAL", "assembly_unit_code": account.assembly_unit_code,
         "page_permissions": account.page_permissions or {}, "status": account.status,
         "last_login": account.last_login, "can_manage_status": True,
+        "source": getattr(account, "account_source", "WAREHOUSE"),
     }
 
 
@@ -5161,82 +5249,16 @@ async def list_admin_users(
     uow: UnitOfWork = Depends(get_uow),
     user: CurrentUser = Depends(get_current_user),
 ) -> list[dict]:
-    """Return every identity that can sign in through the business service."""
+    """Return admin-provisioned staff and warehouse-provisioned store managers."""
     _require_admin(user)
-
-    from app.config.settings import get_settings
-    settings = get_settings()
-    users: list[dict] = []
-    seen_usernames: set[str] = set()
 
     account_result = await uow.session.execute(
         select(StoreManagerUserModel)
         .options(selectinload(StoreManagerUserModel.store))
         .order_by(StoreManagerUserModel.employee_id.asc())
     )
-    for account in account_result.scalars().all():
-        username_key = account.username.strip().lower()
-        seen_usernames.add(username_key)
-        users.append(_admin_user_response(account))
-
-    supplier_result = await uow.session.execute(
-        select(SupplierUserModel).options(
-            joinedload(SupplierUserModel.supplier).joinedload(SupplierModel.contact)
-        )
-    )
-    for account in supplier_result.scalars().unique().all():
-        username_key = account.username.strip().lower()
-        if username_key in seen_usernames:
-            continue
-        seen_usernames.add(username_key)
-        supplier = account.supplier
-        users.append({
-            "id": f"supplier:{account.id}",
-            "username": account.username,
-            "name": supplier.supplier_name if supplier else account.username,
-            "email": supplier.contact.primary_email if supplier and supplier.contact else "",
-            "employee_id": supplier.supplier_code if supplier and supplier.supplier_code else f"SUP-{str(account.supplier_id)[:8].upper()}",
-            "role": "Supplier",
-            "applications": ["Supplier Portal"],
-            "status": "ACTIVE" if supplier and supplier.status.lower() == "active" else "INACTIVE",
-            "last_activity": supplier.updated_at if supplier else None,
-            "unit": "GENERAL",
-            "source": "SUPPLIER",
-            "can_manage_status": False,
-        })
-
-    configured_accounts = [
-        (settings.admin_username, "Administrator", "ADMIN"),
-        (settings.procurement_username, "Procurement", "PROCUREMENT"),
-        (settings.finance_username, "Finance", "FINANCE"),
-        (settings.warehouse_username, "Warehouse", "WAREHOUSE"),
-        (settings.assembly_manager_username, "Assembly Manager", "ASSEMBLY_MANAGER"),
-        (settings.gate_entry_username, "Gate Security", "GATE_SECURITY"),
-        (settings.supplier_username, "Supplier Portal", "SUPPLIER"),
-        (settings.grn_username, "GRN Operations", "GRN"),
-        (settings.dispatch_username, "Dispatch", "DISPATCH"),
-    ]
-    for username, name, role in configured_accounts:
-        username_key = username.strip().lower()
-        if not username_key or username_key in seen_usernames:
-            continue
-        seen_usernames.add(username_key)
-        users.append({
-            "id": f"configured:{role.lower()}",
-            "username": username,
-            "name": name,
-            "email": f"{username_key}@kaizenx.local",
-            "employee_id": f"SYSTEM-{role}",
-            "role": role.replace("_", " ").title(),
-            "applications": ["WMS"],
-            "status": "ACTIVE",
-            "last_activity": None,
-            "unit": "GENERAL",
-            "source": "CONFIGURED",
-            "can_manage_status": False,
-        })
-
-    return sorted(users, key=lambda entry: (entry["role"], (entry.get("full_name") or entry.get("name") or "").lower()))
+    users = [_admin_user_response(account) for account in account_result.scalars().all()]
+    return sorted(users, key=lambda entry: (entry["role"], entry["full_name"].lower()))
 
 
 @router.post("/admin/users", status_code=status.HTTP_201_CREATED)
@@ -5264,9 +5286,11 @@ async def create_admin_user(payload: AdminUserCreate, uow: UnitOfWork = Depends(
         password_hash=hashlib.sha256(payload.password.encode()).hexdigest(), role=payload.role,
         applications=["WMS"], shift_name=payload.shift_name,
         assembly_unit_code=payload.assembly_unit_code, page_permissions=payload.page_permissions,
-        status="ACTIVE",
+        status="ACTIVE", account_source="ADMIN",
     )
     uow.session.add(account)
+    from app.modules.store.infrastructure.persistence.models import AdminAuditLogModel
+    uow.session.add(AdminAuditLogModel(actor=user.username, action="USER_CREATED", target_type="USER", target_id=str(account.id), target_name=account.username, details={"role": account.role, "employee_id": account.employee_id}))
     await uow.session.flush(); await uow.commit()
     return _admin_user_response(account)
 
@@ -5285,12 +5309,22 @@ async def update_admin_user(user_id: uuid.UUID, payload: AdminUserUpdate,
         if key in {"username", "email"} and value: value = value.strip().lower()
         if key == "status" and value: value = value.upper()
         setattr(account, key, value)
+    from app.modules.store.infrastructure.persistence.models import AdminAuditLogModel
+    uow.session.add(AdminAuditLogModel(actor=user.username, action="USER_STATUS_CHANGED" if "status" in changes else "USER_UPDATED", target_type="USER", target_id=str(account.id), target_name=account.username, details={key: value for key, value in changes.items() if key != "password_hash"}))
     account.updated_at = datetime.now(timezone.utc)
     try:
         await uow.session.flush(); await uow.commit()
     except IntegrityError:
         raise HTTPException(status_code=409, detail="That username or email is already in use")
     return _admin_user_response(account)
+
+
+@router.get("/admin/audit-logs")
+async def list_admin_audit_logs(limit: int = Query(200, ge=1, le=500), uow: UnitOfWork = Depends(get_uow), user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    _require_admin(user)
+    from app.modules.store.infrastructure.persistence.models import AdminAuditLogModel
+    rows = (await uow.session.execute(select(AdminAuditLogModel).order_by(AdminAuditLogModel.created_at.desc()).limit(limit))).scalars().all()
+    return [{"id": str(row.id), "actor": row.actor, "action": row.action, "target_type": row.target_type, "target_id": row.target_id, "target_name": row.target_name, "details": row.details or {}, "created_at": row.created_at} for row in rows]
 
 
 @router.get("/admin/assembly-units")

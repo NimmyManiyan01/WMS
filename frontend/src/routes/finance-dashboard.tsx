@@ -31,7 +31,14 @@ export const Route = createFileRoute("/finance-dashboard")({
 function FinanceDashboard() {
   const formatCurrency = (value: number) =>
     `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const getOrderTotal = (po: any) => Number(po.quotation?.totalAmount ?? po.quotation?.total_amount ?? po.totalAmount ?? po.total_amount ?? 0);
+  const getOrderTotal = (po: any) =>
+    Number(
+      po.quotation?.totalAmount ??
+        po.quotation?.total_amount ??
+        po.totalAmount ??
+        po.total_amount ??
+        0,
+    );
   const [stats, setStats] = useState({
     pending: 0,
     approved: 0,
@@ -47,12 +54,10 @@ function FinanceDashboard() {
       const allPos = await api.getPurchaseOrders();
 
       const pending = allPos.filter((p: any) => p.status === "PENDING_FINANCE");
-      const approved = allPos.filter((p: any) => p.status === "APPROVED" || p.status === "SENT");
+      const approvedStatuses = new Set(["APPROVED", "SENT", "ACKNOWLEDGED", "DISPATCHED", "SHIPPED", "RECEIVED"]);
+      const approved = allPos.filter((p: any) => approvedStatuses.has(String(p.status || "").toUpperCase()));
       const rejected = allPos.filter((p: any) => p.status === "REJECTED");
-      const totalValue = approved.reduce(
-        (sum: number, p: any) => sum + getOrderTotal(p),
-        0,
-      );
+      const totalValue = approved.reduce((sum: number, p: any) => sum + getOrderTotal(p), 0);
 
       setStats({
         pending: pending.length,
@@ -85,46 +90,51 @@ function FinanceDashboard() {
 
   return (
     <AppShell title="Finance Dashboard" subtitle="Overview of procurement financial authorizations">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-        <StatsCard
-          title="Pending Approval"
-          value={stats.pending}
-          icon={Clock}
-          color="text-warning"
-          bg="bg-warning-soft/20"
-          to="/finance/approvals"
-        />
-        <StatsCard
-          title="Total Approved"
-          value={stats.approved}
-          icon={CheckCircle2}
-          color="text-success"
-          bg="bg-success-soft/20"
-          to="/procurement/purchase-orders"
-        />
-        <StatsCard
-          title="Rejected"
-          value={stats.rejected}
-          icon={XCircle}
-          color="text-destructive"
-          bg="bg-destructive-soft/20"
-          to="/procurement/purchase-orders"
-        />
-        <StatsCard
-          title="Authorized Spend"
-          value={formatCurrency(stats.totalValue)}
-          icon={TrendingUp}
-          color="text-primary"
-          bg="bg-primary-soft/20"
-          to="/procurement/purchase-orders"
-        />
-      </div>
+      <section aria-labelledby="finance-overview" className="mb-6 space-y-3">
+        <h2 id="finance-overview" className="text-lg font-bold text-[#101D3A]">
+          Finance overview
+        </h2>
+        <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatsCard
+            title="Pending Approval"
+            value={stats.pending}
+            icon={Clock}
+            color="text-warning"
+            bg="bg-warning-soft/20"
+            to="/finance/approvals"
+          />
+          <StatsCard
+            title="Total Approved"
+            value={stats.approved}
+            icon={CheckCircle2}
+            color="text-success"
+            bg="bg-success-soft/20"
+            to="/procurement/purchase-orders"
+          />
+          <StatsCard
+            title="Rejected"
+            value={stats.rejected}
+            icon={XCircle}
+            color="text-destructive"
+            bg="bg-destructive-soft/20"
+            to="/procurement/purchase-orders"
+          />
+          <StatsCard
+            title="Authorized Spend"
+            value={formatCurrency(stats.totalValue)}
+            icon={TrendingUp}
+            color="text-primary"
+            bg="bg-primary-soft/20"
+            to="/procurement/purchase-orders"
+          />
+        </div>
+      </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {/* Approval Queue */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="border-border/40 shadow-soft">
-            <CardHeader className="flex flex-row items-center justify-between">
+        <div className="min-w-0">
+          <Card className="gap-0 rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 rounded-t-2xl border-b border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4">
               <div>
                 <CardTitle className="text-lg font-bold tracking-tight">
                   Priority Approvals
@@ -139,7 +149,7 @@ function FinanceDashboard() {
                 </Link>
               </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-5">
               {loading ? (
                 <div className="flex h-48 items-center justify-center">
                   <Loader2 className="size-8 animate-spin text-primary" />
@@ -151,53 +161,53 @@ function FinanceDashboard() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {Object.entries(groupedByRfq).map(([rfqId, rfqApprovals]: [string, any], index) => (
-                    <Link
-                      key={rfqId}
-                      to="/finance/approvals"
-                      className="flex items-center justify-between p-4 rounded-2xl border border-border/60 hover:border-primary/30 hover:shadow-glow transition-all bg-card/50 group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="size-10 rounded-xl bg-primary-soft/20 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                          <TableIcon className="size-5" />
+                  {Object.entries(groupedByRfq).map(
+                    ([rfqId, rfqApprovals]: [string, any], index) => (
+                      <Link
+                        key={rfqId}
+                        to="/finance/approvals"
+                        className="flex flex-col gap-4 rounded-xl border border-[#DCE6F3] bg-white p-4 transition-colors hover:border-primary/40 hover:bg-[#F5F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#EBF3FF] text-primary">
+                            <TableIcon className="size-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold uppercase tracking-tight">
+                              {rfqId === "no-rfq"
+                                ? "Direct Purchase Orders"
+                                : `RFQ: ${rfqApprovals[0]?.rfqNumber || `RFQ-${String(index + 1).padStart(4, "0")}`}`}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {rfqApprovals.length} Proposal(s) awaiting signature ·{" "}
+                              {rfqApprovals
+                                .map((p: any) => p.supplier_name || p.supplierName || "Supplier")
+                                .join(", ")}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold uppercase tracking-tight">
-                            {rfqId === "no-rfq"
-                              ? "Direct Purchase Orders"
-                              : `RFQ: ${rfqApprovals[0]?.rfqNumber || `RFQ-${String(index + 1).padStart(4, "0")}`}`}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {rfqApprovals.length} Proposal(s) awaiting signature ·{" "}
-                            {rfqApprovals.map((p: any) => p.supplier_name || p.supplierName || "Supplier").join(", ")}
-                          </p>
+                        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 sm:text-right">
+                          <div>
+                            <p className="text-sm font-black text-primary">
+                              ₹
+                              {rfqApprovals
+                                .reduce((sum: number, po: any) => sum + getOrderTotal(po), 0)
+                                .toLocaleString("en-IN", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
+                              Total Value
+                            </p>
+                          </div>
+                          <span className="rounded-xl border border-[#CBE0FC] bg-[#EBF3FF] px-3 py-2 text-xs font-semibold text-[#0866FF]">
+                            View Approvals
+                          </span>
                         </div>
-                      </div>
-                      <div className="text-right flex items-center gap-6">
-                        <div className="hidden sm:block">
-                          <p className="text-sm font-black text-primary">
-                            ₹
-                            {rfqApprovals
-                              .reduce(
-                                (sum: number, po: any) => sum + getOrderTotal(po),
-                                0,
-                              )
-                              .toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
-                            Total Value
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl h-8 text-xs font-bold pointer-events-none group-hover:bg-primary group-hover:text-white transition-colors"
-                        >
-                          View Approvals
-                        </Button>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    ),
+                  )}
                 </div>
               )}
             </CardContent>
@@ -205,11 +215,11 @@ function FinanceDashboard() {
         </div>
 
         {/* Finance Policy */}
-        <Card className="border-border/40 shadow-soft self-start">
-          <CardHeader>
+        <Card className="gap-0 rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs">
+          <CardHeader className="rounded-t-2xl border-b border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4">
             <CardTitle className="text-lg font-bold tracking-tight">Finance Controls</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4 p-5">
             <PolicyItem
               title="Budget Threshold"
               desc="PO above ₹5.0L requires secondary CFO approval."
@@ -248,13 +258,15 @@ function FinanceDashboard() {
 
 function StatsCard({ title, value, icon: Icon, color, bg, to }: any) {
   const content = (
-    <CardContent className="p-6">
-      <div className="flex items-center justify-between">
+    <CardContent className="p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
             {title}
           </p>
-          <h2 className="text-2xl font-black mt-1">{value}</h2>
+          <p className={cn("mt-2 text-3xl font-extrabold tabular-nums tracking-tight", color)}>
+            {value}
+          </p>
         </div>
         <div className={cn("size-12 rounded-2xl flex items-center justify-center", bg, color)}>
           <Icon className="size-6" />
@@ -266,7 +278,7 @@ function StatsCard({ title, value, icon: Icon, color, bg, to }: any) {
   return (
     <Card
       className={cn(
-        "border-border/40 shadow-soft overflow-hidden transition-all",
+        "h-full rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs transition-shadow",
         to && "hover:border-primary/30 hover:shadow-glow cursor-pointer",
       )}
     >
@@ -277,8 +289,8 @@ function StatsCard({ title, value, icon: Icon, color, bg, to }: any) {
 
 function PolicyItem({ title, desc, status }: any) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
+    <div className="space-y-2 rounded-xl border border-[#DCE6F3] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-bold text-foreground">{title}</p>
         <span className="text-[9px] font-black uppercase bg-success-soft/20 text-success px-1.5 py-0.5 rounded border border-success/20">
           {status}

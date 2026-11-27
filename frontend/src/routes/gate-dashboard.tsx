@@ -1,17 +1,26 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ClipboardCheck, Clock3, Loader2, LogOut, Plus, ShieldCheck, Truck, Warehouse } from "lucide-react";
+import {
+  ClipboardCheck,
+  Clock3,
+  Loader2,
+  LogOut,
+  Plus,
+  ShieldCheck,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { StatCard } from "@/components/wms/primitives";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api-client";
 import { requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/gate-dashboard")({
   beforeLoad: () => requireRole("GATE_SECURITY"),
-  head: () => ({ meta: [{ title: "Gate Security Dashboard · KaizenX" }] }),
+  head: () => ({ meta: [{ title: "Gate Security Dashboard · Warehub 360 degree" }] }),
   component: GateDashboard,
 });
 
@@ -33,7 +42,9 @@ function GateDashboard() {
   useEffect(() => {
     void loadDashboard();
     const timer = window.setInterval(loadDashboard, 5_000);
-    const handleRefresh = () => { void loadDashboard(); };
+    const handleRefresh = () => {
+      void loadDashboard();
+    };
 
     window.addEventListener("focus", handleRefresh);
     window.addEventListener("storage", handleRefresh);
@@ -62,7 +73,12 @@ function GateDashboard() {
 
   const handleMarkVehicleExited = async (entry: any) => {
     const vehName = entry.vehicle_number || "this vehicle";
-    if (!confirm(`Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`)) return;
+    if (
+      !confirm(
+        `Confirm gate exit approval for ${vehName}? Confirm that vehicle has completed unloading/receiving and is cleared to leave facility.`,
+      )
+    )
+      return;
     setExitingId(entry.id);
     try {
       const updated = await api.markInboundVehicleExited(entry.id);
@@ -75,7 +91,8 @@ function GateDashboard() {
       }
     } catch (error: any) {
       toast.error("Gate exit approval failed", {
-        description: error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
+        description:
+          error?.message || "Ensure receiving/unloading is complete before approving vehicle exit.",
       });
     } finally {
       setExitingId(null);
@@ -98,54 +115,56 @@ function GateDashboard() {
       }
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard
-          label="Total arrivals"
-          value={loading ? "..." : String(stats.totalArrivals || 0)}
-          delta="Vehicles recorded today"
-          icon={Truck}
-          tone="primary"
-          to="/gate-entry"
-        />
-        <StatCard
-          label="Verified POs"
-          value={loading ? "..." : String(stats.verifiedArrivals || 0)}
-          delta="PO matched at the gate"
-          icon={ShieldCheck}
-          tone="success"
-          to="/gate-entry"
-        />
-        <StatCard
-          label="Unscheduled"
-          value={loading ? "..." : String(stats.unscheduledArrivals || 0)}
-          delta="Requires manual review"
-          icon={ClipboardCheck}
-          tone="warning"
-          to="/unscheduled-arrivals"
-        />
-        <StatCard
-          label="Awaiting Dock"
-          value={loading ? "..." : String(stats.awaitingDock ?? stats.awaiting_dock ?? 0)}
-          delta="Needs dock allocation"
-          icon={Clock3}
-          tone={Number(stats.awaitingDock ?? stats.awaiting_dock ?? 0) > 0 ? "warning" : "primary"}
-          to="/dock-management"
-        />
-        <StatCard
-          label="Vehicles Exited"
-          value={loading ? "..." : String(stats.vehiclesExited ?? stats.vehicles_exited ?? 0)}
-          delta="Cleared & exited facility"
-          icon={LogOut}
-          tone="success"
-          to="/gate-entry"
-        />
-        <StatCard
-          label="Pending clearance"
-          value={loading ? "..." : String(stats.vehiclesWaiting || 0)}
-          delta="Not yet in dock queue"
-          icon={Clock3}
-          tone="teal"
-          to="/gate-entry"
-        />
+          <StatCard
+            label="Total arrivals"
+            value={loading ? "..." : String(stats.totalArrivals || 0)}
+            delta="Vehicles recorded today"
+            icon={Truck}
+            tone="primary"
+            to="/gate-entry"
+          />
+          <StatCard
+            label="Verified POs"
+            value={loading ? "..." : String(stats.verifiedArrivals || 0)}
+            delta="PO matched at the gate"
+            icon={ShieldCheck}
+            tone="success"
+            to="/gate-entry"
+          />
+          <StatCard
+            label="Unscheduled"
+            value={loading ? "..." : String(stats.unscheduledArrivals || 0)}
+            delta="Requires manual review"
+            icon={ClipboardCheck}
+            tone="warning"
+            to="/unscheduled-arrivals"
+          />
+          <StatCard
+            label="Awaiting Dock"
+            value={loading ? "..." : String(stats.awaitingDock ?? stats.awaiting_dock ?? 0)}
+            delta="Needs dock allocation"
+            icon={Clock3}
+            tone={
+              Number(stats.awaitingDock ?? stats.awaiting_dock ?? 0) > 0 ? "warning" : "primary"
+            }
+            to="/dock-management"
+          />
+          <StatCard
+            label="Vehicles Exited"
+            value={loading ? "..." : String(stats.vehiclesExited ?? stats.vehicles_exited ?? 0)}
+            delta="Cleared & exited facility"
+            icon={LogOut}
+            tone="success"
+            to="/gate-entry"
+          />
+          <StatCard
+            label="Pending clearance"
+            value={loading ? "..." : String(stats.vehiclesWaiting || 0)}
+            delta="Not yet in dock queue"
+            icon={Clock3}
+            tone="teal"
+            to="/gate-entry"
+          />
       </div>
 
       <Card className="mt-4 border-border/50 shadow-soft">
@@ -185,11 +204,17 @@ function GateDashboard() {
                         {entry.vehicle_number || "Vehicle pending"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.gate_entry_no || "Gate entry pending"} · {entry.vendor || entry.supplier_name || "Supplier pending"} · {entry.po_number || "No PO"}
+                        {entry.gate_entry_no || "Gate entry pending"} ·{" "}
+                        {entry.vendor || entry.supplier_name || "Supplier pending"} ·{" "}
+                        {entry.po_number || "No PO"}
                       </p>
                       {isExited && (
                         <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-1">
-                          <ShieldCheck className="size-3.5" /> Approved Exit at {entry.exited_at ? new Date(entry.exited_at).toLocaleString() : "Recently"} {entry.exited_by ? `by ${entry.exited_by}` : ""}
+                          <ShieldCheck className="size-3.5" /> Approved Exit at{" "}
+                          {entry.exited_at
+                            ? new Date(entry.exited_at).toLocaleString()
+                            : "Recently"}{" "}
+                          {entry.exited_by ? `by ${entry.exited_by}` : ""}
                         </p>
                       )}
                     </div>

@@ -1092,32 +1092,32 @@ function ProcurementFinishedGoods() {
       {/* Detail Modal */}
       {selectedRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <Card className="w-full max-w-3xl max-h-[90dvh] overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-0 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-700 bg-[#0b2a50] px-6 py-5 text-white">
               <div className="flex items-center gap-3">
-                <div className="size-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                <div className="size-11 rounded-xl bg-blue-500/20 text-blue-100 ring-1 ring-blue-300/30 flex items-center justify-center">
                   <Boxes className="size-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2.5">
-                    <h3 className="text-lg font-bold text-slate-900">{selectedRequest.request_number}</h3>
+                    <h3 className="text-xl font-black text-white">{selectedRequest.request_number}</h3>
                     <FGStatusBadge status={selectedRequest.status} />
                   </div>
-                  <p className="text-xs text-slate-500">Finished Goods Request Overview</p>
+                  <p className="text-xs font-medium text-blue-100">Finished Goods Request Overview</p>
                 </div>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSelectedRequest(null)}
-                className="size-8 p-0 rounded-lg text-slate-400 hover:text-slate-700"
+                className="size-8 p-0 rounded-lg text-blue-100 hover:bg-white/10 hover:text-white"
               >
                 <X className="size-4" />
               </Button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+            <div className="grid grid-cols-1 gap-3 p-6 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">Product</span>
                 <div className="font-bold text-sm text-slate-900 mt-1">
                   {selectedRequest.product_name || selectedRequest.finished_goods_name}
@@ -1127,7 +1127,7 @@ function ProcurementFinishedGoods() {
                 </div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">Requested Quantity</span>
                 <div className="font-black text-lg text-blue-600 mt-0.5">
                   {selectedRequest.quantity || selectedRequest.requested_quantity} {selectedRequest.uom || "PCS"}
@@ -1137,7 +1137,7 @@ function ProcurementFinishedGoods() {
                 </div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">Requested By</span>
                 <div className="font-bold text-sm text-slate-900 mt-1">
                   {selectedRequest.requested_by || selectedRequest.created_by || "procurement"}
@@ -1147,7 +1147,7 @@ function ProcurementFinishedGoods() {
                 </div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">FG Available</span>
                 <div className="font-black text-lg text-emerald-600 mt-0.5">
                   {selectedRequest.fg_store_available ?? selectedRequest.available_quantity ?? 0} {selectedRequest.uom || "PCS"}
@@ -1155,7 +1155,7 @@ function ProcurementFinishedGoods() {
                 <div className="text-[11px] text-slate-400">Across matching inventory locations</div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">Shortage</span>
                 <div className={`font-black text-lg mt-0.5 ${(selectedRequest.shortage ?? 0) > 0 ? "text-red-600" : "text-emerald-600"}`}>
                   {selectedRequest.shortage ?? selectedRequest.shortage_quantity ?? 0} {selectedRequest.uom || "PCS"}
@@ -1165,7 +1165,7 @@ function ProcurementFinishedGoods() {
                 </div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+              <div className="min-h-28 rounded-2xl bg-white p-4 border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold uppercase text-slate-400">BOM Attachment</span>
                 <div className="mt-1.5">
                   {selectedRequest.bom_attachment_url ? (
@@ -1184,11 +1184,11 @@ function ProcurementFinishedGoods() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end border-t border-slate-200 bg-white px-6 py-4">
               <Button
                 variant="outline"
                 onClick={() => setSelectedRequest(null)}
-                className="h-9 px-4 rounded-xl border-slate-200 text-slate-700 text-xs font-semibold"
+                className="h-10 rounded-xl border-[#1267e8] px-6 text-xs font-bold text-[#1267e8] hover:bg-blue-50"
               >
                 Close
               </Button>

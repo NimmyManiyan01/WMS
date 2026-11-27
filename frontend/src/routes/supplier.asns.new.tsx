@@ -30,7 +30,7 @@ export const Route = createFileRoute("/supplier/asns/new")({
   component: NewAsn,
 });
 
-const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background focus:ring-primary/20";
+const inputClass = "h-11 rounded-xl border-[#DCE6F3] bg-white focus-visible:ring-[#0866FF]/20";
 const identifierPattern = "[A-Za-z0-9][A-Za-z0-9/_-]{0,49}";
 const vehiclePattern = "[A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)*";
 const namePattern = "[A-Za-z][A-Za-z .'-]{1,99}";
@@ -367,7 +367,7 @@ function NewAsn() {
       localStorage.removeItem(draftStorageKey);
       toast.success("Advance Shipment Notice submitted successfully");
       navigate({
-        to: "/procurement/asns/$asnId",
+        to: "/supplier/asns/$asnId",
         params: { asnId: createdAsn.id },
       });
     } catch (error: any) {
@@ -396,18 +396,18 @@ function NewAsn() {
   return (
     <AppShell
       title="Create Advance Shipment Notice"
-      subtitle={`PO: ${po?.poNumber || poNumberFromSearch} · Supplier Portal`}
+      subtitle={po?.poNumber || poNumberFromSearch ? `Purchase order ${po?.poNumber || poNumberFromSearch}` : "Prepare shipment and vehicle details"}
       actions={
         <Button variant="outline" className="rounded-xl" onClick={() => window.history.back()}>
           <ArrowLeft className="mr-2 size-4" /> Back
         </Button>
       }
     >
-      <form onSubmit={handleSubmit} className="mx-auto max-w-5xl space-y-6 pb-20">
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
+      <form onSubmit={handleSubmit} className="mx-auto max-w-7xl space-y-6 pb-20">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="min-w-0 space-y-6">
             <SectionCard title="ASN Information" icon={FileText}>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2 [&_label]:font-semibold [&_label]:text-[#526580]">
                 <div className="space-y-1.5">
                   <Label>ASN Number</Label>
                   <div className="h-11 flex items-center px-4 rounded-xl bg-muted/50 border border-border font-mono text-sm font-bold text-primary">
@@ -417,10 +417,10 @@ function NewAsn() {
                 <div className="space-y-1.5">
                   <Label>Reference PO Number</Label>
                   <div className="h-11 flex items-center px-4 rounded-xl bg-muted/50 border border-border font-mono text-sm font-bold">
-                    {po?.poNumber || poNumberFromSearch}
+                    {po?.poNumber || poNumberFromSearch || "—"}
                   </div>
                 </div>
-                <div className="space-y-1.5 col-span-2">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label>Supplier</Label>
                   <div className="h-11 flex items-center px-4 rounded-xl bg-muted/50 border border-border text-sm font-medium">
                     {po?.supplierName || "Independent Supplier"}
@@ -548,9 +548,9 @@ function NewAsn() {
                   there is remaining PO quantity to dispatch.
                 </div>
               )}
-              <div className="rounded-2xl border border-border/40 overflow-hidden bg-card">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50 border-b border-border/40 text-[10px] uppercase font-bold text-muted-foreground">
+              <div className="overflow-x-auto rounded-xl border border-[#DCE6F3] bg-white" role="region" aria-label="Shipment items" tabIndex={0}>
+                <table className="w-full min-w-[36rem] text-left text-xs">
+                  <thead className="border-b border-[#DCE6F3] bg-[#F1F5FA] text-[10px] font-bold uppercase text-[#526580]">
                     <tr>
                       <th className="px-4 py-3">Material</th>
                       <th className="px-4 py-3 text-right">Ordered</th>
@@ -689,11 +689,11 @@ function NewAsn() {
             </SectionCard>
           </div>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <SectionCard title="Logistics Details" icon={Truck}>
               <div className="space-y-4">
                 {logisticsList.map((logisticsItem, index) => (
-                  <div key={index} className="space-y-4 rounded-xl border border-border/50 p-4 bg-muted/10 relative">
+                  <div key={index} className="relative space-y-4 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 [&_label]:font-semibold [&_label]:text-[#526580]">
                     {logisticsList.length > 1 && (
                       <Button
                         type="button"
@@ -736,7 +736,7 @@ function NewAsn() {
                         required
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-4 min-[480px]:grid-cols-2">
                       <div className="space-y-1.5">
                         <Label htmlFor={`number_of_packages_${index}`}>Number of Packages</Label>
                         <Input
@@ -811,7 +811,7 @@ function NewAsn() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full rounded-xl border-dashed"
+                  className="w-full rounded-xl border-dashed border-[#CBE0FC] bg-[#EBF3FF] font-semibold text-[#0866FF] hover:bg-[#DDEBFF] hover:text-[#0866FF]"
                   onClick={addLogistics}
                 >
                   <Plus className="mr-2 size-4" /> Add Another Vehicle
@@ -832,7 +832,7 @@ function NewAsn() {
                 <div className="grid gap-3 mt-6">
                   <Button
                     type="submit"
-                    className="w-full h-12 rounded-xl shadow-glow"
+                    className="h-11 w-full rounded-xl bg-[#0866FF] font-semibold text-white hover:bg-[#0054D6]"
                     disabled={submitting || lines.length === 0 || !hasShipmentQuantity}
                   >
                     {submitting ? (

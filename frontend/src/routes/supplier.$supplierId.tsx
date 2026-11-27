@@ -409,10 +409,10 @@ function SupplierProfile() {
           </div>
           <div style="margin-top: 30px; padding: 20px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;">
             <p style="font-size: 12px; font-weight: bold; color: #065f46; margin: 0;">Verified Compliance Record</p>
-            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in KaizenX platform master data.</p>
+            <p style="font-size: 11px; color: #047857; margin-top: 4px;">This document certifies that ${supplier?.supplierName || "the supplier"} (GSTIN: ${supplier?.gstin || "N/A"}) is a registered, verified vendor in Warehub 360 degree platform master data.</p>
           </div>
           <div class="footer">
-            Generated automatically by KaizenX Procurement Portal · ${new Date().toLocaleString("en-IN")}
+            Generated automatically by Warehub 360 degree Procurement Portal · ${new Date().toLocaleString("en-IN")}
           </div>
         </body>
         </html>

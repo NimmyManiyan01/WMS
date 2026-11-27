@@ -98,6 +98,7 @@ import { Route as FinanceApprovalsIndexRouteImport } from './routes/finance.appr
 import { Route as FinanceApprovalsApprovalIdRouteImport } from './routes/finance.approvals.$approvalId'
 import { Route as ProcurementAsnsIndexRouteImport } from './routes/procurement.asns.index'
 import { Route as ProcurementAsnsAsnIdRouteImport } from './routes/procurement.asns.$asnId'
+import { Route as SupplierAsnsAsnIdRouteImport } from './routes/supplier.asns.$asnId'
 import { Route as SupplierAsnsNewRouteImport } from './routes/supplier.asns.new'
 import { Route as FinanceApprovalsCompareRfqIdRouteImport } from './routes/finance.approvals.compare.$rfqId'
 
@@ -563,6 +564,11 @@ const ProcurementAsnsAsnIdRoute = ProcurementAsnsAsnIdRouteImport.update({
   path: '/$asnId',
   getParentRoute: () => ProcurementAsnsRoute,
 } as any)
+const SupplierAsnsAsnIdRoute = SupplierAsnsAsnIdRouteImport.update({
+  id: '/supplier/asns/$asnId',
+  path: '/supplier/asns/$asnId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SupplierAsnsNewRoute = SupplierAsnsNewRouteImport.update({
   id: '/supplier/asns/new',
   path: '/supplier/asns/new',
@@ -663,6 +669,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
+  '/supplier/asns/$asnId': typeof SupplierAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals/': typeof FinanceApprovalsIndexRoute
   '/procurement/asns/': typeof ProcurementAsnsIndexRoute
@@ -754,6 +761,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
+  '/supplier/asns/$asnId': typeof SupplierAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals': typeof FinanceApprovalsIndexRoute
   '/procurement/asns': typeof ProcurementAsnsIndexRoute
@@ -848,6 +856,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/finance/approvals/$approvalId': typeof FinanceApprovalsApprovalIdRoute
   '/procurement/asns/$asnId': typeof ProcurementAsnsAsnIdRoute
+  '/supplier/asns/$asnId': typeof SupplierAsnsAsnIdRoute
   '/supplier/asns/new': typeof SupplierAsnsNewRoute
   '/finance/approvals/': typeof FinanceApprovalsIndexRoute
   '/procurement/asns/': typeof ProcurementAsnsIndexRoute
@@ -943,6 +952,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/finance/approvals/$approvalId'
     | '/procurement/asns/$asnId'
+    | '/supplier/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals/'
     | '/procurement/asns/'
@@ -1034,6 +1044,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/finance/approvals/$approvalId'
     | '/procurement/asns/$asnId'
+    | '/supplier/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals'
     | '/procurement/asns'
@@ -1127,6 +1138,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/finance/approvals/$approvalId'
     | '/procurement/asns/$asnId'
+    | '/supplier/asns/$asnId'
     | '/supplier/asns/new'
     | '/finance/approvals/'
     | '/procurement/asns/'
@@ -1219,6 +1231,7 @@ export interface RootRouteChildren {
   WarehouseQuarantineRoute: typeof WarehouseQuarantineRoute
   WarehouseStoresRoute: typeof WarehouseStoresRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  SupplierAsnsAsnIdRoute: typeof SupplierAsnsAsnIdRoute
   SupplierAsnsNewRoute: typeof SupplierAsnsNewRoute
 }
 
@@ -1847,6 +1860,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProcurementAsnsAsnIdRouteImport
       parentRoute: typeof ProcurementAsnsRoute
     }
+    '/supplier/asns/$asnId': {
+      id: '/supplier/asns/$asnId'
+      path: '/supplier/asns/$asnId'
+      fullPath: '/supplier/asns/$asnId'
+      preLoaderRoute: typeof SupplierAsnsAsnIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/supplier/asns/new': {
       id: '/supplier/asns/new'
       path: '/supplier/asns/new'
@@ -1979,6 +1999,7 @@ const rootRouteChildren: RootRouteChildren = {
   WarehouseQuarantineRoute: WarehouseQuarantineRoute,
   WarehouseStoresRoute: WarehouseStoresRoute,
   AdminIndexRoute: AdminIndexRoute,
+  SupplierAsnsAsnIdRoute: SupplierAsnsAsnIdRoute,
   SupplierAsnsNewRoute: SupplierAsnsNewRoute,
 }
 export const routeTree = rootRouteImport

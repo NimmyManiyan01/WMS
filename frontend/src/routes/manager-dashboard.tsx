@@ -94,7 +94,8 @@ function ManagerDashboard() {
       .toLowerCase();
 
   const requestId = (request: any) => String(request?.id || request?.requestId || "");
-  const supplierIdOf = (supplier: any) => String(supplier?.supplierId || supplier?.supplier_id || supplier?.id || "");
+  const supplierIdOf = (supplier: any) =>
+    String(supplier?.supplierId || supplier?.supplier_id || supplier?.id || "");
 
   const requestIdOf = (request: any) =>
     request?.requestNumber ||
@@ -123,8 +124,7 @@ function ManagerDashboard() {
   const pendingSuppliers = useMemo(
     () =>
       suppliers.filter(
-        (supplier) =>
-          normalizeStatus(supplier.status || "Pending Approval") === "pending approval",
+        (supplier) => normalizeStatus(supplier.status || "Pending Approval") === "pending approval",
       ),
     [suppliers],
   );
@@ -183,9 +183,7 @@ function ManagerDashboard() {
         "Manager",
       );
       toast.success(
-        nextStatus === "Approved"
-          ? "Material request approved"
-          : "Material request rejected",
+        nextStatus === "Approved" ? "Material request approved" : "Material request rejected",
       );
       await loadData(true);
       window.dispatchEvent(new Event("material-requests:changed"));
@@ -241,12 +239,7 @@ function ManagerDashboard() {
       const key = `mr-${id}`;
       try {
         setBusyKey(key);
-        await api.updateMaterialRequestStatus(
-          id,
-          "Rejected",
-          reason,
-          "Manager",
-        );
+        await api.updateMaterialRequestStatus(id, "Rejected", reason, "Manager");
         toast.success(`Material request ${reqNum} rejected`, {
           description: `Reason: ${reason}`,
         });
@@ -261,17 +254,11 @@ function ManagerDashboard() {
     } else {
       const supplierId = supplierIdOf(rejectDialog.item);
       const supplierName =
-        rejectDialog.item?.supplierName ||
-        rejectDialog.item?.supplier_name ||
-        "Supplier";
+        rejectDialog.item?.supplierName || rejectDialog.item?.supplier_name || "Supplier";
       const key = `supplier-${supplierId}`;
       try {
         setBusyKey(key);
-        await api.updateSupplierStatus(
-          supplierId,
-          "Blocked",
-          reason,
-        );
+        await api.updateSupplierStatus(supplierId, "Blocked", reason);
         toast.success(`Supplier "${supplierName}" onboarding rejected`, {
           description: `Reason: ${reason}`,
         });
@@ -301,31 +288,37 @@ function ManagerDashboard() {
           title="Total Material Requests"
           value={stats.totalRequests}
           icon={ClipboardList}
+          tone="blue"
         />
         <MetricCard
           title="Pending Material Requests"
           value={stats.pending}
           icon={PackageCheck}
+          tone="amber"
         />
         <MetricCard
           title="Approved Material Requests"
           value={stats.approved}
           icon={CheckCircle2}
+          tone="green"
         />
         <MetricCard
           title="Rejected Material Requests"
           value={stats.rejected}
           icon={XCircle}
+          tone="red"
         />
         <MetricCard
           title="Pending Supplier Approvals"
           value={stats.pendingSupplierApprovals}
           icon={PackageCheck}
+          tone="amber"
         />
         <MetricCard
           title="Approved Suppliers"
           value={stats.approvedSuppliers}
           icon={CheckCircle2}
+          tone="green"
         />
       </div>
 
@@ -369,7 +362,8 @@ function ManagerDashboard() {
             >
               {pendingSuppliers.map((supplier) => {
                 const supplierId = supplierIdOf(supplier);
-                const category = supplier.category || supplier.categories || supplier.materialCategories;
+                const category =
+                  supplier.category || supplier.categories || supplier.materialCategories;
                 const categoryText = Array.isArray(category)
                   ? category.filter(Boolean).join(", ")
                   : String(category || "").trim();
@@ -433,32 +427,32 @@ function ManagerDashboard() {
         open={rejectDialog.open}
         onOpenChange={(open) => !open && setRejectDialog((prev) => ({ ...prev, open: false }))}
       >
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5 text-red-600 mb-1">
-              <div className="grid size-9 place-items-center rounded-xl bg-red-100 dark:bg-red-950/50 text-red-600">
+        <DialogContent className="gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-2xl sm:max-w-lg [&>button]:right-5 [&>button]:top-5 [&>button]:text-white [&>button]:opacity-80 [&>button:hover]:bg-white/10 [&>button:hover]:opacity-100">
+          <DialogHeader className="bg-[#0B2A55] px-6 py-5 pr-14 text-left">
+            <div className="mb-1 flex items-center gap-3">
+              <div className="grid size-10 place-items-center rounded-xl border border-red-300/30 bg-red-400/15 text-red-200">
                 <AlertCircle className="size-5" />
               </div>
-              <DialogTitle className="text-lg font-bold">
+              <DialogTitle className="text-lg font-bold text-white">
                 {rejectDialog.type === "material_request"
                   ? "Reject Material Request"
                   : "Reject Supplier Onboarding"}
               </DialogTitle>
             </div>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="pl-[52px] text-xs leading-5 text-blue-100/80">
               {rejectDialog.type === "material_request" ? (
                 <>
                   Specify why request{" "}
-                  <strong className="text-foreground font-mono">
-                    {requestIdOf(rejectDialog.item)}
-                  </strong>{" "}
+                  <strong className="font-mono text-white">{requestIdOf(rejectDialog.item)}</strong>{" "}
                   is being rejected. The requester will be notified of this reason.
                 </>
               ) : (
                 <>
                   Specify why supplier{" "}
-                  <strong className="text-foreground">
-                    {rejectDialog.item?.supplierName || rejectDialog.item?.supplier_name || "Supplier"}
+                  <strong className="text-white">
+                    {rejectDialog.item?.supplierName ||
+                      rejectDialog.item?.supplier_name ||
+                      "Supplier"}
                   </strong>{" "}
                   is being rejected.
                 </>
@@ -466,11 +460,11 @@ function ManagerDashboard() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
+          <div className="space-y-5 px-6 py-5">
+            <div className="space-y-2">
               <Label
                 htmlFor="rejection-reason"
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                className="text-xs font-bold uppercase tracking-wider text-[#526580]"
               >
                 Rejection Reason <span className="text-red-500">*</span>
               </Label>
@@ -478,20 +472,16 @@ function ManagerDashboard() {
                 id="rejection-reason"
                 placeholder="Enter detailed reason for rejection..."
                 value={rejectDialog.reason}
-                onChange={(e) =>
-                  setRejectDialog((prev) => ({ ...prev, reason: e.target.value }))
-                }
+                onChange={(e) => setRejectDialog((prev) => ({ ...prev, reason: e.target.value }))}
                 rows={3}
-                className="rounded-xl resize-none text-sm"
+                className="resize-none rounded-xl border-[#DCE6F3] bg-[#F8FAFD] text-sm focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                 required
               />
             </div>
 
             {/* Quick Reason Chips */}
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Quick reasons:
-              </span>
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-[#526580]">Quick reasons:</span>
               <div className="flex flex-wrap gap-1.5">
                 {(rejectDialog.type === "material_request"
                   ? [
@@ -517,7 +507,7 @@ function ManagerDashboard() {
                         reason: prev.reason ? `${prev.reason}; ${preset}` : preset,
                       }))
                     }
-                    className="rounded-lg border bg-muted/40 px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:bg-primary/10 hover:text-primary hover:border-primary/30"
+                    className="rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1.5 text-[11px] font-semibold text-[#526580] transition hover:border-[#0866FF]/40 hover:bg-[#EBF3FF] hover:text-[#0866FF]"
                   >
                     + {preset}
                   </button>
@@ -526,11 +516,11 @@ function ManagerDashboard() {
             </div>
           </div>
 
-          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
+          <DialogFooter className="flex flex-col-reverse gap-2 border-t border-[#DCE6F3] bg-[#F8FAFD] px-6 py-4 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
-              className="rounded-xl"
+              className="rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF]"
               onClick={() => setRejectDialog((prev) => ({ ...prev, open: false }))}
             >
               Cancel
@@ -538,7 +528,7 @@ function ManagerDashboard() {
             <Button
               type="button"
               variant="destructive"
-              className="rounded-xl font-bold gap-1.5"
+              className="gap-1.5 rounded-xl bg-[#E5484D] font-bold text-white hover:bg-[#CC3F44]"
               disabled={!rejectDialog.reason.trim() || !!busyKey}
               onClick={handleConfirmReject}
             >
@@ -555,9 +545,18 @@ function ManagerDashboard() {
 function RequestCard({ request, children }: any) {
   const id = String(request?.id || request?.requestId || "");
   const requestNumber =
-    request?.requestNumber || request?.request_number || request?.number || (id ? `Request ${id.slice(0, 8)}` : "Material Request");
-  const warehouse = request?.warehouseId || request?.warehouse_id || request?.warehouseName || request?.warehouse_name || "Warehouse";
-  const department = request?.department || request?.departmentName || request?.department_name || "Department";
+    request?.requestNumber ||
+    request?.request_number ||
+    request?.number ||
+    (id ? `Request ${id.slice(0, 8)}` : "Material Request");
+  const warehouse =
+    request?.warehouseId ||
+    request?.warehouse_id ||
+    request?.warehouseName ||
+    request?.warehouse_name ||
+    "Warehouse";
+  const department =
+    request?.department || request?.departmentName || request?.department_name || "Department";
   const items = Array.isArray(request?.items) ? request.items : [];
 
   const isRejected = (request?.status || "").toUpperCase() === "REJECTED";
@@ -571,9 +570,7 @@ function RequestCard({ request, children }: any) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-mono text-sm font-black">
-              {requestNumber}
-            </p>
+            <p className="font-mono text-sm font-black">{requestNumber}</p>
             <StatusBadge status={request?.status || "Unknown"} />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -605,17 +602,42 @@ function RequestCard({ request, children }: any) {
   );
 }
 
-function MetricCard({ title, value, icon: Icon }: any) {
+function MetricCard({ title, value, icon: Icon, tone = "blue" }: any) {
+  const tones: Record<string, { card: string; icon: string; value: string }> = {
+    blue: {
+      card: "border-[#CBE0FC] hover:border-[#0866FF]/40",
+      icon: "bg-[#EBF3FF] text-[#0866FF]",
+      value: "text-[#0866FF]",
+    },
+    amber: {
+      card: "border-amber-200 hover:border-amber-300",
+      icon: "bg-amber-50 text-amber-600",
+      value: "text-amber-700",
+    },
+    green: {
+      card: "border-emerald-200 hover:border-emerald-300",
+      icon: "bg-emerald-50 text-emerald-600",
+      value: "text-emerald-700",
+    },
+    red: {
+      card: "border-red-200 hover:border-red-300",
+      icon: "bg-red-50 text-[#E5484D]",
+      value: "text-[#C83F44]",
+    },
+  };
+  const selectedTone = tones[tone] || tones.blue;
   return (
-    <Card className="border-border/40 shadow-soft">
+    <Card
+      className={`min-h-36 border bg-white shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-md ${selectedTone.card}`}
+    >
       <CardContent className="flex items-center justify-between p-5">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+        <div className="min-w-0">
+          <p className="max-w-40 text-[11px] font-bold uppercase tracking-wider text-[#526580]">
             {title}
           </p>
-          <p className="mt-1 text-2xl font-black tabular-nums">{value}</p>
+          <p className={`mt-2 text-3xl font-black tabular-nums ${selectedTone.value}`}>{value}</p>
         </div>
-        <div className="grid size-11 place-items-center rounded-xl bg-primary-soft/20 text-primary">
+        <div className={`grid size-11 shrink-0 place-items-center rounded-xl ${selectedTone.icon}`}>
           <Icon className="size-5" />
         </div>
       </CardContent>
@@ -665,12 +687,26 @@ function RecentRequestsTable({ requests }: { requests: any[] }) {
     if (!filterQuery.trim()) return requests;
     const q = filterQuery.toLowerCase();
     return requests.filter((r) => {
-      const num = String(r?.requestNumber || r?.request_number || r?.number || r?.id || "").toLowerCase();
-      const wh = String(r?.warehouseId || r?.warehouse_id || r?.warehouseName || r?.warehouse_name || "").toLowerCase();
-      const dept = String(r?.department || r?.departmentName || r?.department_name || "").toLowerCase();
-      const by = String(r?.requestedBy || r?.requested_by || r?.createdBy || r?.created_by || "").toLowerCase();
+      const num = String(
+        r?.requestNumber || r?.request_number || r?.number || r?.id || "",
+      ).toLowerCase();
+      const wh = String(
+        r?.warehouseId || r?.warehouse_id || r?.warehouseName || r?.warehouse_name || "",
+      ).toLowerCase();
+      const dept = String(
+        r?.department || r?.departmentName || r?.department_name || "",
+      ).toLowerCase();
+      const by = String(
+        r?.requestedBy || r?.requested_by || r?.createdBy || r?.created_by || "",
+      ).toLowerCase();
       const status = String(r?.status || "").toLowerCase();
-      return num.includes(q) || wh.includes(q) || dept.includes(q) || by.includes(q) || status.includes(q);
+      return (
+        num.includes(q) ||
+        wh.includes(q) ||
+        dept.includes(q) ||
+        by.includes(q) ||
+        status.includes(q)
+      );
     });
   }, [requests, filterQuery]);
 
@@ -782,10 +818,7 @@ function RecentRequestsTable({ requests }: { requests: any[] }) {
                     lastRejection?.comments || request?.remarks || request?.rejection_reason;
 
                   return (
-                    <tr
-                      key={id || requestNumber}
-                      className="hover:bg-muted/30 transition-colors"
-                    >
+                    <tr key={id || requestNumber} className="hover:bg-muted/30 transition-colors">
                       <td className="px-5 py-3.5">
                         <span className="font-mono text-xs font-bold text-primary">
                           {requestNumber}
@@ -848,4 +881,3 @@ function RecentRequestsTable({ requests }: { requests: any[] }) {
     </Card>
   );
 }
-

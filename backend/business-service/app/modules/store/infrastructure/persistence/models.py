@@ -159,6 +159,7 @@ class StoreManagerUserModel(Base):
     shift_name: Mapped[str | None] = mapped_column(String(64), nullable=True, default="GENERAL")
     assembly_unit_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     page_permissions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    account_source: Mapped[str] = mapped_column(String(32), nullable=False, default="WAREHOUSE", index=True)
     auth_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE", index=True)
@@ -175,6 +176,19 @@ class StoreManagerUserModel(Base):
     )
 
     store: Mapped[StoreModel] = relationship("StoreModel", back_populates="managers")
+
+
+class AdminAuditLogModel(Base):
+    __tablename__ = "admin_audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
 
 class AssemblyUnitModel(Base):

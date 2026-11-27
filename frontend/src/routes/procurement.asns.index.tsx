@@ -111,22 +111,29 @@ function buildAsnPrintHtml(asn: any): string {
       <head>
         <title>${escapeHtml(asnNumber)} Export</title>
         <style>
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           body { margin: 0; color: #101D3A; font-family: Inter, Arial, sans-serif; background: #F5F8FF; }
-          main { max-width: 900px; margin: 24px auto; background: #fff; padding: 32px; border: 1px solid #DCE6F3; border-radius: 16px; }
-          header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 3px solid #0866FF; padding-bottom: 18px; }
-          h1 { margin: 0; font-size: 26px; color: #101D3A; }
-          h2 { margin: 28px 0 12px; font-size: 16px; color: #101D3A; }
-          .muted { color: #526580; }
-          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
-          .box { border: 1px solid #DCE6F3; border-radius: 12px; padding: 12px; background: #F5F8FF; }
+          main { max-width: 980px; margin: 24px auto; overflow: hidden; background: #fff; border: 1px solid #DCE6F3; border-radius: 16px; }
+          header { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 26px 30px; background: #0B2A55; color: #fff; }
+          header > div:last-child { min-width: 180px; text-align: right; }
+          header .label { color: #BFDBFE; }
+          header .value { color: #fff; }
+          h1 { margin: 0; font-size: 26px; color: #fff; }
+          h2 { margin: 0; padding: 22px 30px 10px; font-size: 15px; color: #0B2A55; }
+          .muted { margin-top: 4px; color: #BFDBFE; }
+          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 24px 30px 6px; overflow: hidden; border: 1px solid #DCE6F3; border-radius: 12px; }
+          .box { min-height: 72px; padding: 14px 16px; background: #F8FAFD; border-bottom: 1px solid #DCE6F3; }
+          .box:nth-child(odd) { border-right: 1px solid #DCE6F3; }
+          .box:nth-last-child(-n+2) { border-bottom: 0; }
           .label { color: #526580; font-size: 11px; font-weight: 700; text-transform: uppercase; }
           .value { margin-top: 4px; font-weight: 700; color: #101D3A; }
-          table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
-          th { background: #F5F8FF; color: #526580; text-align: left; padding: 10px; font-size: 11px; text-transform: uppercase; }
-          td { border-top: 1px solid #DCE6F3; padding: 10px; vertical-align: top; }
+          table { width: calc(100% - 60px); margin: 0 30px 6px; border-collapse: collapse; border: 1px solid #DCE6F3; font-size: 13px; }
+          th { background: #0B2A55; color: #fff; text-align: left; padding: 11px 12px; font-size: 10px; letter-spacing: .03em; text-transform: uppercase; }
+          td { border-top: 1px solid #DCE6F3; padding: 11px 12px; vertical-align: top; }
+          tbody tr:nth-child(even) { background: #F8FAFD; }
           .num { text-align: right; font-variant-numeric: tabular-nums; font-family: monospace; }
           .empty { text-align: center; color: #526580; font-style: italic; }
-          @media print { body { background: #fff; } main { margin: 0; border: 0; } button { display: none; } }
+          @media print { body { background: #fff; } main { max-width: none; margin: 0; border: 0; border-radius: 0; } button { display: none; } }
         </style>
       </head>
       <body>
@@ -322,24 +329,23 @@ function Asns() {
   return (
     <AppShell mainClassName="bg-[#F5F8FF]">
       <div className="space-y-6 pb-24 max-w-[1536px] mx-auto">
-        {/* 1. Breadcrumbs */}
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#526580]">
-          <Link to="/procurement-dashboard" className="hover:text-[#0866FF] transition-colors">
-            Procurement
-          </Link>
-          <ChevronRight className="size-3 text-[#8FA3BF]" />
-          <span className="font-bold text-[#101D3A]">Advanced Shipping Notices</span>
-        </div>
-
-        {/* 2. Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-100/75">
+            <Link to="/procurement-dashboard" className="transition-colors hover:text-white">
+              Procurement
+            </Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <span className="font-bold text-white">Advanced Shipping Notices</span>
+          </div>
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3.5">
-            <div className="size-12 rounded-2xl bg-[#EBF3FF] border border-[#DCE6F3] text-[#0866FF] flex items-center justify-center shadow-xs shrink-0">
-              <Truck className="size-6 text-[#0866FF]" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white shadow-xs">
+              <Truck className="size-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-[30px] font-extrabold tracking-tight text-[#101D3A] leading-tight">
+                <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-[30px]">
                   Advanced Shipping Notices
                 </h1>
                 <TooltipProvider>
@@ -348,7 +354,7 @@ function Asns() {
                       <button
                         type="button"
                         aria-label="ASNs Info"
-                        className="inline-flex items-center text-[#526580] hover:text-[#0866FF] transition-colors cursor-help"
+                        className="inline-flex cursor-help items-center text-blue-100/75 transition-colors hover:text-white"
                       >
                         <Info className="size-4" />
                       </button>
@@ -362,7 +368,7 @@ function Asns() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p className="text-xs sm:text-sm font-medium text-[#526580] mt-0.5">
+              <p className="mt-0.5 text-xs font-medium text-blue-100/85 sm:text-sm">
                 Track incoming supplier shipments, transit status, and vehicle arrivals
               </p>
             </div>
@@ -379,19 +385,20 @@ function Asns() {
               Refresh ASNs
             </Button>
           </div>
+          </div>
         </div>
 
         {/* 3. 4 KPI Summary Cards with Amber Highlight on Awaiting Dock */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {/* Total ASNs */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Total Inbound ASNs</span>
               <div className="grid size-10 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
                 <Truck className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {totalCount}
               </span>
@@ -400,14 +407,14 @@ function Asns() {
           </div>
 
           {/* In Transit */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#00D4FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#00D4FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">In Transit</span>
               <div className="grid size-10 place-items-center rounded-xl bg-cyan-50 text-[#00A3C4]">
                 <Clock className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {inTransitCount}
               </span>
@@ -416,14 +423,14 @@ function Asns() {
           </div>
 
           {/* Awaiting Dock — Highlighted in Amber per requirements */}
-          <div className="group relative overflow-hidden rounded-2xl border-2 border-[#F5A623]/40 bg-gradient-to-br from-white to-amber-50/30 p-5 shadow-xs transition-all hover:border-[#F5A623] hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#F5A623]/50 bg-white p-5 shadow-xs transition-all hover:border-[#F5A623] hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-extrabold text-[#B45309]">Awaiting Dock</span>
               <div className="grid size-10 place-items-center rounded-xl bg-amber-100 text-[#F5A623]">
                 <AlertTriangle className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#B45309] tabular-nums">
                 {awaitingDockCount}
               </span>
@@ -432,14 +439,14 @@ function Asns() {
           </div>
 
           {/* Delivered / Completed */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Received & Completed</span>
               <div className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-[#16C784]">
                 <CheckCircle2 className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {deliveredCount}
               </span>
@@ -450,9 +457,9 @@ function Asns() {
 
         {/* 4. Search and Filter Toolbar */}
         <div className="rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid gap-3 xl:grid-cols-[minmax(320px,1fr)_auto] xl:items-center">
             {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative min-w-0 xl:max-w-2xl">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
               <input
                 type="text"
@@ -473,7 +480,7 @@ function Asns() {
             </div>
 
             {/* Status Pills Filter */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
               {[
                 { id: "ALL", label: "All ASNs", count: totalCount },
                 { id: "IN_TRANSIT", label: "In Transit", count: inTransitCount },
@@ -595,9 +602,9 @@ function Asns() {
                       : "border-[#DCE6F3] hover:border-[#0866FF]/40",
                   )}
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     {/* Left Info Area */}
-                    <div className="flex flex-1 items-start gap-4">
+                    <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-start gap-4">
                       <div
                         className={cn(
                           "grid size-12 shrink-0 place-items-center rounded-2xl border shadow-xs",
@@ -629,29 +636,29 @@ function Asns() {
                         </p>
 
                         {/* Well-Aligned Details Grid */}
-                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-medium text-[#526580]">
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#E7EDF6] pt-3 text-xs font-medium text-[#526580]">
                           {/* PO Reference — Clean muted tag if unlinked, prominent only when real */}
                           {isUnlinkedPo ? (
-                            <span className="inline-flex items-center gap-1 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1 text-xs font-medium text-[#526580]">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#526580]">
                               PO: Unlinked
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-lg border border-[#CBE0FC] bg-[#EBF3FF] px-2.5 py-1 font-mono text-xs font-bold text-[#0866FF]">
+                            <span className="inline-flex items-center gap-1 font-mono text-xs font-bold text-[#0866FF]">
                               PO: {poRef}
                             </span>
                           )}
 
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1">
+                          <span className="inline-flex items-center gap-1.5">
                             <span className="text-[#526580]">Transporter:</span>
                             <strong className="text-[#101D3A] font-semibold">{displayTransporter}</strong>
                           </span>
 
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1">
+                          <span className="inline-flex items-center gap-1.5">
                             <span className="text-[#526580]">Vehicle:</span>
                             <strong className="font-mono text-[#101D3A] font-bold">{displayVehicles}</strong>
                           </span>
 
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1">
+                          <span className="inline-flex items-center gap-1.5">
                             <Package className="size-3.5 text-[#526580]" />
                             <strong className="text-[#101D3A]">{asn.numberOfPackages || 0}</strong> Pkgs
                           </span>
@@ -661,7 +668,7 @@ function Asns() {
                     </div>
 
                     {/* Right: Arrival Time & Primary Action */}
-                    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#DCE6F3]/60 pt-3 lg:border-0 lg:pt-0">
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#DCE6F3] pt-4 lg:min-w-80 lg:justify-end lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                       {/* Expected Arrival Column */}
                       <div className="text-left lg:text-right">
                         <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#526580]">
@@ -746,16 +753,21 @@ function Asns() {
 
         {/* Documents Modal */}
         <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
-          <DialogContent className="max-w-2xl rounded-2xl border-[#DCE6F3] p-6 shadow-2xl">
-            <DialogHeader className="border-b border-[#DCE6F3] pb-4">
-              <DialogTitle className="text-lg font-bold text-[#101D3A]">
+          <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-2xl [&>button]:right-5 [&>button]:top-5 [&>button]:text-white [&>button]:opacity-80 [&>button:hover]:bg-white/10 [&>button:hover]:opacity-100">
+            <DialogHeader className="bg-[#0B2A55] px-6 py-5 pr-14 text-left">
+              <DialogTitle className="flex items-center gap-3 text-lg font-bold text-white">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/20 bg-white/10">
+                  <FileText className="size-5" />
+                </span>
+                <span>
                 ASN Documents — {readField(selectedAsn, "asnNumber", "asn_number") || "Selected ASN"}
+                </span>
               </DialogTitle>
-              <DialogDescription className="text-xs text-[#526580]">
+              <DialogDescription className="pl-[52px] text-xs text-blue-100/80">
                 Verified shipping documents uploaded by supplier for this advance shipment notice.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 pt-4">
+            <div className="space-y-3 p-6">
               {(readField(selectedAsn, "documents", "documents") || []).length > 0 ? (
                 (readField(selectedAsn, "documents", "documents") || []).map((document: any, index: number) => {
                   const fileName = readField(document, "fileName", "file_name") || "Document";
@@ -765,7 +777,7 @@ function Asns() {
                   return (
                     <div
                       key={`${fileName}-${index}`}
-                      className="flex flex-col gap-3 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-3 rounded-xl border border-[#DCE6F3] bg-white p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
@@ -798,8 +810,10 @@ function Asns() {
                   );
                 })
               ) : (
-                <div className="rounded-2xl border-2 border-dashed border-[#DCE6F3] p-8 text-center bg-white">
-                  <FileText className="mx-auto mb-2 size-10 text-[#8FA3BF]/40" />
+                <div className="rounded-2xl border border-dashed border-[#CBE0FC] bg-[#F5F8FF] p-8 text-center">
+                  <div className="mx-auto mb-3 grid size-12 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
+                    <FileText className="size-6" />
+                  </div>
                   <p className="text-sm font-bold text-[#101D3A]">
                     No shipping documents attached
                   </p>

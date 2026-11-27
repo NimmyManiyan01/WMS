@@ -14,6 +14,7 @@ import {
   FileIcon,
   X,
   AlertCircle,
+  ArrowLeft,
   Info,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -643,8 +644,8 @@ function NewSupplier() {
         },
       };
       await api.createSupplier(finalData);
-      toast.success("Supplier created and activated", {
-        description: `${name} is now available for Procurement operations.`,
+      toast.success("Supplier submitted for approval", {
+        description: `${name} is waiting for manager approval.`,
       });
       window.dispatchEvent(new Event("suppliers:changed"));
       navigate({ to: "/master-data" });
@@ -662,6 +663,16 @@ function NewSupplier() {
       title="Register New Supplier"
       subtitle="Complete the 5-step onboarding process to add a new vendor."
       mainClassName="[&>div]:max-w-5xl"
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-xl border-white/30 bg-white px-5 font-bold text-[#0b2a50] hover:bg-blue-50"
+          onClick={() => navigate({ to: "/master-data" })}
+        >
+          <ArrowLeft className="size-4" /> Back to Suppliers
+        </Button>
+      }
     >
       <div className="w-full min-w-0 pb-6">
         {/* Step Indicator */}

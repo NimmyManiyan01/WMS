@@ -96,15 +96,16 @@ function FinanceApprovals() {
       subtitle="Review pending purchase order proposals and inspect PO approval audit history"
     >
       {/* Top Header & Tab Controls */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2 p-1 bg-muted/30 rounded-2xl border border-border/40">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-1" role="group" aria-label="Approval view">
           <button
             type="button"
             onClick={() => setActiveTab("PENDING")}
+            aria-pressed={activeTab === "PENDING"}
             className={cn(
               "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
               activeTab === "PENDING"
-                ? "bg-primary text-primary-foreground shadow-md"
+                ? "bg-[#0B2A55] text-white"
                 : "text-muted-foreground hover:bg-muted/50",
             )}
           >
@@ -117,10 +118,11 @@ function FinanceApprovals() {
           <button
             type="button"
             onClick={() => setActiveTab("HISTORY")}
+            aria-pressed={activeTab === "HISTORY"}
             className={cn(
               "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
               activeTab === "HISTORY"
-                ? "bg-primary text-primary-foreground shadow-md"
+                ? "bg-[#0B2A55] text-white"
                 : "text-muted-foreground hover:bg-muted/50",
             )}
           >
@@ -131,11 +133,12 @@ function FinanceApprovals() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-64">
+        <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
+          <div className="relative min-w-44 flex-1 lg:w-64">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
               placeholder="Search PO or supplier..."
+              aria-label="Search purchase orders or suppliers"
               className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -144,6 +147,7 @@ function FinanceApprovals() {
 
           {activeTab === "HISTORY" && (
             <select
+              aria-label="Filter history by status"
               className="h-10 rounded-xl border border-border bg-card px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -176,21 +180,21 @@ function FinanceApprovals() {
             {filteredPending.map((po) => (
               <Card
                 key={po.id}
-                className="overflow-hidden border-border/50 transition-all hover:border-primary/30 hover:shadow-soft"
+                className="gap-0 rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs transition-colors hover:border-primary/40"
               >
-                <div className="flex flex-col p-5 md:flex-row md:items-center">
-                  <div className="mb-4 flex flex-1 items-start gap-4 md:mb-0">
-                    <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary-soft/30 text-primary">
+                <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-4">
+                    <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
                       <FileCheck2 className="size-6" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold text-foreground tracking-tight">
                           {po.poNumber}
                         </h3>
                         <StatusBadge status="Pending Approval" />
                       </div>
-                      <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground font-medium">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Building2 className="size-3.5" /> {po.supplierName}
                         </span>
@@ -214,9 +218,9 @@ function FinanceApprovals() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between border-t border-border/40 pt-4 md:border-0 md:pt-0">
-                    <div className="mr-8 text-right hidden md:block">
-                      <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#DCE6F3] pt-4 lg:shrink-0 lg:border-0 lg:pt-0">
+                    <div>
+                      <div className="flex flex-col gap-1 lg:items-end">
                         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-bold">
                           <Calendar className="size-3" /> Submission Date
                         </div>
@@ -226,7 +230,7 @@ function FinanceApprovals() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button className="rounded-xl h-9 shadow-glow" asChild>
+                      <Button className="h-10 rounded-xl bg-[#0866FF] font-semibold text-white hover:bg-[#0054D6]" asChild>
                         <Link
                           to="/finance/approvals/$approvalId"
                           params={{ approvalId: po.id }}
@@ -252,8 +256,8 @@ function FinanceApprovals() {
             </p>
           </Card>
         ) : (
-          <div className="rounded-2xl border border-border/50 bg-card overflow-hidden shadow-soft">
-            <div className="p-4 bg-muted/20 border-b border-border/50 flex items-center justify-between">
+          <div className="overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#DCE6F3] bg-[#F5F8FF] p-4">
               <div className="flex items-center gap-2">
                 <History className="size-5 text-primary" />
                 <h3 className="font-bold text-sm text-foreground uppercase tracking-wider">
@@ -265,8 +269,8 @@ function FinanceApprovals() {
               </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="overflow-x-auto" role="region" aria-label="Purchase order approval history" tabIndex={0}>
+              <table className="w-full min-w-[760px] border-collapse text-left text-xs">
                 <thead>
                   <tr className="bg-muted/40 border-b border-border/50 text-[10px] uppercase tracking-wider text-muted-foreground font-black">
                     <th className="p-4">PO Number</th>

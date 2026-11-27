@@ -76,7 +76,10 @@ export const Route = createFileRoute("/grn")({
   } => ({
     tab: (search.tab as string) || "dashboard",
     page: Number(search.page) || 1,
-    grn_id: (search.grn_id as string) || undefined,
+    grn_id:
+      typeof search.grn_id === "string" && !["undefined", "null"].includes(search.grn_id.trim())
+        ? search.grn_id.trim() || undefined
+        : undefined,
     gatePassId: (search.gatePassId as string) || (search.gate_pass_id as string) || undefined,
     dock: (search.dock as string) || (search.dock_number as string) || undefined,
     po: (search.po as string) || (search.po_number as string) || undefined,
@@ -111,6 +114,21 @@ type BatchEntry = {
   batch_quantity: number;
   qr_id?: string;
   qr_data_url?: string;
+};
+
+type GrnBatchQrLabel = {
+  type: "BATCH" | "QUARANTINE" | "TEMPLATE";
+  title: string;
+  qrId: string;
+  dataUrl: string;
+  materialCode: string;
+  materialName: string;
+  category?: string;
+  quantity?: number | string;
+  uom?: string;
+  grnNumber?: string;
+  poNumber?: string;
+  supplierName?: string;
 };
 
 type UploadedDocument = {
@@ -195,6 +213,65 @@ function isUuidString(val?: string | null): boolean {
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
     String(val).trim(),
   );
+}
+
+async function downloadQrPng(dataUrl: string, fileName: string): Promise<void> {
+  try {
+    const [metadata, encodedData] = dataUrl.split(",", 2);
+    if (!metadata || !encodedData) throw new Error("Invalid QR image data");
+    const mimeType = metadata.match(/^data:([^;]+)/)?.[1] || "image/png";
+    const binary = atob(encodedData);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const blob = new Blob([bytes], { type: mimeType });
+    const suggestedName = `${fileName}.png`;
+    const saveFilePicker = (window as typeof window & {
+      showSaveFilePicker?: (options: {
+        suggestedName: string;
+        types: Array<{ description: string; accept: Record<string, string[]> }>;
+      }) => Promise<{
+        createWritable: () => Promise<{
+          write: (data: Blob) => Promise<void>;
+          close: () => Promise<void>;
+        }>;
+      }>;
+    }).showSaveFilePicker;
+
+    if (saveFilePicker) {
+      const fileHandle = await saveFilePicker({
+        suggestedName,
+        types: [{ description: "PNG image", accept: { "image/png": [".png"] } }],
+      });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      toast.success("QR code saved to your laptop");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = suggestedName;
+    link.style.display = "none";
+    link.setAttribute("rel", "noopener");
+    document.body.appendChild(link);
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, view: window }),
+    );
+    window.setTimeout(() => {
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    }, 10_000);
+    toast.success("QR code downloaded to your laptop's Downloads folder");
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    toast.error("Unable to download QR code", {
+      description: error instanceof Error ? error.message : undefined,
+    });
+  }
 }
 
 function cleanSupplierString(raw?: any): string {
@@ -483,6 +560,7 @@ function GrnPageWorkflow() {
   >("ALL");
   const [qrSelectedGrnNumber, setQrSelectedGrnNumber] = useState<string>("ALL");
   const [qrDataUrlsCache, setQrDataUrlsCache] = useState<Record<string, string>>({});
+  const [batchQrPreviewLabels, setBatchQrPreviewLabels] = useState<GrnBatchQrLabel[]>([]);
 
   // Material Master & Variants Metadata for dynamic QR encoding
   const [materialMasterList, setMaterialMasterList] = useState<any[]>([]);
@@ -806,13 +884,13 @@ function GrnPageWorkflow() {
   }, [(search as any).grn_id, activeTab, grnId]);
 
   useEffect(() => {
-    if (activeTab !== "wizard" || !grnId || (search as any).grn_id) return;
+    if (search.tab !== "wizard" || activeTab !== "wizard" || !grnId || search.grn_id) return;
     navigate({
       to: "/grn",
       search: { tab: "wizard", page: currentPage, grn_id: grnId },
       replace: true,
     });
-  }, [activeTab, grnId, (search as any).grn_id, currentPage, navigate]);
+  }, [search.tab, activeTab, grnId, search.grn_id, currentPage, navigate]);
 
   // Page 1: Auto-Fetch PO Context (100% Dynamic for Present & Future PO Numbers)
   async function fetchPoContext(targetPoNumber?: string) {
@@ -1150,7 +1228,7 @@ function GrnPageWorkflow() {
       const detail = await api.getGrnDetail(cleanId);
       if (!detail) throw new Error("GRN record not found in database.");
 
-      const resolvedId = detail.grn_id || String(detail.id);
+      const resolvedId = detail.grn_id || (detail.id != null ? String(detail.id) : cleanId);
       setGrnId(resolvedId);
       localStorage.setItem("active_grn_id", resolvedId);
 
@@ -1295,7 +1373,6 @@ function GrnPageWorkflow() {
       setCurrentPage(targetStep);
       setSaveStatus("saved");
       toast.success(`Resumed in-progress GRN ${detail.grn_number || resolvedId}`);
-      navigate({ to: "/grn", search: { tab: "wizard", page: targetStep, grn_id: resolvedId } });
     } catch (err: any) {
       console.warn("Existing GRN session not found or deleted, resetting active session:", err);
       localStorage.removeItem("active_grn_id");
@@ -2143,31 +2220,43 @@ function GrnPageWorkflow() {
         <head>
           <title>WMS Goods Receipt Note Certificate - ${grnNum}</title>
           <style>
-            body { font-family: sans-serif; padding: 30px; background: #fff; color: #1e293b; font-size: 13px; line-height: 1.5; }
-            .header { border-bottom: 3px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
-            .brand { font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
-            .tag { background: #e2e8f0; font-size: 11px; font-weight: bold; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; }
-            .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; background: #f8fafc; padding: 14px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th { background: #0f172a; color: #fff; text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; }
-            td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
-            .footer { margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 20px; display: flex; justify-content: space-between; text-align: center; }
-            .sign-box { width: 200px; border-top: 1px solid #0f172a; padding-top: 6px; font-weight: bold; font-size: 11px; }
+            @page { margin: 14mm; }
+            * { box-sizing: border-box; }
+            body { margin: 0; font: 12px/1.45 Arial, sans-serif; background: #fff; color: #101D3A; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; padding: 18px; border-radius: 12px; background: #0B2A55; color: #fff; }
+            .brand { color: #DBEAFE; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+            h1 { margin: 3px 0; font-size: 23px; line-height: 1.2; }
+            .subtitle { margin: 0; color: #DBEAFE; font-size: 11px; }
+            .tag { flex: none; border: 1px solid #93B9F5; border-radius: 8px; padding: 8px 10px; font-weight: 700; text-align: right; }
+            .tag span { display: block; color: #DBEAFE; font-size: 10px; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0 0 18px; padding: 14px; border: 1px solid #DCE6F3; border-radius: 10px; background: #F5F8FF; overflow-wrap: anywhere; }
+            .grid strong { display: block; color: #526580; font-size: 10px; text-transform: uppercase; }
+            h2 { margin: 0 0 8px; font-size: 14px; break-after: avoid; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 8px; border-bottom: 1px solid #DCE6F3; text-align: left; }
+            th { background: #EBF3FF; color: #334966; font-size: 10px; text-transform: uppercase; }
+            th:nth-child(n+4), td:nth-child(n+4) { text-align: right; font-variant-numeric: tabular-nums; }
+            td:nth-child(n+4) { white-space: nowrap; }
+            tr, .header, .grid, .footer { break-inside: avoid; }
+            .footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 32px; text-align: center; }
+            .sign-box { border-top: 1px solid #526580; padding-top: 8px; font-weight: bold; font-size: 11px; }
+            @media screen { body { max-width: 800px; margin: 24px auto; padding: 16px; } }
           </style>
         </head>
         <body>
           <div class="header">
             <div>
-              <div class="brand">KAIZENX • GOODS RECEIPT NOTE</div>
-              <p style="margin:2px 0 0;font-size:11px;color:#64748b;">Official Material Inbound Quality & Stock Entry Certificate</p>
+              <div class="brand">Warehub 360°</div>
+              <h1>Goods Receipt Note</h1>
+              <p class="subtitle">Inbound Quality &amp; Stock Entry Certificate</p>
             </div>
-            <div class="tag">GRN NO: ${grnNum}</div>
+            <div class="tag"><span>GRN NUMBER</span>${grnNum}</div>
           </div>
 
           <div class="grid">
             <div><strong>PO Reference:</strong> ${poNum}</div>
             <div><strong>Supplier Name:</strong> ${supplier}</div>
-            <div><strong>Receiving Dock:</strong> Dock ${dock}</div>
+            <div><strong>Receiving Dock:</strong> ${dock}</div>
             <div><strong>Vehicle Registration:</strong> ${vehicle}</div>
             <div><strong>Driver Name:</strong> ${driver}</div>
             <div><strong>Receipt Date:</strong> ${dateStr}</div>
@@ -2175,7 +2264,7 @@ function GrnPageWorkflow() {
             <div><strong>Status:</strong> ${record.status || "COMPLETED & POSTED"}</div>
           </div>
 
-          <h4 style="margin:15px 0 5px;font-size:12px;text-transform:uppercase;">Material Line Items Breakdown</h4>
+          <h2>Material Line Items</h2>
           <table>
             <thead>
               <tr>
@@ -2209,10 +2298,7 @@ function GrnPageWorkflow() {
   }
 
   // Print Batch QR Labels for a specific GRN Record
-  async function printGrnRecordBatchLabels(
-    record: any,
-    output: "print" | "download" = "print",
-  ) {
+  async function printGrnRecordBatchLabels(record: any) {
     let linesToRender =
       record.lines && record.lines.length > 0
         ? record.lines
@@ -2243,20 +2329,7 @@ function GrnPageWorkflow() {
     const supplier = record.supplier_name || record.supplier_company_name || "";
     const warehouse = record.warehouse_name || header.warehouse_name || "";
 
-    const labelsToPrint: Array<{
-      type: "BATCH" | "QUARANTINE" | "TEMPLATE";
-      title: string;
-      qrId: string;
-      dataUrl: string;
-      materialCode: string;
-      materialName: string;
-      category?: string;
-      quantity?: number | string;
-      uom?: string;
-      grnNumber?: string;
-      poNumber?: string;
-      supplierName?: string;
-    }> = [];
+    const labelsToPrint: GrnBatchQrLabel[] = [];
 
     for (const m of linesToRender) {
       const itemCode = m.item_code || m.material_code || "ITEM";
@@ -2324,26 +2397,7 @@ function GrnPageWorkflow() {
       return;
     }
 
-    if (output === "download") {
-      labelsToPrint.forEach((label, index) => {
-        if (!label.dataUrl) return;
-        const safeName = `${label.qrId || `${grnNum}-QR-${index + 1}`}`
-          .replace(/[^a-z0-9._-]+/gi, "-")
-          .replace(/^-+|-+$/g, "");
-        const link = document.createElement("a");
-        link.href = label.dataUrl;
-        link.download = `${safeName}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      });
-      toast.success(
-        `Downloaded ${labelsToPrint.length} batch QR code${labelsToPrint.length === 1 ? "" : "s"} for ${grnNum}`,
-      );
-      return;
-    }
-
-    printBulkQrLabels(labelsToPrint);
+    setBatchQrPreviewLabels(labelsToPrint);
   }
 
   // Export GRN Records to CSV File
@@ -2508,6 +2562,15 @@ function GrnPageWorkflow() {
       }
     }
 
+    const downloadableLabels = JSON.stringify(
+      labels.map((label, index) => ({
+        dataUrl: label.dataUrl,
+        fileName: `${label.qrId || `batch-qr-${index + 1}`}`
+          .replace(/[^a-z0-9._-]+/gi, "-")
+          .replace(/^-+|-+$/g, ""),
+      })),
+    ).replace(/</g, "\\u003c");
+
     win.document.write(`
       <!DOCTYPE html>
       <html>
@@ -2515,12 +2578,15 @@ function GrnPageWorkflow() {
           <title>GRN Batch QR Labels - ${header.grn_number}</title>
           <style>
             body { font-family: monospace, sans-serif; padding: 20px; background: #fff; text-align: center; }
+            .toolbar { display: flex; justify-content: center; gap: 10px; margin-bottom: 18px; }
+            .toolbar button { border: 1px solid #0f172a; border-radius: 8px; padding: 9px 16px; background: #fff; color: #0f172a; font-weight: 700; cursor: pointer; }
+            .toolbar button.primary { background: #0f172a; color: #fff; }
             .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
             .card { border: 2px solid #000; border-radius: 12px; padding: 16px; break-inside: avoid; background: #fff; text-align: center; }
             .header { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #555; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
             h2 { margin: 8px 0 4px; font-size: 16px; color: #000; word-break: break-all; }
             img { width: 220px; height: 220px; margin: 10px auto; display: block; }
-            @media print { body { padding: 0; } .card { margin-bottom: 12px; } }
+            @media print { body { padding: 0; } .toolbar { display: none; } .card { margin-bottom: 12px; } }
           </style>
         </head>
         <body>
@@ -2652,9 +2718,25 @@ function GrnPageWorkflow() {
         </head>
         <body>
           <h3 style="margin-bottom: 15px;">WMS QR LABELS DIRECTORY BATCH PRINT (${labels.length} LABELS)</h3>
+          <div class="toolbar">
+            <button class="primary" onclick="window.print()">Print All Labels</button>
+            <button onclick="downloadAllQrs()">Download All QR Codes</button>
+          </div>
           <div class="grid">${labelsHtml}</div>
           <script>
-            window.onload = () => { window.focus(); window.print(); };
+            const downloadableLabels = ${downloadableLabels};
+            function downloadAllQrs() {
+              downloadableLabels.forEach((label) => {
+                if (!label.dataUrl) return;
+                const link = document.createElement('a');
+                link.href = label.dataUrl;
+                link.download = label.fileName + '.png';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+              });
+            }
+            window.onload = () => window.focus();
           </script>
         </body>
       </html>
@@ -3266,14 +3348,15 @@ function GrnPageWorkflow() {
               </div>
 
               {/* MAIN 2-COLUMN GRID (Matching Procurement & Warehouse Dashboards) */}
-              <div className="grid gap-6 lg:grid-cols-3">
+              <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 {/* Left 2 Cols: Inbound Goods Receipts Table */}
-                <div className="space-y-6 lg:col-span-2">
+                <div className="min-w-0">
                   <SectionCard
                     title="Inbound Goods Receipts"
                     icon={ClipboardList}
-                    actions={
-                      <div className="flex items-center gap-1.5 sm:gap-2">
+                  >
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-2">
                         {[
                           { key: "ALL", label: "All" },
                           { key: "COMPLETED", label: "Completed" },
@@ -3284,6 +3367,7 @@ function GrnPageWorkflow() {
                             <Button
                               key={tab.key}
                               type="button"
+                              aria-pressed={active}
                               variant={active ? "default" : "outline"}
                               size="sm"
                               className={`rounded-xl text-xs h-8 px-3 font-semibold transition-all ${
@@ -3300,7 +3384,7 @@ function GrnPageWorkflow() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs font-semibold text-primary h-8"
+                          className="ml-auto h-8 text-xs font-semibold text-primary"
                           onClick={() => {
                             setActiveTab("records");
                             navigate({ to: "/grn", search: { tab: "records", page: 1 } });
@@ -3309,21 +3393,19 @@ function GrnPageWorkflow() {
                           View All ({grnRecords.length}) →
                         </Button>
                       </div>
-                    }
-                  >
-                    <div className="space-y-4">
                       <div className="relative">
-                        <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          placeholder="Search by GRN Number, PO Number, Supplier, Vehicle..."
+                          aria-label="Search receipts by GRN, PO, supplier, or vehicle"
+                          placeholder="Search GRN, PO, supplier, or vehicle…"
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
-                          className="pl-9 rounded-xl text-xs"
+                          className="h-9 rounded-xl border-[#DCE6F3] bg-white pl-9 text-sm shadow-none"
                         />
                       </div>
 
                       <div className="overflow-x-auto rounded-xl border border-border/70">
-                        <table className="w-full min-w-[700px] text-xs text-left">
+                        <table aria-label="Inbound goods receipts" className="w-full min-w-[700px] text-left text-xs">
                           <thead className="bg-muted/50 font-semibold uppercase text-muted-foreground text-[11px] tracking-wider border-b border-border/70">
                             <tr>
                               <th className="px-4 py-3 whitespace-nowrap">GRN Number</th>
@@ -3423,22 +3505,23 @@ function GrnPageWorkflow() {
                 </div>
 
                 {/* Right 1 Col: Quality Health, Activity Timeline */}
-                <div className="space-y-6">
+                <div className="grid min-w-0 gap-6 md:grid-cols-2 xl:grid-cols-1">
                   <SectionCard title="Quality Inspection Health" icon={ShieldCheck}>
                     <div className="space-y-3">
-                      <div className="flex items-baseline justify-between">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <span className="text-2xl font-bold font-mono tracking-tight text-emerald-600">
-                          {totalUnits > 0 ? `${healthPercent}%` : "100%"}
+                          {totalUnits > 0 ? `${healthPercent}%` : "—"}
                         </span>
                         <span className="text-xs font-semibold text-muted-foreground">
                           {soundUnits.toLocaleString()} Sound Units
                         </span>
                       </div>
                       <Progress
-                        value={totalUnits > 0 ? healthPercent : 100}
+                        aria-label="Sound units percentage"
+                        value={totalUnits > 0 ? healthPercent : 0}
                         className="h-2 rounded-full"
                       />
-                      <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
                         <span>
                           Quarantined: {quarantinedUnits.toLocaleString()} Units ({lotsCount} Lot
                           {lotsCount === 1 ? "" : "s"})
@@ -3456,8 +3539,13 @@ function GrnPageWorkflow() {
                     <Timeline
                       items={
                         grnRecords.length > 0
-                          ? grnRecords.slice(0, 4).map((r, idx) => ({
-                              time: r.receipt_date || "Today",
+                          ? grnRecords.slice(0, 4).map((r, idx) => {
+                            const timestamp = r.receipt_date || r.created_at;
+                            const received = timestamp ? new Date(timestamp) : null;
+                            return {
+                              time: received && Number.isFinite(received.getTime())
+                                ? received.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+                                : "Date unavailable",
                               title: `${r.grn_number || `GRN-000${idx + 1}`} · ${r.supplier_name || r.supplier_company_name || "Supplier"}`,
                               detail: `PO ${r.po_number || "—"} · ${r.vehicle_number || "Dock arrival"}`,
                               tone:
@@ -3466,7 +3554,8 @@ function GrnPageWorkflow() {
                                   : r.status === "PARTIALLY COMPLETED"
                                     ? "warning"
                                     : "primary",
-                            }))
+                            };
+                          })
                           : []
                       }
                     />
@@ -3482,10 +3571,11 @@ function GrnPageWorkflow() {
         <div className="space-y-6">
           <SectionCard
             title="All Goods Receipt Notes (GRN)"
-            description="Complete register of all inbound material receipts, inspection outcomes, and certificates"
+            description="Review inbound receipts and their supporting documents."
             icon={ClipboardList}
-            actions={
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          >
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-2">
                 {[
                   { key: "ALL", label: "All" },
                   { key: "COMPLETED", label: "Completed" },
@@ -3496,6 +3586,7 @@ function GrnPageWorkflow() {
                     <Button
                       key={tab.key}
                       type="button"
+                      aria-pressed={active}
                       variant={active ? "default" : "outline"}
                       size="sm"
                       className={`rounded-xl text-xs h-8 px-3 font-semibold transition-all ${
@@ -3512,7 +3603,7 @@ function GrnPageWorkflow() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl text-xs h-8"
+                  className="h-8 rounded-xl bg-white text-xs shadow-none sm:ml-auto"
                   onClick={() => exportGrnRecordsCsv()}
                 >
                   <Download className="mr-1.5 size-3.5 text-primary" /> Export CSV
@@ -3520,22 +3611,20 @@ function GrnPageWorkflow() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl text-xs h-8"
+                  className="h-8 rounded-xl bg-white text-xs shadow-none"
                   onClick={() => void loadRecords()}
                 >
                   <RefreshCw className="mr-1.5 size-3.5" /> Refresh
                 </Button>
               </div>
-            }
-          >
-            <div className="space-y-4">
               <div className="relative">
-                <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search by GRN Number, PO Number, Supplier, Vehicle, Driver, Dock..."
+                  aria-label="Search GRN history"
+                  placeholder="Search GRN, PO, supplier, vehicle, driver, or dock…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 rounded-xl text-xs"
+                  className="h-10 rounded-xl border-[#DCE6F3] bg-white pl-9 text-sm shadow-none"
                 />
               </div>
 
@@ -3603,19 +3692,11 @@ function GrnPageWorkflow() {
                       return (
                         <Card
                           key={grnKey}
-                          className="rounded-2xl p-5 border border-border/70 hover:shadow-soft transition-all space-y-4"
+                          className="min-w-0 gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xs"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-3">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
-                                  Goods Receipt Note
-                                </span>
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-primary-soft text-primary">
-                                  Ref: {poNumber}
-                                </span>
-                              </div>
-                              <h3 className="font-mono text-xl font-bold text-primary mt-0.5">
+                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#DCE6F3] px-4 py-4 sm:px-5">
+                            <div className="min-w-0 break-words">
+                              <h3 className="font-mono text-base font-bold text-primary sm:text-lg">
                                 {grnNumber}
                               </h3>
                               <p className="text-xs text-muted-foreground mt-0.5">
@@ -3625,7 +3706,7 @@ function GrnPageWorkflow() {
                             <StatusBadge status={status} />
                           </div>
 
-                          <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 text-xs sm:grid-cols-2 lg:grid-cols-4 font-mono">
+                          <div className="grid gap-x-5 gap-y-4 px-4 py-4 font-mono text-xs sm:grid-cols-2 sm:px-5 xl:grid-cols-4 [&>div]:min-w-0 [&>div]:break-words">
                             <div>
                               <span className="text-muted-foreground block text-[10px] uppercase font-sans">
                                 PO Reference
@@ -3657,8 +3738,8 @@ function GrnPageWorkflow() {
                           </div>
 
                           {/* REAL ACTION BUTTONS PER RECORD */}
-                          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                            <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#DCE6F3] bg-[#F5F8FF] px-4 py-3 sm:px-5">
+                            <div className="flex flex-wrap items-center gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -3682,14 +3763,6 @@ function GrnPageWorkflow() {
                                 onClick={() => void printGrnRecordBatchLabels(r)}
                               >
                                 <QrCode className="mr-1.5 size-3.5 text-primary" /> Batch QR Labels
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="rounded-xl text-xs font-semibold"
-                                onClick={() => void printGrnRecordBatchLabels(r, "download")}
-                              >
-                                <Download className="mr-1.5 size-3.5 text-primary" /> Download QR
                               </Button>
                             </div>
 
@@ -3724,8 +3797,8 @@ function GrnPageWorkflow() {
       {activeTab === "wizard" && (
         <div className="space-y-6">
           {/* STEP NAVIGATION HEADER */}
-          <Card className="rounded-2xl p-4 overflow-x-auto shadow-sm border border-border/80">
-            <div className="flex items-center justify-between min-w-[720px] gap-3">
+          <Card className="rounded-2xl border border-[#DCE6F3] bg-white p-3 shadow-xs">
+            <ol aria-label="GRN creation progress" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
               {PAGES.map((pg) => {
                 const displayMaxCompletedStep = Math.max(maxCompletedStep, currentPage - 1);
                 const isCurrent = currentPage === pg.id;
@@ -3734,20 +3807,19 @@ function GrnPageWorkflow() {
                 const StepIcon = pg.icon;
 
                 return (
-                  <div
+                  <li
                     key={pg.id}
-                    className={`flex-1 flex flex-col items-center text-center transition-all p-2 rounded-xl select-none ${
+                    aria-current={isCurrent ? "step" : undefined}
+                    className={`flex min-w-0 flex-col items-center gap-2 rounded-xl border p-3 text-center ${
                       isCurrent
-                        ? "bg-primary/5 font-bold shadow-xs scale-[1.02]"
-                        : isAccessible
-                          ? "opacity-90"
-                          : "opacity-40"
+                        ? "border-[#CBE0FC] bg-[#EBF3FF] font-bold"
+                        : "border-transparent"
                     }`}
                   >
                     <div
                       className={`flex size-8 items-center justify-center rounded-full text-xs font-bold transition-all ${
                         isCurrent
-                          ? "bg-primary text-primary-foreground shadow-md ring-4 ring-primary/20"
+                          ? "bg-primary text-primary-foreground"
                           : isCompleted
                             ? "bg-emerald-600 text-white shadow-xs"
                             : isAccessible
@@ -3761,31 +3833,27 @@ function GrnPageWorkflow() {
                         <StepIcon className="size-4" />
                       )}
                     </div>
-                    <span className="mt-1.5 text-xs text-foreground line-clamp-1">{pg.title}</span>
-                  </div>
+                    <span className={`text-xs leading-snug ${isAccessible ? "text-foreground" : "text-muted-foreground"}`}>{pg.title}</span>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
           </Card>
 
           {/* PAGE 1 – GRN HEADER DETAILS */}
           {currentPage === 1 && (
             <div className="space-y-6">
               {/* A. PURCHASE ORDER */}
-              <Card className="rounded-2xl p-6 space-y-5 shadow-sm">
-                <div className="border-b pb-3">
-                  <h3 className="font-bold text-foreground text-sm uppercase tracking-wider">
-                    Purchase Order
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Enter purchase order number to populate vendor and inbound order information.
-                  </p>
-                </div>
+              <SectionCard
+                title="Purchase Order"
+                description="Look up a PO to fill in supplier and inbound details."
+                icon={ClipboardList}
+              >
 
                 {/* PO NUMBER ENTRY & SIDE FETCH DETAILS BUTTON */}
-                <div className="flex flex-wrap items-end gap-3 max-w-xl">
-                  <div className="flex-1 min-w-[260px]">
-                    <label className="text-xs font-bold text-foreground mb-1 flex items-center justify-between">
+                <div className="grid max-w-xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <div className="min-w-0">
+                    <label htmlFor="grn-wizard-po" className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-xs font-bold text-foreground">
                       <span>PO Number *</span>
                       {loadingContext && (
                         <span className="text-[10px] font-bold text-primary flex items-center gap-1 animate-pulse">
@@ -3794,6 +3862,8 @@ function GrnPageWorkflow() {
                       )}
                     </label>
                     <Input
+                      id="grn-wizard-po"
+                      aria-required="true"
                       placeholder="Enter PO Number (e.g. PO-2026-0001)"
                       value={header.po_number}
                       disabled={busyAction || loadingContext}
@@ -3804,7 +3874,7 @@ function GrnPageWorkflow() {
                           void fetchPoContext();
                         }
                       }}
-                      className="rounded-xl font-mono text-base font-bold text-primary"
+                      className="h-10 rounded-xl border-[#DCE6F3] bg-white font-mono text-sm font-semibold text-primary shadow-none"
                     />
                   </div>
                   <Button
@@ -3825,19 +3895,19 @@ function GrnPageWorkflow() {
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {/* PO Number */}
-                  <div className="rounded-xl border bg-muted/10 p-3">
+                  <div className="min-w-0 break-words rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3">
                     <span className="text-[11px] font-semibold uppercase text-muted-foreground">
                       PO Number
                     </span>
-                    <p className="font-mono text-base font-bold text-primary">
+                    <p className="mt-1 font-mono text-sm font-bold text-primary">
                       {header.po_number || "—"}
                     </p>
                   </div>
 
                   {/* Supplier Name */}
-                  <div className="rounded-xl border bg-muted/10 p-3">
+                  <div className="min-w-0 break-words rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3">
                     <span className="text-[11px] font-semibold uppercase text-muted-foreground">
                       Supplier Name
                     </span>
@@ -3847,7 +3917,7 @@ function GrnPageWorkflow() {
                   </div>
 
                   {/* Supplier Company Name */}
-                  <div className="rounded-xl border bg-muted/10 p-3 md:col-span-2">
+                  <div className="min-w-0 break-words rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3 sm:col-span-2 xl:col-span-1">
                     <span className="text-[11px] font-semibold uppercase text-muted-foreground">
                       Supplier Company Name
                     </span>
@@ -3856,7 +3926,7 @@ function GrnPageWorkflow() {
                     </p>
                   </div>
                 </div>
-              </Card>
+              </SectionCard>
 
               {/* B. INBOUND DETAILS */}
               <Card className="rounded-2xl p-6 space-y-5 shadow-sm">
@@ -5894,6 +5964,70 @@ function GrnPageWorkflow() {
         </div>
       )}
 
+      <Dialog
+        open={batchQrPreviewLabels.length > 0}
+        onOpenChange={(open) => !open && setBatchQrPreviewLabels([])}
+      >
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto rounded-3xl border-slate-300 bg-slate-50 p-0">
+          <DialogHeader className="border-b border-slate-200 px-8 py-6 text-left">
+            <DialogTitle className="flex items-center gap-3 text-2xl font-black text-slate-900">
+              <QrCode className="size-7 text-[#075a93]" /> Batch QR Labels ({batchQrPreviewLabels.length})
+            </DialogTitle>
+            <DialogDescription className="pt-1 text-base font-bold text-slate-800">
+              {batchQrPreviewLabels.length} batch QR label{batchQrPreviewLabels.length === 1 ? "" : "s"} generated for this GRN. Download any label when needed.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-6 p-8 sm:grid-cols-2 xl:grid-cols-3">
+            {batchQrPreviewLabels.map((label, index) => {
+              const fileName = `${label.qrId || `batch-qr-${index + 1}`}`
+                .replace(/[^a-z0-9._-]+/gi, "-")
+                .replace(/^-+|-+$/g, "");
+              return (
+                <Card
+                  key={`${label.qrId}-${index}`}
+                  className="flex flex-col rounded-3xl border-slate-300 bg-white p-6 shadow-md"
+                >
+                  <div className="min-h-28 border-b border-slate-200 pb-4 text-slate-900">
+                    <h3 className="break-words text-lg font-black leading-7">{label.title}</h3>
+                    <p className="mt-2 text-base font-black">
+                      {label.materialCode} · {label.materialName}
+                    </p>
+                    <p className="text-sm font-bold">
+                      Quantity: {Number(label.quantity || 0).toLocaleString()} {label.uom || "PCS"}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-1 items-center justify-center bg-white py-3">
+                    {label.dataUrl ? (
+                      <img
+                        src={label.dataUrl}
+                        alt={`QR code for ${label.title}`}
+                        className="aspect-square w-full max-w-[340px] object-contain"
+                      />
+                    ) : (
+                      <div className="grid aspect-square w-full max-w-[340px] place-items-center text-sm font-bold text-muted-foreground">
+                        QR code unavailable
+                      </div>
+                    )}
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-12 w-full rounded-2xl border-blue-300 text-base font-black text-[#075a93] hover:bg-blue-50"
+                    disabled={!label.dataUrl}
+                    onClick={() => void downloadQrPng(label.dataUrl, fileName)}
+                  >
+                    <Download className="mr-2 size-5" /> Download QR
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Enlarged QR Code Scanner Dialog */}
       {enlargedQr && (
         <Dialog open={!!enlargedQr} onOpenChange={() => setEnlargedQr(null)}>
@@ -6180,7 +6314,7 @@ function GrnPageWorkflow() {
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 Dispatches an official damage report email to the supplier ({header.supplier_name})
-                and alerts the internal Procurement team in KaizenX.
+                and alerts the internal Procurement team in Warehub 360 degree.
               </DialogDescription>
             </DialogHeader>
 
@@ -6457,18 +6591,18 @@ function GrnPageWorkflow() {
       {/* 📄 GRN RECORD QUICK DETAIL MODAL DRAWER */}
       {selectedGrnDetail && (
         <Dialog open={!!selectedGrnDetail} onOpenChange={() => setSelectedGrnDetail(null)}>
-          <DialogContent className="max-w-3xl rounded-2xl p-6 space-y-5">
-            <DialogHeader className="border-b pb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-primary px-3 py-1 rounded-full bg-primary/10 border border-primary/20">
+          <DialogContent className="w-[calc(100%-2rem)] max-w-4xl gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+            <DialogHeader className="rounded-t-2xl bg-[#0B2A55] px-5 py-5 pr-12 text-left sm:pl-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 font-mono text-xs font-semibold text-blue-100">
                   {selectedGrnDetail.grn_number || "—"}
                 </span>
                 <StatusBadge status={selectedGrnDetail.status || "COMPLETED"} />
               </div>
-              <DialogTitle className="text-lg font-bold text-foreground mt-2">
+              <DialogTitle className="mt-2 text-lg font-bold text-white">
                 Goods Receipt Note Breakdown & Reconciliation
               </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
+              <DialogDescription className="text-sm text-blue-100">
                 PO Reference: <b>{selectedGrnDetail.po_number || "—"}</b> • Supplier:{" "}
                 <b>
                   {selectedGrnDetail.supplier_name ||
@@ -6478,6 +6612,7 @@ function GrnPageWorkflow() {
               </DialogDescription>
             </DialogHeader>
 
+            <div className="min-w-0 space-y-4 p-4 sm:p-6">
             {/* STATUS RECONCILIATION RULE BANNER */}
             <div
               className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between ${
@@ -6486,20 +6621,21 @@ function GrnPageWorkflow() {
                   : "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-800"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+              <div className="flex items-start gap-2">
+                {selectedGrnDetail.status === "COMPLETED" ? (
+                  <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                ) : (
+                  <Clock3 className="size-4 shrink-0 text-amber-700" aria-hidden="true" />
+                )}
                 <span>
                   {selectedGrnDetail.status === "COMPLETED"
-                    ? "✓ COMPLETED: Combined count (Good Qty + Damaged Qty) matches 100% of PO Quantity for all materials."
-                    : "⏳ PARTIALLY COMPLETED: Combined count (Good Qty + Damaged Qty) is less than PO Quantity (Pending Balance Remaining)."}
+                    ? "Good and damaged quantities add up to the PO quantity for every material."
+                    : "Good and damaged quantities are below the PO quantity. A balance remains."}
                 </span>
               </div>
-              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-background border shadow-xs">
-                Rule Verified
-              </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-muted/20 rounded-xl border text-xs font-mono">
+            <div className="grid grid-cols-2 gap-4 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 font-mono text-xs sm:grid-cols-4 [&>div]:min-w-0 [&>div]:break-words">
               <div>
                 <span className="text-muted-foreground block text-[10px] uppercase font-sans font-bold">
                   Dock Number
@@ -6538,7 +6674,7 @@ function GrnPageWorkflow() {
                 Line Item Quantity Reconciliation
               </h4>
               <div className="rounded-xl border overflow-x-auto text-xs">
-                <table className="w-full text-left">
+                <table aria-label="Line item quantity reconciliation" className="w-full min-w-[42rem] text-left [&_td]:align-middle [&_td:not(:first-child)]:whitespace-nowrap">
                   <thead className="bg-muted/60 font-bold text-muted-foreground text-[11px] uppercase border-b">
                     <tr>
                       <th className="p-2.5">Material Details</th>
@@ -6635,7 +6771,7 @@ function GrnPageWorkflow() {
                                     : "bg-amber-100 text-amber-800 border border-amber-300"
                                 }`}
                               >
-                                {isComplete ? "FULL DELIVERY ✓" : "PARTIAL BALANCE ⏳"}
+                                {isComplete ? "Full delivery" : "Partial balance"}
                               </span>
                             </td>
                           </tr>
@@ -6647,7 +6783,8 @@ function GrnPageWorkflow() {
               </div>
             </div>
 
-            <div className="flex justify-end items-center pt-3 border-t">
+            </div>
+            <div className="flex items-center justify-end rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4 sm:px-6">
               <Button
                 variant="outline"
                 className="rounded-xl text-xs font-bold"

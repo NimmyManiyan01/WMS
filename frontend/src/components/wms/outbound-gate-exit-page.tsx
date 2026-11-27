@@ -5,6 +5,7 @@ import { AppShell } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { StatCard } from "@/components/wms/primitives";
 import { api } from "@/lib/api-client";
 
 export function OutboundGateExitPage({ title = "Gate Exit", subtitle = "Verify outbound vehicles and authorize dispatch exit" }: { title?: string; subtitle?: string }) {
@@ -50,10 +51,29 @@ export function OutboundGateExitPage({ title = "Gate Exit", subtitle = "Verify o
   };
 
   return <AppShell title={title} subtitle={subtitle} actions={<Button variant="outline" className="rounded-xl" onClick={() => void load()}><RefreshCw className="size-4 mr-2" />Refresh</Button>}>
-    <div className="grid gap-4 sm:grid-cols-3 mb-6">
-      <Card className="rounded-2xl p-5"><p className="text-xs uppercase font-bold text-muted-foreground">Ready for verification</p><p className="text-3xl font-bold mt-2">{orders.length}</p></Card>
-      <Card className="rounded-2xl p-5"><p className="text-xs uppercase font-bold text-muted-foreground">Control point</p><p className="text-lg font-bold mt-2 flex items-center gap-2"><ShieldCheck className="size-5 text-emerald-600" />Outbound Gate</p></Card>
-      <Card className="rounded-2xl p-5"><p className="text-xs uppercase font-bold text-muted-foreground">Verification rule</p><p className="text-sm font-semibold mt-2">Vehicle + driver must match allocation</p></Card>
+    <div className="mb-6 grid gap-4 md:grid-cols-3">
+      <StatCard
+        label="Ready for verification"
+        value={loading ? "..." : String(orders.length)}
+        icon={Truck}
+        delta="Loaded dispatches awaiting gate exit"
+      />
+      <StatCard
+        label="Control point"
+        value="Outbound Gate"
+        valueStyle="text"
+        icon={ShieldCheck}
+        tone="teal"
+        delta="Dispatch exit authorization"
+      />
+      <StatCard
+        label="Verification rule"
+        value="Match allocation"
+        valueStyle="text"
+        icon={CheckCircle2}
+        tone="amber"
+        delta="Vehicle and driver must both match"
+      />
     </div>
     <Card className="rounded-2xl overflow-hidden">
       <div className="p-4 border-b flex items-center justify-between"><div><h2 className="font-bold">Outbound Gate Queue</h2><p className="text-xs text-muted-foreground mt-1">Only loaded dispatches appear here.</p></div><Truck className="size-5 text-primary" /></div>

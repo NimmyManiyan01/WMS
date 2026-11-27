@@ -48,7 +48,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/assembly/requests")({
   head: () => ({
     meta: [
-      { title: "Assembly Material Requisitions · KaizenX" },
+      { title: "Assembly Material Requisitions · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -585,15 +585,15 @@ function AssemblyRequestsPage() {
 
       {/* Create Material Request Dialog */}
       <Dialog open={isCreating} onOpenChange={setIsCreating}>
-        <DialogContent className="max-w-2xl rounded-3xl p-6 border-none shadow-2xl bg-card">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <ClipboardList className="size-5 text-blue-600" />
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-3xl gap-0 overflow-y-auto rounded-2xl border-[#DCE6F3] bg-white p-0 text-[#101D3A] shadow-xl [&>button[data-state=open]]:bg-transparent [&>button[data-state=open]]:text-white">
+          <DialogHeader className="bg-[#0B2A55] px-5 py-5 pr-12 text-left sm:pl-6">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <ClipboardList className="size-5 shrink-0 text-blue-100" />
               New Assembly Material Request
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6 [&_label]:text-sm [&_label]:text-[#526580] [&_input]:h-10 [&_input]:border-[#DCE6F3] [&_input]:text-sm [&_textarea]:border-[#DCE6F3] [&_textarea]:text-sm [&_[role=combobox]]:h-10 [&_[role=combobox]]:border-[#DCE6F3] [&_[role=combobox]]:text-sm">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs font-bold text-muted-foreground">Department</Label>
@@ -631,17 +631,17 @@ function AssemblyRequestsPage() {
 
             {/* Requested Items */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label className="text-xs font-bold uppercase text-muted-foreground">
                   Requested Items
                 </Label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => addItem(false)}
-                    className="h-7 text-xs rounded-lg border-border/60"
+                    className="h-9 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF]"
                   >
                     <Plus className="size-3 mr-1" /> Add Standard Item
                   </Button>
@@ -649,9 +649,9 @@ function AssemblyRequestsPage() {
                     type="button"
                     size="sm"
                     onClick={() => addItem(true)}
-                    className="h-7 text-xs rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-sm"
+                    className="h-9 rounded-xl border border-[#CBE0FC] bg-[#EBF3FF] font-semibold text-[#0866FF] hover:bg-[#DDEBFF]"
                   >
-                    <Sparkles className="size-3 mr-1 text-amber-300" /> + Add Custom Item
+                    <Sparkles className="size-4" /> Add Custom Item
                   </Button>
                 </div>
               </div>
@@ -663,8 +663,8 @@ function AssemblyRequestsPage() {
                     className={cn(
                       "p-3 rounded-2xl border transition-all flex flex-col gap-2.5",
                       item.is_custom
-                        ? "bg-amber-500/5 border-amber-500/30 dark:bg-amber-950/10"
-                        : "bg-muted/20 border-border/50",
+                        ? "border-[#CBE0FC] bg-[#EBF3FF]"
+                        : "border-[#DCE6F3] bg-[#F5F8FF]",
                     )}
                   >
                     {item.is_custom ? (
@@ -893,7 +893,7 @@ function AssemblyRequestsPage() {
               />
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="border-t border-[#DCE6F3] pt-4">
               <Button
                 type="button"
                 variant="ghost"
@@ -904,7 +904,7 @@ function AssemblyRequestsPage() {
               </Button>
               <Button
                 type="submit"
-                className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                className="h-10 rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-700"
                 disabled={submitting}
               >
                 {submitting ? (
@@ -921,17 +921,17 @@ function AssemblyRequestsPage() {
 
       {/* Request Details View Dialog */}
       <Dialog open={isViewing} onOpenChange={setIsViewing}>
-        <DialogContent className="max-w-lg rounded-3xl p-6 border-none shadow-2xl bg-card">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <ClipboardList className="size-5 text-blue-600" />
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 text-[#101D3A] shadow-xl [&>button[data-state=open]]:bg-transparent [&>button[data-state=open]]:text-white">
+          <DialogHeader className="bg-[#0B2A55] px-5 py-5 pr-12 text-left sm:pl-6">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <ClipboardList className="size-5 shrink-0 text-blue-100" />
               Request Details
             </DialogTitle>
           </DialogHeader>
 
           {selectedRequest && (
-            <div className="space-y-4 py-2">
-              <div className="flex justify-between items-center bg-muted/40 p-3 rounded-2xl">
+            <div className="space-y-4 p-5 sm:p-6">
+              <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#CBE0FC] bg-[#EBF3FF] p-3">
                 <div>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground">
                     Requisition Number
@@ -977,7 +977,7 @@ function AssemblyRequestsPage() {
 
               <div className="space-y-2">
                 <p className="text-xs font-bold text-muted-foreground uppercase">Items</p>
-                <div className="p-3 bg-muted/20 border border-border/40 rounded-2xl space-y-2.5">
+                <div className="space-y-2.5 rounded-2xl border border-[#DCE6F3] bg-[#F5F8FF] p-3">
                   {selectedRequest.items?.map((it: any, idx: number) => {
                     const reqQty = Number(
                       it.requestedQuantity || it.requested_quantity || it.quantity || 0,
@@ -1042,15 +1042,15 @@ function AssemblyRequestsPage() {
               </div>
 
               {selectedRequest.remarks && (
-                <div className="text-xs text-muted-foreground bg-muted/20 p-3 rounded-xl">
+                <div className="rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3 text-xs text-[#526580]">
                   <strong>Remarks:</strong> {selectedRequest.remarks}
                 </div>
               )}
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setIsViewing(false)}>
+          <DialogFooter className="border-t border-[#DCE6F3] px-5 py-4 sm:px-6">
+            <Button className="rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-700" onClick={() => setIsViewing(false)}>
               Close
             </Button>
           </DialogFooter>

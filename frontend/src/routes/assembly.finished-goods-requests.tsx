@@ -68,12 +68,13 @@ function formatDisplayDate(dateStr: string | null | undefined): string {
 }
 
 function generateUniqueProductCode(productName: string, requests: any[]): string {
-  const nameToken = productName
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 12) || "PRODUCT";
+  const nameToken =
+    productName
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 12) || "PRODUCT";
   const prefix = `FG-${nameToken}-`;
   const usedCodes = new Set(
     requests.flatMap((request) =>
@@ -90,6 +91,8 @@ function generateUniqueProductCode(productName: string, requests: any[]): string
   }
   return candidate;
 }
+
+const CUSTOM_UOM_OPTIONS = ["PCS", "MTR", "KG", "LTR", "BOX", "PKT", "SET", "NOS", "ROLL", "TON"];
 
 interface BOMItemRow {
   material_id: string;
@@ -173,7 +176,8 @@ function AssemblyFinishedGoodsRequests() {
       setMasterMaterials(Array.isArray(materials) ? materials : []);
       if (selectedRequest) {
         const updated = (Array.isArray(data) ? data : []).find(
-          (r: any) => r.id === selectedRequest.id || r.request_number === selectedRequest.request_number
+          (r: any) =>
+            r.id === selectedRequest.id || r.request_number === selectedRequest.request_number,
         );
         if (updated) setSelectedRequest(updated);
       }
@@ -250,16 +254,16 @@ function AssemblyFinishedGoodsRequests() {
         quantity_per_unit: it.quantity_per_unit,
         uom: it.uom || "PCS",
         notes: it.notes || "",
-      }))
+      })),
     );
   };
 
-  const handleAddBomRow = () => {
+  const handleAddBomRow = (custom = false) => {
     setBomRows([
       ...bomRows,
       {
         material_id: "",
-        material_code: "",
+        material_code: custom ? "CUSTOM" : "",
         material_name: "",
         variant_code: "",
         quantity_per_unit: 1,
@@ -291,7 +295,9 @@ function AssemblyFinishedGoodsRequests() {
           .filter(Boolean)
           .join(", ")
       : "";
-    const nameWithSpec = specDetails ? `${found.material_name} (${specDetails})` : found.material_name;
+    const nameWithSpec = specDetails
+      ? `${found.material_name} (${specDetails})`
+      : found.material_name;
 
     setBomRows(
       bomRows.map((row, i) =>
@@ -304,8 +310,8 @@ function AssemblyFinishedGoodsRequests() {
               variant_code: selectedVariant?.variant_code || "",
               uom: selectedVariant?.uom || found.base_uom || "PCS",
             }
-          : row
-      )
+          : row,
+      ),
     );
   };
 
@@ -317,7 +323,12 @@ function AssemblyFinishedGoodsRequests() {
     }
     for (let i = 0; i < bomRows.length; i++) {
       const r = bomRows[i];
-      if (!r.material_id) {
+      if (!r.material_id && r.material_code === "CUSTOM") {
+        if (!r.material_name.trim() || !r.uom.trim()) {
+          toast.error(`Enter a custom material name and UOM for row ${i + 1}`);
+          return;
+        }
+      } else if (!r.material_id) {
         toast.error(`Please select a warehouse material for component row ${i + 1}`);
         return;
       }
@@ -408,7 +419,9 @@ function AssemblyFinishedGoodsRequests() {
       remainingAssemblyQty,
       warehouse_id: req.warehouse_id || "Main Warehouse",
       priority: "MEDIUM",
-      required_date: req.required_date || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      required_date:
+        req.required_date ||
+        new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       remarks: `Requisition auto-filled from BOM (${bom.bom_number}) for FG Request ${req.request_number} to assemble ${remainingAssemblyQty} unit(s).`,
       items: autoFilledItems,
     });
@@ -448,7 +461,9 @@ function AssemblyFinishedGoodsRequests() {
     const specDetails = defaultVariant
       ? [defaultVariant.size, defaultVariant.color, defaultVariant.grade].filter(Boolean).join(", ")
       : "";
-    const nameWithSpec = specDetails ? `${found.material_name} (${specDetails})` : found.material_name;
+    const nameWithSpec = specDetails
+      ? `${found.material_name} (${specDetails})`
+      : found.material_name;
 
     setMrModal((prev) => ({
       ...prev,
@@ -462,7 +477,7 @@ function AssemblyFinishedGoodsRequests() {
               variant_code: defaultVariant?.variant_code || "",
               uom: defaultVariant?.uom || found.base_uom || "PCS",
             }
-          : row
+          : row,
       ),
     }));
   };
@@ -502,12 +517,18 @@ function AssemblyFinishedGoodsRequests() {
           material_name: it.material_name,
           quantity: Number(it.quantity),
           uom: it.uom || "PCS",
-          is_custom: false,
+          is_custom: !it.material_id && it.material_code === "CUSTOM",
+          custom_material_name:
+            !it.material_id && it.material_code === "CUSTOM" ? it.material_name : undefined,
         })),
       };
 
       const created = await api.createAssemblyRequisition(payload);
-      const reqNum = created?.requisition_number || created?.requisitionNumber || created?.request_number || "REQ";
+      const reqNum =
+        created?.requisition_number ||
+        created?.requisitionNumber ||
+        created?.request_number ||
+        "REQ";
       toast.success("Assembly Material Requisition submitted to Warehouse!", {
         description: `Requisition ${reqNum} generated for ${mrModal.remainingAssemblyQty} unit(s). Note: BOM recipe was preserved.`,
       });
@@ -531,69 +552,102 @@ function AssemblyFinishedGoodsRequests() {
       }
     >
       <div className="space-y-6">
-        {/* KPI Top Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="rounded-2xl border p-4 shadow-sm bg-card">
-            <div className="flex items-center justify-between text-muted-foreground text-xs font-bold uppercase">
-              <span>Total Requests</span>
-              <ClipboardList className="size-4 text-primary" />
-            </div>
-            <p className="text-3xl font-black mt-2 text-foreground">{requests.length}</p>
-            <p className="text-xs text-muted-foreground mt-1">From Procurement</p>
-          </Card>
-
-          <Card className="rounded-2xl border p-4 shadow-sm bg-card">
-            <div className="flex items-center justify-between text-muted-foreground text-xs font-bold uppercase">
-              <span>Sent to Assembly</span>
-              <PackageCheck className="size-4 text-blue-600" />
-            </div>
-            <p className="text-3xl font-black mt-2 text-blue-600">
-              {requests.filter((r) => r.status === "SENT_TO_ASSEMBLY" || !r.status).length}
+        {/* Request overview */}
+        <div>
+          <div className="mb-3">
+            <h2 className="text-base font-extrabold text-[#101D3A]">Request overview</h2>
+            <p className="mt-0.5 text-xs font-medium text-[#526580]">
+              Finished-goods availability and assembly demand from Procurement
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Pending FG store verification</p>
-          </Card>
-
-          <Card className="rounded-2xl border p-4 shadow-sm bg-card">
-            <div className="flex items-center justify-between text-muted-foreground text-xs font-bold uppercase">
-              <span>In Stock (Zero Shortage)</span>
-              <CheckCircle2 className="size-4 text-emerald-600" />
-            </div>
-            <p className="text-3xl font-black mt-2 text-emerald-600">
-              {requests.filter((r) => (r.shortage ?? 0) <= 0).length}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">Covered by FG Store inventory</p>
-          </Card>
-
-          <Card className="rounded-2xl border p-4 shadow-sm bg-card">
-            <div className="flex items-center justify-between text-muted-foreground text-xs font-bold uppercase">
-              <span>Shortage (To Assemble)</span>
-              <TrendingDown className="size-4 text-red-600" />
-            </div>
-            <p className="text-3xl font-black mt-2 text-red-600">
-              {requests.filter((r) => (r.shortage ?? 0) > 0).length}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">Assembly production required</p>
-          </Card>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: "Total Requests",
+                value: requests.length,
+                detail: "From Procurement",
+                icon: ClipboardList,
+                card: "border-[#CBE0FC] hover:border-[#0866FF]/50",
+                iconTone: "bg-[#EBF3FF] text-[#0866FF]",
+                valueTone: "text-[#0866FF]",
+              },
+              {
+                label: "Sent to Assembly",
+                value: requests.filter((r) => r.status === "SENT_TO_ASSEMBLY" || !r.status).length,
+                detail: "Pending FG store verification",
+                icon: PackageCheck,
+                card: "border-amber-200 hover:border-amber-300",
+                iconTone: "bg-amber-50 text-amber-600",
+                valueTone: "text-amber-600",
+              },
+              {
+                label: "In Stock (Zero Shortage)",
+                value: requests.filter((r) => (r.shortage ?? 0) <= 0).length,
+                detail: "Covered by FG Store inventory",
+                icon: CheckCircle2,
+                card: "border-emerald-200 hover:border-emerald-300",
+                iconTone: "bg-emerald-50 text-emerald-600",
+                valueTone: "text-emerald-600",
+              },
+              {
+                label: "Shortage (To Assemble)",
+                value: requests.filter((r) => (r.shortage ?? 0) > 0).length,
+                detail: "Assembly production required",
+                icon: TrendingDown,
+                card: "border-red-200 hover:border-red-300",
+                iconTone: "bg-red-50 text-[#E5484D]",
+                valueTone: "text-[#E5484D]",
+              },
+            ].map((metric) => {
+              const MetricIcon = metric.icon;
+              return (
+                <Card
+                  key={metric.label}
+                  className={`flex min-h-40 flex-col rounded-2xl border bg-white p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md ${metric.card}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="max-w-[75%] text-xs font-bold uppercase leading-5 tracking-wide text-[#526580]">
+                      {metric.label}
+                    </p>
+                    <span
+                      className={`grid size-10 shrink-0 place-items-center rounded-xl ${metric.iconTone}`}
+                    >
+                      <MetricIcon className="size-5" />
+                    </span>
+                  </div>
+                  <p
+                    className={`mt-auto pt-3 text-3xl font-black tabular-nums ${metric.valueTone}`}
+                  >
+                    {metric.value}
+                  </p>
+                  <p className="mt-1 min-h-4 text-xs font-medium text-[#526580]">{metric.detail}</p>
+                </Card>
+              );
+            })}
+          </div>
         </div>
 
         {/* Search & Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="grid gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs sm:grid-cols-[minmax(280px,1fr)_auto] sm:items-center">
+          <div className="relative min-w-0 sm:max-w-2xl">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search request #, product name, code..."
-              className="pl-9 h-10 rounded-xl"
+              className="h-10 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] pl-10 focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
             />
           </div>
+          <span className="text-xs font-semibold text-[#526580]">
+            Showing {filteredRequests.length} of {requests.length}
+          </span>
         </div>
 
         {/* Requests Table */}
-        <Card className="rounded-2xl border bg-card p-0 shadow-sm overflow-hidden">
+        <Card className="overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-0 shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/50 border-b border-border text-[11px] uppercase tracking-wider font-bold text-muted-foreground">
+            <table className="w-full min-w-[1180px] text-left text-sm">
+              <thead className="border-b border-[#DCE6F3] bg-[#F1F5FA] text-[11px] font-bold uppercase tracking-wider text-[#526580]">
                 <tr>
                   <th className="px-4 py-3">Request Number</th>
                   <th className="px-4 py-3">Product</th>
@@ -606,33 +660,40 @@ function AssemblyFinishedGoodsRequests() {
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-[#DCE6F3]">
                 {loading ? (
                   <tr>
                     <td colSpan={9} className="h-48 text-center">
                       <Loader2 className="size-7 animate-spin mx-auto text-primary" />
-                      <span className="block mt-2 text-xs text-muted-foreground">Loading Finished Goods Requests...</span>
+                      <span className="block mt-2 text-xs text-muted-foreground">
+                        Loading Finished Goods Requests...
+                      </span>
                     </td>
                   </tr>
                 ) : filteredRequests.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="h-48 text-center p-6">
                       <ClipboardList className="size-10 text-muted-foreground/30 mx-auto mb-2" />
-                      <p className="text-sm font-semibold text-muted-foreground">No Finished Goods Requests Received</p>
-                      <p className="text-xs text-muted-foreground/80 mt-1">Requests sent from Procurement will appear here.</p>
+                      <p className="text-sm font-semibold text-muted-foreground">
+                        No Finished Goods Requests Received
+                      </p>
+                      <p className="text-xs text-muted-foreground/80 mt-1">
+                        Requests sent from Procurement will appear here.
+                      </p>
                     </td>
                   </tr>
                 ) : (
                   filteredRequests.map((req) => {
                     const avail = req.fg_store_available ?? req.available_quantity ?? 0;
-                    const shortage = req.shortage ?? req.shortage_quantity ?? Math.max(0, req.quantity - avail);
+                    const shortage =
+                      req.shortage ?? req.shortage_quantity ?? Math.max(0, req.quantity - avail);
 
                     return (
                       <tr
                         key={req.id}
                         onClick={() => setSelectedRequest(req)}
-                        className={`hover:bg-muted/20 cursor-pointer transition-colors ${
-                          selectedRequest?.id === req.id ? "bg-muted/30" : ""
+                        className={`cursor-pointer transition-colors hover:bg-[#F8FAFD] ${
+                          selectedRequest?.id === req.id ? "bg-[#EBF3FF]/60" : ""
                         }`}
                       >
                         <td className="px-4 py-3 font-mono font-bold text-primary">
@@ -683,7 +744,10 @@ function AssemblyFinishedGoodsRequests() {
                             </div>
                           ) : (
                             <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-amber-700 border-amber-300 dark:text-amber-400 font-semibold text-[11px]">
+                              <Badge
+                                variant="outline"
+                                className="text-amber-700 border-amber-300 dark:text-amber-400 font-semibold text-[11px]"
+                              >
                                 No BOM exists
                               </Badge>
                               <Button
@@ -731,260 +795,314 @@ function AssemblyFinishedGoodsRequests() {
 
         {/* Selected Request Inspection Modal / Detailed Card */}
         {selectedRequest && (
-          <Card className="rounded-2xl border-2 border-primary/30 bg-card p-6 shadow-lg space-y-6">
-            <div className="flex items-center justify-between border-b border-border/60 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
-                  <Store className="size-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-black text-foreground">{selectedRequest.request_number}</h3>
-                    <StatusBadge status={selectedRequest.status || "SENT_TO_ASSEMBLY"} />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Finished Goods Store Availability Inspection &amp; BOM Planning
-                  </p>
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="h-8 w-8 p-0">
-                <X className="size-4" />
-              </Button>
-            </div>
-
-            {/* Inventory Inspection Panel */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Requested Card */}
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 p-5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                  Requested Quantity
-                </span>
-                <div className="text-3xl font-black text-blue-700 dark:text-blue-300 mt-2">
-                  {selectedRequest.quantity || selectedRequest.requested_quantity} {selectedRequest.uom || "PCS"}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Required By: {formatDisplayDate(selectedRequest.required_date)}
-                </div>
-              </div>
-
-              {/* FG Store Available Card */}
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 p-5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                  FG Store Available
-                </span>
-                <div className="text-3xl font-black text-emerald-700 dark:text-emerald-300 mt-2">
-                  {selectedRequest.fg_store_available ?? selectedRequest.available_quantity ?? 0} {selectedRequest.uom || "PCS"}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Actual database inventory in FG Store
-                </div>
-              </div>
-
-              {/* Shortage Card */}
-              <div
-                className={`rounded-2xl border p-5 ${
-                  (selectedRequest.shortage ?? 0) > 0
-                    ? "border-red-200 bg-red-50/50 dark:bg-red-950/20"
-                    : "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20"
-                }`}
-              >
-                <span
-                  className={`text-[11px] font-bold uppercase tracking-wider ${
-                    (selectedRequest.shortage ?? 0) > 0
-                      ? "text-red-700 dark:text-red-300"
-                      : "text-emerald-700 dark:text-emerald-300"
-                  }`}
-                >
-                  Assembly Required
-                </span>
-                <div
-                  className={`text-3xl font-black mt-2 ${
-                    (selectedRequest.shortage ?? 0) > 0
-                      ? "text-red-700 dark:text-red-300"
-                      : "text-emerald-700 dark:text-emerald-300"
-                  }`}
-                >
-                  {selectedRequest.shortage ?? selectedRequest.shortage_quantity ?? 0} {selectedRequest.uom || "PCS"}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {(selectedRequest.shortage ?? 0) > 0
-                    ? "Production required to fulfill shortage"
-                    : "0 units needed (completely in stock)"}
-                </div>
-              </div>
-            </div>
-
-            {/* BOM Management & Material Requisition Callout */}
-            <div className="rounded-2xl border border-border/80 bg-muted/20 p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
-                    <Layers className="size-5" />
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-[#071D3B]/70 p-4 backdrop-blur-sm sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Inspect finished goods request ${selectedRequest.request_number}`}
+            onClick={() => setSelectedRequest(null)}
+          >
+            <Card
+              className="max-h-[92vh] w-full max-w-6xl space-y-6 overflow-y-auto rounded-2xl border border-[#DCE6F3] bg-white p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="sticky -top-6 z-10 -m-6 mb-0 flex items-center justify-between bg-[#0B2A55] px-6 py-5 text-white">
+                <div className="flex items-center gap-3">
+                  <div className="grid size-12 place-items-center rounded-2xl border border-white/20 bg-white/10 text-white">
+                    <Store className="size-6" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-foreground">
-                      Bill of Materials (BOM) — {selectedRequest.product_name || selectedRequest.finished_goods_name}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      Reusable product-level recipe (quantity per 1 finished good unit)
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-black text-white">
+                        {selectedRequest.request_number}
+                      </h3>
+                      <StatusBadge status={selectedRequest.status || "SENT_TO_ASSEMBLY"} />
+                    </div>
+                    <p className="mt-0.5 text-xs text-blue-100/80">
+                      Finished Goods Store Availability Inspection &amp; BOM Planning
                     </p>
                   </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedRequest(null)}
+                  className="h-10 gap-2 rounded-xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/20 hover:text-white"
+                >
+                  <X className="size-4" />
+                  Close
+                </Button>
+              </div>
+
+              {/* Inventory Inspection Panel */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Requested Card */}
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 p-5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                    Requested Quantity
+                  </span>
+                  <div className="text-3xl font-black text-blue-700 dark:text-blue-300 mt-2">
+                    {selectedRequest.quantity || selectedRequest.requested_quantity}{" "}
+                    {selectedRequest.uom || "PCS"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Required By: {formatDisplayDate(selectedRequest.required_date)}
+                  </div>
+                </div>
+
+                {/* FG Store Available Card */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 p-5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                    FG Store Available
+                  </span>
+                  <div className="text-3xl font-black text-emerald-700 dark:text-emerald-300 mt-2">
+                    {selectedRequest.fg_store_available ?? selectedRequest.available_quantity ?? 0}{" "}
+                    {selectedRequest.uom || "PCS"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Actual database inventory in FG Store
+                  </div>
+                </div>
+
+                {/* Shortage Card */}
+                <div
+                  className={`rounded-2xl border p-5 ${
+                    (selectedRequest.shortage ?? 0) > 0
+                      ? "border-red-200 bg-red-50/50 dark:bg-red-950/20"
+                      : "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20"
+                  }`}
+                >
+                  <span
+                    className={`text-[11px] font-bold uppercase tracking-wider ${
+                      (selectedRequest.shortage ?? 0) > 0
+                        ? "text-red-700 dark:text-red-300"
+                        : "text-emerald-700 dark:text-emerald-300"
+                    }`}
+                  >
+                    Assembly Required
+                  </span>
+                  <div
+                    className={`text-3xl font-black mt-2 ${
+                      (selectedRequest.shortage ?? 0) > 0
+                        ? "text-red-700 dark:text-red-300"
+                        : "text-emerald-700 dark:text-emerald-300"
+                    }`}
+                  >
+                    {selectedRequest.shortage ?? selectedRequest.shortage_quantity ?? 0}{" "}
+                    {selectedRequest.uom || "PCS"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {(selectedRequest.shortage ?? 0) > 0
+                      ? "Production required to fulfill shortage"
+                      : "0 units needed (completely in stock)"}
+                  </div>
+                </div>
+              </div>
+
+              {/* BOM Management & Material Requisition Callout */}
+              <div className="rounded-2xl border border-border/80 bg-muted/20 p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
+                      <Layers className="size-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-foreground">
+                        Bill of Materials (BOM) —{" "}
+                        {selectedRequest.product_name || selectedRequest.finished_goods_name}
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        Reusable product-level recipe (quantity per 1 finished good unit)
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedRequest.has_bom ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenViewBom(selectedRequest)}
+                        className="rounded-xl text-xs font-semibold gap-1.5"
+                      >
+                        <Eye className="size-3.5" /> View BOM
+                      </Button>
+                      {(selectedRequest.shortage ?? 0) > 0 ? (
+                        <Button
+                          size="sm"
+                          onClick={() => handleOpenMaterialRequestFromBom(selectedRequest)}
+                          className="rounded-xl font-bold text-xs gap-1.5 bg-primary text-primary-foreground"
+                        >
+                          <ClipboardList className="size-3.5" /> Create Material Request from BOM
+                        </Button>
+                      ) : (
+                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 border-none font-bold text-xs px-2.5 py-1">
+                          Zero Assembly Required
+                        </Badge>
+                      )}
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => handleOpenCreateBom(selectedRequest)}
+                      className="rounded-xl font-bold text-xs gap-1.5 bg-primary text-primary-foreground"
+                    >
+                      <Plus className="size-3.5" /> Create BOM
+                    </Button>
+                  )}
                 </div>
 
                 {selectedRequest.has_bom ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenViewBom(selectedRequest)}
-                      className="rounded-xl text-xs font-semibold gap-1.5"
-                    >
-                      <Eye className="size-3.5" /> View BOM
-                    </Button>
-                    {(selectedRequest.shortage ?? 0) > 0 ? (
-                      <Button
-                        size="sm"
-                        onClick={() => handleOpenMaterialRequestFromBom(selectedRequest)}
-                        className="rounded-xl font-bold text-xs gap-1.5 bg-primary text-primary-foreground"
-                      >
-                        <ClipboardList className="size-3.5" /> Create Material Request from BOM
-                      </Button>
-                    ) : (
-                      <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 border-none font-bold text-xs px-2.5 py-1">
-                        Zero Assembly Required
-                      </Badge>
+                  <div className="rounded-xl border bg-card p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <CheckCircle2 className="size-4 text-emerald-600" />
+                        BOM Available: {selectedRequest.bom?.bom_number}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground font-mono">
+                        {selectedRequest.bom?.items?.length || 0} component(s) defined
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
+                      {(selectedRequest.bom?.items || []).map((itm: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="rounded-lg bg-muted/40 p-2 border border-border/40"
+                        >
+                          <span
+                            className="font-semibold text-foreground block truncate"
+                            title={itm.material_name}
+                          >
+                            {itm.material_name}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {itm.quantity_per_unit} {itm.uom} / unit
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {(selectedRequest.shortage ?? 0) <= 0 && (
+                      <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2 text-xs text-emerald-800 dark:text-emerald-300">
+                        <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                        <span>
+                          <strong>In Stock:</strong> The requested quantity is completely covered by
+                          FG Store inventory ({selectedRequest.fg_store_available ?? 0} available).
+                          No raw materials needed.
+                        </span>
+                      </div>
                     )}
                   </div>
                 ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => handleOpenCreateBom(selectedRequest)}
-                    className="rounded-xl font-bold text-xs gap-1.5 bg-primary text-primary-foreground"
-                  >
-                    <Plus className="size-3.5" /> Create BOM
-                  </Button>
+                  <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/40 dark:bg-amber-950/20 p-4 text-xs text-amber-900 dark:text-amber-300 flex items-start gap-2.5">
+                    <AlertCircle className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                    <div>
+                      <p className="font-bold">No BOM exists for this Finished Good</p>
+                      <p className="text-muted-foreground mt-0.5">
+                        Click <strong>"Create BOM"</strong> to define the standard components and
+                        quantities needed to assemble one unit of{" "}
+                        <strong>
+                          {selectedRequest.product_name || selectedRequest.finished_goods_name}
+                        </strong>
+                        . The saved BOM will be reused for all future requests.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {selectedRequest.has_bom ? (
-                <div className="rounded-xl border bg-card p-3.5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                      <CheckCircle2 className="size-4 text-emerald-600" />
-                      BOM Available: {selectedRequest.bom?.bom_number}
+              {/* Product & Request Details */}
+              <div className="overflow-hidden rounded-2xl border border-[#DCE6F3] bg-[#F8FAFD]">
+                <div className="border-b border-[#DCE6F3] px-4 py-3">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#526580]">
+                    Request Details
+                  </h4>
+                </div>
+                <div className="grid text-xs sm:grid-cols-2 lg:grid-cols-4 [&>div]:px-4 [&>div]:py-4 lg:[&>div:not(:last-child)]:border-r lg:[&>div:not(:last-child)]:border-[#DCE6F3]">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-[#526580]">
+                      Product Name
                     </span>
-                    <span className="text-[11px] text-muted-foreground font-mono">
-                      {selectedRequest.bom?.items?.length || 0} component(s) defined
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
-                    {(selectedRequest.bom?.items || []).map((itm: any, idx: number) => (
-                      <div key={idx} className="rounded-lg bg-muted/40 p-2 border border-border/40">
-                        <span className="font-semibold text-foreground block truncate" title={itm.material_name}>
-                          {itm.material_name}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {itm.quantity_per_unit} {itm.uom} / unit
-                        </span>
-                      </div>
-                    ))}
+                    <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                      {selectedRequest.product_name || selectedRequest.finished_goods_name}
+                    </p>
                   </div>
 
-                  {(selectedRequest.shortage ?? 0) <= 0 && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2 text-xs text-emerald-800 dark:text-emerald-300">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
-                      <span>
-                        <strong>In Stock:</strong> The requested quantity is completely covered by FG Store inventory ({selectedRequest.fg_store_available ?? 0} available). No raw materials needed.
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/40 dark:bg-amber-950/20 p-4 text-xs text-amber-900 dark:text-amber-300 flex items-start gap-2.5">
-                  <AlertCircle className="size-4 shrink-0 text-amber-600 mt-0.5" />
                   <div>
-                    <p className="font-bold">No BOM exists for this Finished Good</p>
-                    <p className="text-muted-foreground mt-0.5">
-                      Click <strong>"Create BOM"</strong> to define the standard components and quantities needed to assemble one unit of{" "}
-                      <strong>{selectedRequest.product_name || selectedRequest.finished_goods_name}</strong>. The saved BOM will be reused for all future requests.
+                    <span className="text-[10px] font-bold uppercase text-[#526580]">
+                      Product Code
+                    </span>
+                    <p className="mt-1 font-mono text-sm font-bold text-[#101D3A]">
+                      {selectedRequest.product_code || selectedRequest.finished_goods_code || "-"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-[#526580]">
+                      Requested By
+                    </span>
+                    <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                      {selectedRequest.requested_by || selectedRequest.created_by || "Procurement"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-[#526580]">
+                      Target Warehouse
+                    </span>
+                    <p className="mt-1 text-sm font-bold text-[#101D3A]">
+                      {selectedRequest.warehouse_id || "MAIN"}
                     </p>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* Product & Request Details */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-t border-border/60 pt-4">
-              <div>
-                <span className="font-bold text-muted-foreground uppercase text-[10px]">Product Name</span>
-                <p className="font-semibold text-foreground text-sm mt-0.5">
-                  {selectedRequest.product_name || selectedRequest.finished_goods_name}
-                </p>
               </div>
 
-              <div>
-                <span className="font-bold text-muted-foreground uppercase text-[10px]">Product Code</span>
-                <p className="font-mono font-semibold text-foreground text-sm mt-0.5">
-                  {selectedRequest.product_code || selectedRequest.finished_goods_code || "-"}
-                </p>
-              </div>
-
-              <div>
-                <span className="font-bold text-muted-foreground uppercase text-[10px]">Requested By</span>
-                <p className="font-semibold text-foreground text-sm mt-0.5">
-                  {selectedRequest.requested_by || selectedRequest.created_by || "Procurement"}
-                </p>
-              </div>
-
-              <div>
-                <span className="font-bold text-muted-foreground uppercase text-[10px]">Target Warehouse</span>
-                <p className="font-semibold text-foreground text-sm mt-0.5">
-                  {selectedRequest.warehouse_id || "MAIN"}
-                </p>
-              </div>
-            </div>
-
-            {/* BOM Attachment Download if any from Procurement */}
-            {selectedRequest.bom_attachment_url && (
-              <div className="flex items-center justify-between rounded-xl bg-primary/5 border border-primary/20 p-3.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
-                    <FileText className="size-4" />
+              {/* BOM Attachment Download if any from Procurement */}
+              {selectedRequest.bom_attachment_url && (
+                <div className="flex items-center justify-between rounded-xl bg-primary/5 border border-primary/20 p-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
+                      <FileText className="size-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-foreground block">
+                        {selectedRequest.bom_attachment_name || "BOM Attachment"}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Document attached by Procurement
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs font-bold text-foreground block">
-                      {selectedRequest.bom_attachment_name || "BOM Attachment"}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">Document attached by Procurement</span>
-                  </div>
+                  <a
+                    href={`${BUSINESS_API_URL}${selectedRequest.bom_attachment_url}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition shadow-sm"
+                  >
+                    <Download className="size-3.5" /> Download Attachment
+                  </a>
                 </div>
-                <a
-                  href={`${BUSINESS_API_URL}${selectedRequest.bom_attachment_url}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition shadow-sm"
-                >
-                  <Download className="size-3.5" /> Download Attachment
-                </a>
-              </div>
-            )}
+              )}
 
-            {/* Remarks if any */}
-            {selectedRequest.remarks && (
-              <div className="rounded-xl bg-muted/30 p-3 border text-xs">
-                <span className="font-bold text-muted-foreground uppercase text-[10px] block mb-1">Remarks</span>
-                <p className="text-foreground">{selectedRequest.remarks}</p>
-              </div>
-            )}
+              {/* Remarks if any */}
+              {selectedRequest.remarks && (
+                <div className="rounded-xl bg-muted/30 p-3 border text-xs">
+                  <span className="font-bold text-muted-foreground uppercase text-[10px] block mb-1">
+                    Remarks
+                  </span>
+                  <p className="text-foreground">{selectedRequest.remarks}</p>
+                </div>
+              )}
 
-            {/* Safety & Non-Deduction Notice */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 p-3 rounded-xl border border-dashed">
-              <ShieldCheck className="size-4 text-emerald-600 shrink-0" />
-              <span>
-                <strong>Availability Inspection Only:</strong> Checking inventory availability does not reserve or deduct finished goods stock.
-              </span>
-            </div>
-          </Card>
+              {/* Safety & Non-Deduction Notice */}
+              <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 p-3 text-xs text-[#526580]">
+                <ShieldCheck className="size-4 shrink-0 text-emerald-600" />
+                <span>
+                  <strong>Availability Inspection Only:</strong> Checking inventory availability
+                  does not reserve or deduct finished goods stock.
+                </span>
+              </div>
+            </Card>
+          </div>
         )}
 
         {/* ========================================================================= */}
@@ -994,20 +1112,23 @@ function AssemblyFinishedGoodsRequests() {
           open={bomModal.open}
           onOpenChange={(open) => !open && setBomModal((prev) => ({ ...prev, open: false }))}
         >
-          <DialogContent className="max-w-3xl rounded-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-2xl [&>button]:right-5 [&>button]:top-5 [&>button]:text-white [&>button]:opacity-80 [&>button:hover]:bg-white/10 [&>button:hover]:opacity-100">
+            <DialogHeader className="shrink-0 bg-[#0B2A55] px-6 py-5 pr-14 text-left">
               <div className="flex items-center justify-between">
                 <div>
-                  <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                    <Layers className="size-5 text-primary" />
+                  <DialogTitle className="flex items-center gap-3 text-lg font-bold text-white">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/20 bg-white/10">
+                      <Layers className="size-5" />
+                    </span>
                     {bomModal.mode === "create"
                       ? "Create Product Bill of Materials (BOM)"
                       : bomModal.mode === "edit"
-                      ? `Edit BOM — ${bomModal.bom?.bom_number || bomModal.product_name}`
-                      : `View BOM — ${bomModal.bom?.bom_number || bomModal.product_name}`}
+                        ? `Edit BOM — ${bomModal.bom?.bom_number || bomModal.product_name}`
+                        : `View BOM — ${bomModal.bom?.bom_number || bomModal.product_name}`}
                   </DialogTitle>
-                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                    Define the raw materials and components required to manufacture <strong>ONE unit</strong> of this finished good.
+                  <DialogDescription className="mt-1 pl-[52px] text-xs text-blue-100/80">
+                    Define the raw materials and components required to manufacture{" "}
+                    <strong>ONE unit</strong> of this finished good.
                   </DialogDescription>
                 </div>
                 {bomModal.mode === "view" && (
@@ -1015,7 +1136,7 @@ function AssemblyFinishedGoodsRequests() {
                     size="sm"
                     variant="outline"
                     onClick={() => setBomModal((prev) => ({ ...prev, mode: "edit" }))}
-                    className="rounded-xl gap-1.5 text-xs font-bold"
+                    className="gap-1.5 rounded-xl border-white/25 bg-white/10 text-xs font-bold text-white hover:bg-white/20 hover:text-white"
                   >
                     <Edit3 className="size-3.5" /> Edit BOM
                   </Button>
@@ -1023,61 +1144,91 @@ function AssemblyFinishedGoodsRequests() {
               </div>
             </DialogHeader>
 
-            <div className="space-y-4 py-2">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
               {/* Product Info Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-muted/30 border">
+              <div className="grid grid-cols-1 gap-4 rounded-xl border border-[#DCE6F3] bg-[#F8FAFD] p-4 sm:grid-cols-2">
                 <div>
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Product Name</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                    Product Name
+                  </Label>
                   <Input
                     value={bomModal.product_name}
-                    onChange={(e) => setBomModal((prev) => ({ ...prev, product_name: e.target.value }))}
+                    onChange={(e) => {
+                      const productName = e.target.value;
+                      setBomModal((prev) => ({
+                        ...prev,
+                        product_name: productName,
+                        product_code:
+                          prev.mode === "create"
+                            ? generateUniqueProductCode(productName, requests)
+                            : prev.product_code,
+                      }));
+                    }}
                     disabled={bomModal.mode === "view"}
-                    className="mt-1 h-9 rounded-xl font-bold text-sm"
+                    className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-white text-sm font-bold focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                     placeholder="e.g. Laptop"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Product Code</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                    Product Code
+                  </Label>
                   <Input
                     value={bomModal.product_code}
-                    onChange={(e) => setBomModal((prev) => ({ ...prev, product_code: e.target.value }))}
-                    disabled={bomModal.mode === "view"}
-                    className="mt-1 h-9 rounded-xl font-mono text-sm"
-                    placeholder="e.g. LAP-001"
+                    readOnly
+                    aria-readonly="true"
+                    className="mt-1.5 h-10 cursor-not-allowed rounded-xl border-[#DCE6F3] bg-[#EEF3FA] font-mono text-sm font-semibold text-[#526580] focus-visible:ring-0"
+                    placeholder="Generated automatically"
                   />
+                  <p className="mt-1.5 text-xs font-medium text-[#526580]">
+                    Generated automatically from the product name and cannot be edited.
+                  </p>
                 </div>
               </div>
 
               {/* Standard Recipe Rule Notice */}
-              <div className="flex items-center gap-2 rounded-xl bg-primary/10 p-3 text-xs text-primary font-medium">
+              <div className="flex items-start gap-2.5 rounded-xl border border-[#CBE0FC] bg-[#EBF3FF] p-3 text-xs font-medium leading-5 text-[#0866FF]">
                 <Info className="size-4 shrink-0" />
                 <span>
-                  <strong>Standard Recipe:</strong> BOM quantities are ALWAYS defined per <strong>ONE unit</strong> of the finished good. This recipe is reusable across all future requests.
+                  <strong>Standard Recipe:</strong> BOM quantities are ALWAYS defined per{" "}
+                  <strong>ONE unit</strong> of the finished good. This recipe is reusable across all
+                  future requests.
                 </span>
               </div>
 
               {/* Components Table */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
                     Required Components &amp; Raw Materials ({bomRows.length})
                   </Label>
                   {bomModal.mode !== "view" && (
+                    <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={handleAddBomRow}
-                      className="rounded-xl h-7 text-xs font-bold gap-1 text-primary border-primary/40 hover:bg-primary/10"
+                      onClick={() => handleAddBomRow()}
+                      className="h-8 gap-1 rounded-xl border-[#0866FF]/30 text-xs font-bold text-[#0866FF] hover:bg-[#EBF3FF]"
                     >
                       <Plus className="size-3.5" /> Add Component
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAddBomRow(true)}
+                      className="h-8 gap-1 rounded-xl border-amber-400 bg-amber-300 text-xs font-bold text-amber-950 hover:bg-amber-400 hover:text-amber-950"
+                    >
+                      <Plus className="size-3.5" /> Add Custom Item
+                    </Button>
+                    </div>
                   )}
                 </div>
 
-                <div className="rounded-xl border overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-muted/60 border-b text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="overflow-x-auto rounded-xl border border-[#DCE6F3]">
+                  <table className="w-full min-w-[700px] text-left text-xs">
+                    <thead className="border-b border-[#DCE6F3] bg-[#F1F5FA] text-[10px] font-bold uppercase tracking-wider text-[#526580]">
                       <tr>
                         <th className="p-2.5">Material / Component</th>
                         <th className="p-2.5 w-32">Material Code</th>
@@ -1086,12 +1237,28 @@ function AssemblyFinishedGoodsRequests() {
                         {bomModal.mode !== "view" && <th className="p-2.5 w-10 text-right"></th>}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/60">
+                    <tbody className="divide-y divide-[#DCE6F3]">
                       {bomRows.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-muted/10">
+                        <tr key={idx} className="hover:bg-[#F8FAFD]">
                           <td className="p-2.5">
                             {bomModal.mode === "view" ? (
-                              <span className="font-semibold text-foreground">{row.material_name}</span>
+                              <span className="font-semibold text-foreground">
+                                {row.material_name}
+                              </span>
+                            ) : !row.material_id && row.material_code === "CUSTOM" ? (
+                              <Input
+                                aria-label="Custom material name"
+                                placeholder="Custom material name"
+                                value={row.material_name}
+                                onChange={(e) =>
+                                  setBomRows((rows) =>
+                                    rows.map((r, i) =>
+                                      i === idx ? { ...r, material_name: e.target.value } : r,
+                                    ),
+                                  )
+                                }
+                                className="h-8 rounded-lg text-xs"
+                              />
                             ) : (
                               <div className="space-y-1">
                                 {masterMaterials.length > 0 ? (
@@ -1101,7 +1268,9 @@ function AssemblyFinishedGoodsRequests() {
                                         ? `${row.material_id}::${row.variant_code || ""}`
                                         : ""
                                     }
-                                    onValueChange={(val) => handleSelectMasterMaterialForBom(idx, val)}
+                                    onValueChange={(val) =>
+                                      handleSelectMasterMaterialForBom(idx, val)
+                                    }
                                   >
                                     <SelectTrigger className="h-8 text-xs rounded-lg">
                                       <SelectValue placeholder="Select from Master Materials...">
@@ -1127,9 +1296,10 @@ function AssemblyFinishedGoodsRequests() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       {masterMaterials.flatMap((mat) => {
-                                        const variants = Array.isArray(mat.variants) && mat.variants.length
-                                          ? mat.variants
-                                          : [null];
+                                        const variants =
+                                          Array.isArray(mat.variants) && mat.variants.length
+                                            ? mat.variants
+                                            : [null];
                                         return variants.map((variant: any) => {
                                           const specification =
                                             variant?.specification?.trim() ||
@@ -1160,7 +1330,9 @@ function AssemblyFinishedGoodsRequests() {
                           </td>
                           <td className="p-2.5">
                             {bomModal.mode === "view" ? (
-                              <span className="font-mono text-muted-foreground">{row.material_code}</span>
+                              <span className="font-mono text-muted-foreground">
+                                {row.material_code}
+                              </span>
                             ) : (
                               <Input
                                 placeholder="Code"
@@ -1173,7 +1345,9 @@ function AssemblyFinishedGoodsRequests() {
                           </td>
                           <td className="p-2.5 text-center">
                             {bomModal.mode === "view" ? (
-                              <span className="font-bold text-primary text-sm">{row.quantity_per_unit}</span>
+                              <span className="font-bold text-primary text-sm">
+                                {row.quantity_per_unit}
+                              </span>
                             ) : (
                               <Input
                                 type="number"
@@ -1183,8 +1357,8 @@ function AssemblyFinishedGoodsRequests() {
                                 onChange={(e) =>
                                   setBomRows(
                                     bomRows.map((r, i) =>
-                                      i === idx ? { ...r, quantity_per_unit: e.target.value } : r
-                                    )
+                                      i === idx ? { ...r, quantity_per_unit: e.target.value } : r,
+                                    ),
                                   )
                                 }
                                 className="h-8 text-xs font-bold text-center rounded-lg w-20 mx-auto"
@@ -1194,13 +1368,41 @@ function AssemblyFinishedGoodsRequests() {
                           <td className="p-2.5">
                             {bomModal.mode === "view" ? (
                               <span className="text-muted-foreground font-semibold">{row.uom}</span>
+                            ) : !row.material_id && row.material_code === "CUSTOM" ? (
+                              <Select
+                                value={row.uom}
+                                onValueChange={(uom) =>
+                                  setBomRows((rows) =>
+                                    rows.map((r, i) =>
+                                      i === idx ? { ...r, uom } : r,
+                                    ),
+                                  )
+                                }
+                              >
+                                <SelectTrigger
+                                  aria-label="Custom material unit of measure"
+                                  className="h-8 rounded-lg text-xs"
+                                >
+                                  <SelectValue placeholder="UOM" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {[...new Set([...CUSTOM_UOM_OPTIONS, row.uom].filter(Boolean))].map(
+                                    (uom) => (
+                                      <SelectItem key={uom} value={uom}>
+                                        {uom}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
                             ) : (
                               <Input
                                 value={row.uom}
-                                onChange={(e) =>
-                                  setBomRows(bomRows.map((r, i) => (i === idx ? { ...r, uom: e.target.value } : r)))
-                                }
-                                className="h-8 text-xs rounded-lg uppercase"
+                                readOnly
+                                aria-readonly="true"
+                                tabIndex={-1}
+                                title="Fetched from the selected material master"
+                                className="h-8 cursor-not-allowed rounded-lg bg-[#EEF3FA] text-xs font-semibold uppercase text-[#526580] focus-visible:ring-0"
                               />
                             )}
                           </td>
@@ -1226,11 +1428,11 @@ function AssemblyFinishedGoodsRequests() {
               </div>
             </div>
 
-            <DialogFooter className="gap-2 pt-2 border-t">
+            <DialogFooter className="shrink-0 gap-2 border-t border-[#DCE6F3] bg-[#F8FAFD] px-6 py-4">
               <Button
                 variant="outline"
                 onClick={() => setBomModal((prev) => ({ ...prev, open: false }))}
-                className="rounded-xl"
+                className="rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF]"
               >
                 {bomModal.mode === "view" ? "Close" : "Cancel"}
               </Button>
@@ -1238,9 +1440,13 @@ function AssemblyFinishedGoodsRequests() {
                 <Button
                   onClick={handleSaveBom}
                   disabled={savingBom}
-                  className="rounded-xl font-bold bg-primary text-primary-foreground gap-1.5"
+                  className="gap-1.5 rounded-xl bg-[#0866FF] font-bold text-white hover:bg-[#0054D6]"
                 >
-                  {savingBom ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                  {savingBom ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="size-4" />
+                  )}
                   Save BOM Recipe
                 </Button>
               )}
@@ -1255,50 +1461,60 @@ function AssemblyFinishedGoodsRequests() {
           open={mrModal.open}
           onOpenChange={(open) => !open && setMrModal((prev) => ({ ...prev, open: false }))}
         >
-          <DialogContent className="max-w-4xl rounded-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                <ClipboardList className="size-5 text-primary" />
-                Assembly Material Requisition from BOM
+          <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-2xl">
+            <DialogHeader className="shrink-0 bg-[#0B2A55] px-6 py-5 text-left">
+              <DialogTitle className="flex items-center gap-3 text-xl font-extrabold text-white">
+                <span className="grid size-10 place-items-center rounded-xl border border-white/20 bg-white/10">
+                  <ClipboardList className="size-5" />
+                </span>
+                Assembly Material Requisition
               </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
+              <DialogDescription className="pl-[52px] text-xs font-medium text-blue-100">
                 Auto-calculated material quantities for Finished Goods Request{" "}
-                <strong className="text-foreground font-mono">{mrModal.request?.request_number}</strong> (
-                {mrModal.request?.product_name || mrModal.request?.finished_goods_name}).
+                <strong className="font-mono text-white">{mrModal.request?.request_number}</strong>{" "}
+                ({mrModal.request?.product_name || mrModal.request?.finished_goods_name}).
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-2">
+            <div className="space-y-5 overflow-y-auto bg-[#F8FAFD] px-6 py-5">
               {/* Formula & Availability Summary Banner */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-muted/40 border text-xs">
-                <div className="rounded-lg bg-background p-2.5 border">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">Requested FG Qty</span>
-                  <span className="text-base font-black text-foreground">
-                    {mrModal.request?.quantity || mrModal.request?.requested_quantity} {mrModal.request?.uom || "PCS"}
+              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-4 text-xs sm:grid-cols-3">
+                <div className="rounded-xl border border-[#CBE0FC] bg-[#F5F9FF] p-3.5">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[#526580]">
+                    Requested FG Qty
+                  </span>
+                  <span className="mt-1 block text-xl font-black text-[#0866FF]">
+                    {mrModal.request?.quantity || mrModal.request?.requested_quantity}{" "}
+                    {mrModal.request?.uom || "PCS"}
                   </span>
                 </div>
-                <div className="rounded-lg bg-background p-2.5 border">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">FG Store Available</span>
-                  <span className="text-base font-black text-emerald-600">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                    FG Store Available
+                  </span>
+                  <span className="mt-1 block text-xl font-black text-emerald-600">
                     {mrModal.request?.fg_store_available ?? 0} {mrModal.request?.uom || "PCS"}
                   </span>
                 </div>
-                <div className="rounded-lg bg-background p-2.5 border border-primary/30">
-                  <span className="text-[10px] uppercase font-bold text-primary block">Remaining Assembly Qty</span>
-                  <span className="text-base font-black text-primary">
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                    Remaining Assembly Qty
+                  </span>
+                  <span className="mt-1 block text-xl font-black text-amber-600">
                     {mrModal.remainingAssemblyQty} {mrModal.request?.uom || "PCS"}
                   </span>
                 </div>
               </div>
 
               {/* Crucial Separation Notice */}
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-foreground flex items-start gap-2.5">
-                <Info className="size-4 shrink-0 text-primary mt-0.5" />
+              <div className="flex items-start gap-2.5 rounded-xl border border-[#CBE0FC] bg-[#EBF3FF] p-3.5 text-xs text-[#101D3A]">
+                <Info className="mt-0.5 size-4 shrink-0 text-[#0866FF]" />
                 <div>
-                  <span className="font-bold text-primary">Editable Requisition Quantities:</span>
-                  <p className="text-muted-foreground mt-0.5">
+                  <span className="font-bold text-[#0866FF]">Editable requisition quantities</span>
+                  <p className="mt-0.5 leading-5 text-[#526580]">
                     Quantities have been auto-populated based on the BOM recipe multiplied by{" "}
-                    <strong>{mrModal.remainingAssemblyQty} unit(s)</strong> to assemble. You may adjust quantities below as needed for this particular assembly order.{" "}
+                    <strong>{mrModal.remainingAssemblyQty} unit(s)</strong> to assemble. You may
+                    adjust quantities below as needed for this particular assembly order.{" "}
                     <strong>Adjustments here will NOT alter the master BOM definition.</strong>
                   </p>
                 </div>
@@ -1307,7 +1523,7 @@ function AssemblyFinishedGoodsRequests() {
               {/* Items Table */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
                     Requisition Materials ({mrModal.items.length})
                   </Label>
                   <Button
@@ -1315,32 +1531,34 @@ function AssemblyFinishedGoodsRequests() {
                     variant="outline"
                     size="sm"
                     onClick={handleAddMrRow}
-                    className="rounded-xl h-7 text-xs font-bold gap-1 text-primary border-primary/40 hover:bg-primary/10"
+                    className="h-8 gap-1 rounded-xl border-[#0866FF]/30 bg-white text-xs font-bold text-[#0866FF] hover:bg-[#EBF3FF]"
                   >
                     <Plus className="size-3.5" /> Add Material
                   </Button>
                 </div>
 
-                <div className="rounded-xl border overflow-hidden">
+                <div className="overflow-hidden rounded-xl border border-[#DCE6F3] bg-white">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-muted/60 border-b text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <thead className="border-b border-[#DCE6F3] bg-[#F1F5FA] text-[10px] font-bold uppercase tracking-wider text-[#526580]">
                       <tr>
                         <th className="p-2.5">Component Material</th>
                         <th className="p-2.5 w-28">Code</th>
                         <th className="p-2.5 w-24 text-center">BOM / Unit</th>
-                        <th className="p-2.5 w-28 text-center text-primary font-black">
+                        <th className="w-28 p-2.5 text-center font-black text-[#0866FF]">
                           Req. Qty (Editable)
                         </th>
                         <th className="p-2.5 w-16">UOM</th>
                         <th className="p-2.5 w-10 text-right"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/60">
+                    <tbody className="divide-y divide-[#DCE6F3]">
                       {mrModal.items.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-muted/10">
+                        <tr key={idx} className="hover:bg-[#F8FAFD]">
                           <td className="p-2.5">
                             {row.material_code && row.material_name ? (
-                              <span className="font-semibold text-foreground">{row.material_name}</span>
+                              <span className="font-semibold text-foreground">
+                                {row.material_name}
+                              </span>
                             ) : (
                               <Select
                                 value={row.material_id || ""}
@@ -1359,7 +1577,9 @@ function AssemblyFinishedGoodsRequests() {
                               </Select>
                             )}
                           </td>
-                          <td className="p-2.5 font-mono text-muted-foreground">{row.material_code || "-"}</td>
+                          <td className="p-2.5 font-mono text-muted-foreground">
+                            {row.material_code || "-"}
+                          </td>
                           <td className="p-2.5 text-center text-muted-foreground font-semibold">
                             {row.bom_per_unit_qty ? `${row.bom_per_unit_qty} / unit` : "-"}
                           </td>
@@ -1373,11 +1593,11 @@ function AssemblyFinishedGoodsRequests() {
                                 setMrModal((prev) => ({
                                   ...prev,
                                   items: prev.items.map((r, i) =>
-                                    i === idx ? { ...r, quantity: e.target.value } : r
+                                    i === idx ? { ...r, quantity: e.target.value } : r,
                                   ),
                                 }))
                               }
-                              className="h-8 text-xs font-bold text-center rounded-lg w-24 mx-auto border-primary/50 focus:border-primary text-primary"
+                              className="mx-auto h-8 w-24 rounded-lg border-[#0866FF]/40 text-center text-xs font-bold text-[#0866FF] focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                             />
                           </td>
                           <td className="p-2.5 font-semibold text-muted-foreground">{row.uom}</td>
@@ -1401,22 +1621,28 @@ function AssemblyFinishedGoodsRequests() {
               </div>
 
               {/* Requisition Meta Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-1 gap-4 rounded-2xl border border-[#DCE6F3] bg-white p-4 sm:grid-cols-3">
                 <div>
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Target Warehouse</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                    Target Warehouse
+                  </Label>
                   <Input
                     value={mrModal.warehouse_id}
-                    onChange={(e) => setMrModal((prev) => ({ ...prev, warehouse_id: e.target.value }))}
-                    className="mt-1 h-8 rounded-xl text-xs"
+                    onChange={(e) =>
+                      setMrModal((prev) => ({ ...prev, warehouse_id: e.target.value }))
+                    }
+                    className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-[#F8FAFD] text-xs focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Priority</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                    Priority
+                  </Label>
                   <Select
                     value={mrModal.priority}
                     onValueChange={(val) => setMrModal((prev) => ({ ...prev, priority: val }))}
                   >
-                    <SelectTrigger className="mt-1 h-8 text-xs rounded-xl">
+                    <SelectTrigger className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-[#F8FAFD] text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1428,41 +1654,51 @@ function AssemblyFinishedGoodsRequests() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold uppercase text-muted-foreground">Required Date</Label>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                    Required Date
+                  </Label>
                   <Input
                     type="date"
                     value={mrModal.required_date}
-                    onChange={(e) => setMrModal((prev) => ({ ...prev, required_date: e.target.value }))}
-                    className="mt-1 h-8 rounded-xl text-xs"
+                    onChange={(e) =>
+                      setMrModal((prev) => ({ ...prev, required_date: e.target.value }))
+                    }
+                    className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-[#F8FAFD] text-xs focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                   />
                 </div>
               </div>
 
-              <div>
-                <Label className="text-xs font-semibold uppercase text-muted-foreground">Requisition Remarks</Label>
+              <div className="rounded-2xl border border-[#DCE6F3] bg-white p-4">
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#526580]">
+                  Requisition Remarks
+                </Label>
                 <Textarea
                   value={mrModal.remarks}
                   onChange={(e) => setMrModal((prev) => ({ ...prev, remarks: e.target.value }))}
                   rows={2}
-                  className="mt-1 text-xs rounded-xl resize-none"
+                  className="mt-1.5 resize-none rounded-xl border-[#DCE6F3] bg-[#F8FAFD] text-xs focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/20"
                 />
               </div>
             </div>
 
-            <DialogFooter className="gap-2 pt-2 border-t">
+            <DialogFooter className="shrink-0 gap-2 border-t border-[#DCE6F3] bg-white px-6 py-4">
               <Button
                 variant="outline"
                 onClick={() => setMrModal((prev) => ({ ...prev, open: false }))}
-                className="rounded-xl"
+                className="rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF]"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleSubmitMaterialRequest}
                 disabled={submittingMr}
-                className="rounded-xl font-bold bg-primary text-primary-foreground gap-1.5"
+                className="gap-1.5 rounded-xl bg-[#0866FF] font-bold text-white hover:bg-[#0054D6]"
               >
-                {submittingMr ? <Loader2 className="size-4 animate-spin" /> : <ClipboardList className="size-4" />}
+                {submittingMr ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <ClipboardList className="size-4" />
+                )}
                 Submit Material Requisition
               </Button>
             </DialogFooter>

@@ -18,7 +18,6 @@ import {
   ClipboardList,
   ListOrdered,
   LogOut,
-  BarChart3,
   LayoutDashboard,
   Truck,
 } from "lucide-react";
@@ -34,7 +33,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/warehouse-dashboard")({
   head: () => ({
     meta: [
-      { title: "Warehouse Control Center · KaizenX" },
+      { title: "Warehouse Control Center · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -158,7 +157,7 @@ function WarehouseDashboard() {
     window.location.href = target;
   };
 
-  const warehouseShortcutCards = [
+  const warehouseKpis = [
     {
       label: "Material Master",
       to: "/warehouse/materials",
@@ -233,22 +232,6 @@ function WarehouseDashboard() {
       detail: "Dispatch status and tracking",
       tone: "purple",
     },
-    {
-      label: "Finished Goods Store",
-      to: "/warehouse/finished-goods-store",
-      icon: PackageCheck,
-      value: null,
-      detail: "Assembly putaway & dispatch operations",
-      tone: "primary",
-    },
-    {
-      label: "Reports",
-      to: "/reports",
-      icon: BarChart3,
-      value: null,
-      detail: "Warehouse analytics & KPIs",
-      tone: "amber",
-    },
   ];
 
   return (
@@ -281,9 +264,12 @@ function WarehouseDashboard() {
       }
     >
       <div className="space-y-6">
-        <div>
-          <div className="grid auto-rows-fr items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {warehouseShortcutCards.map((item) => {
+        <section aria-labelledby="warehouse-kpis" className="space-y-4">
+          <h2 id="warehouse-kpis" className="text-lg font-bold tracking-tight text-foreground">
+            Warehouse KPIs
+          </h2>
+          <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {warehouseKpis.map((item) => {
               const Icon = item.icon;
               const toneClass =
                 item.tone === "teal"
@@ -306,15 +292,15 @@ function WarehouseDashboard() {
                         ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/20"
                         : "bg-primary/15 text-primary border-primary/20";
               return (
-                <Link key={item.to + item.label} to={item.to} className="group">
+                <Link key={item.to} to={item.to} className="group rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                   <div
                     className={cn(
-                      "relative h-full min-h-[158px] overflow-hidden rounded-2xl border p-5 shadow-2xs transition-all duration-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 flex flex-col justify-between",
+                      "flex h-full min-h-36 flex-col justify-between rounded-2xl border p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5",
                       toneClass,
                     )}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+                      <p className="text-sm font-semibold leading-tight text-foreground">
                         {item.label}
                       </p>
                       <span
@@ -328,18 +314,10 @@ function WarehouseDashboard() {
                     </div>
                     <div className="mt-4 flex items-end justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        {item.value !== null ? (
-                          <p className="text-3xl font-black tracking-tight tabular-nums text-foreground truncate">
+                          <p className="text-4xl font-extrabold leading-none tracking-tight tabular-nums text-primary">
                             {item.value}
                           </p>
-                        ) : (
-                          <div className="flex items-center gap-1.5 py-1">
-                            <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                              Analytics & KPIs
-                            </span>
-                          </div>
-                        )}
-                        <p className="mt-1 text-[11px] font-medium text-muted-foreground line-clamp-2">
+                        <p className="mt-2 text-xs font-medium text-muted-foreground">
                           {item.detail}
                         </p>
                       </div>
@@ -353,7 +331,7 @@ function WarehouseDashboard() {
               );
             })}
           </div>
-        </div>
+        </section>
 
         {/* ============================================================ */}
         {/* SECTION 1: ACTION REQUIRED (OPERATIONAL COMMAND CENTER)     */}

@@ -428,7 +428,7 @@ function Quotations() {
                     <TableIcon className="size-5 text-[#0866FF]" />
                   </div>
                   <div>
-                    <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-[#101D3A] uppercase">
+                    <h2 id="bidding-matrix-title" className="text-lg font-bold tracking-tight text-[#101D3A]">
                       Bidding Comparison Matrix
                     </h2>
                     <p className="text-xs sm:text-sm text-[#526580] font-medium">
@@ -437,7 +437,7 @@ function Quotations() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   {olderQuotationCount > 0 && (
                     <Button
                       type="button"
@@ -459,11 +459,11 @@ function Quotations() {
               </div>
 
               {/* Table Container */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[840px]">
+              <div className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0866FF]" role="region" aria-labelledby="bidding-matrix-title" tabIndex={0}>
+                <table className="w-full min-w-[560px] border-collapse text-left max-sm:[&_.sticky]:static">
                   <thead>
                     <tr>
-                      <th className="p-5 bg-[#F5F8FF] w-[240px] border-r border-[#DCE6F3] sticky left-0 z-10">
+                      <th scope="col" className="w-[180px] min-w-[180px] border-r border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:sticky sm:left-0 sm:z-10 lg:w-[240px]">
                         <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#526580]">
                           Bidding Factors
                         </span>
@@ -473,9 +473,10 @@ function Quotations() {
                         const isSelected = q.status === "Selected";
                         return (
                           <th
+                            scope="col"
                             key={q.id || `q-head-${idx}`}
                             className={cn(
-                              "p-5 min-w-[280px] border-r border-[#DCE6F3] relative group transition-colors",
+                              "group relative min-w-[280px] border-r border-[#DCE6F3] p-4 align-top transition-colors",
                               isSelected
                                 ? "bg-emerald-50/40"
                                 : isL1
@@ -652,9 +653,15 @@ function Quotations() {
                         <td className="p-4 px-5 border-r border-[#DCE6F3] sticky left-0 z-10 bg-white">
                           <div className="space-y-1">
                             <p className="text-xs font-bold text-[#101D3A]">
-                              {comparisonQuotations
+                              {(() => {
+                                const item = rfq?.items?.find((entry: any) =>
+                                  [entry.variantCode, entry.variant_code, entry.materialCode, entry.material_code].includes(code),
+                                );
+                                const line = comparisonQuotations
                                 .flatMap((q) => q.lines || [])
-                                .find((l) => l.itemCode === code || l.item_code === code)?.material_name || "Material Line"}
+                                .find((l) => l.itemCode === code || l.item_code === code);
+                                return item?.materialName || item?.material_name || line?.materialName || line?.material_name || "Material Line";
+                              })()}
                             </p>
                             <code className="text-[10px] text-[#0866FF] font-bold bg-[#EBF3FF] px-2 py-0.5 rounded border border-[#CBE0FC] uppercase font-mono">
                               {code}
@@ -672,17 +679,17 @@ function Quotations() {
                               )}
                             >
                               {line ? (
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between">
+                                <div className="grid max-w-xs grid-cols-2 gap-4">
+                                  <div className="flex flex-col gap-1">
                                     <span className="text-[10px] text-[#526580] font-bold uppercase">Rate</span>
                                     <span className="text-sm font-extrabold text-[#101D3A] tabular-nums">
                                       {formatMoney(parseFloat(line.unitPrice || line.unit_price))}
                                     </span>
                                   </div>
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex flex-col gap-1">
                                     <span className="text-[10px] text-[#526580] font-bold uppercase">Quantity</span>
                                     <span className="text-xs font-semibold text-[#526580]">
-                                      {Math.floor(parseFloat(line.quantity))} {line.uom || "Units"}
+                                      {Number(line.quantity).toLocaleString()} {line.uom || "units"}
                                     </span>
                                   </div>
                                 </div>
@@ -868,10 +875,10 @@ function Quotations() {
                     </tr>
 
                     {/* Grand Total Row */}
-                    <tr className="bg-gradient-to-r from-[#071D3B] via-[#0E284D] to-[#102D57] text-white">
-                      <td className="p-5 px-5 border-r border-white/20 sticky left-0 z-10 bg-[#071D3B] text-white">
+                    <tr data-preserve-row-background="" className="bg-[#0B2A55] text-white">
+                      <td className="p-5 px-5 border-r border-white/20 sticky left-0 z-10 bg-[#0B2A55] text-white">
                         <div className="flex items-center gap-2.5">
-                          <Wallet className="size-5 text-[#00D4FF]" />
+                          <Wallet className="size-5 shrink-0 text-blue-100" />
                           <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-white">
                             Net Quotation Total
                           </span>
@@ -886,7 +893,7 @@ function Quotations() {
                             key={`${q.id}-total`}
                             className={cn(
                               "p-5 border-r border-white/20 font-extrabold text-xl sm:text-2xl tabular-nums tracking-tight",
-                              (isSelected || isL1) && "bg-[#0866FF]/40 text-[#00D4FF]",
+                              (isSelected || isL1) && "bg-[#143D73] text-blue-100",
                             )}
                           >
                             {formatMoney(total)}
@@ -980,22 +987,22 @@ function Quotations() {
 
         {/* Selection / Rejection Dialog */}
         <Dialog open={isModalOpen} onOpenChange={(open) => !submitting && setIsModalOpen(open)}>
-          <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-2xl border-[#DCE6F3] p-0 shadow-2xl">
-            <DialogHeader className="border-b border-[#DCE6F3] bg-[#F5F8FF] px-6 py-5 pr-12 text-left">
+          <DialogContent className="w-[calc(100%-2rem)] max-w-xl grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xl sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+            <DialogHeader className="bg-[#0B2A55] px-5 py-5 pr-12 text-left sm:pl-6">
               <div className="flex items-center gap-3">
                 <div
                   className={cn(
                     "grid size-10 shrink-0 place-items-center rounded-xl",
-                    modalMode === "SELECT" ? "bg-[#EBF3FF] text-[#0866FF]" : "bg-red-100 text-[#E5484D]",
+                    modalMode === "SELECT" ? "bg-white/15 text-blue-100" : "bg-white/15 text-red-200",
                   )}
                 >
                   {modalMode === "SELECT" ? <FileCheck2 className="size-5" /> : <XCircle className="size-5" />}
                 </div>
                 <div className="min-w-0">
-                  <DialogTitle className="text-lg font-bold text-[#101D3A]">
+                  <DialogTitle className="text-lg font-bold leading-snug text-white">
                     {modalMode === "SELECT" ? "Select Supplier & Generate PO Proposal" : "Reject Quotation"}
                   </DialogTitle>
-                  <DialogDescription className="mt-0.5 text-xs text-[#526580]">
+                  <DialogDescription className="mt-1 text-sm text-blue-100">
                     {modalMode === "SELECT"
                       ? "Confirm the winning supplier bid and record the evaluation reason."
                       : "Provide a documented reason for rejecting this supplier's quotation."}
@@ -1004,8 +1011,8 @@ function Quotations() {
               </div>
             </DialogHeader>
 
-            <form onSubmit={handleAction} className="flex min-h-0 flex-col">
-              <div className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-5">
+            <form onSubmit={handleAction} className="flex min-h-0 min-w-0 flex-col">
+              <div className="min-h-0 space-y-4 overflow-y-auto overscroll-contain p-5 sm:px-6">
                 {(() => {
                   const quotation = quotations.find((entry) => entry.id === targetQuotationId);
                   if (!quotation) return null;
@@ -1016,7 +1023,7 @@ function Quotations() {
                     <div className="grid gap-3 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:grid-cols-2">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">
-                          Selected Supplier
+                          {modalMode === "SELECT" ? "Selected Supplier" : "Supplier"}
                         </p>
                         <p className="mt-1 truncate text-sm font-bold text-[#101D3A]">
                           {quotation.supplierInfo?.supplierName || quotation.supplierName || "Supplier"}
@@ -1055,7 +1062,7 @@ function Quotations() {
                             key={selectionReason.value}
                             value={selectionReason.value}
                             textValue={selectionReason.value}
-                            className="whitespace-nowrap py-2 text-xs"
+                            className="whitespace-normal py-2 text-xs"
                           >
                             <span className="font-bold text-[#101D3A]">{selectionReason.value}</span>
                             <span className="text-[#526580]"> — {selectionReason.detail}</span>
@@ -1115,7 +1122,7 @@ function Quotations() {
                 )}
               </div>
 
-              <DialogFooter className="border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:justify-end">
+              <DialogFooter className="shrink-0 gap-2 border-t border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4 sm:justify-end sm:px-6">
                 <Button
                   type="button"
                   variant="outline"
@@ -1176,7 +1183,7 @@ function Quotations() {
 
               return (
                 <>
-                  <div className="bg-gradient-to-r from-[#071D3B] via-[#0E284D] to-[#102D57] px-6 py-5 text-white">
+                  <div className="bg-[#0B2A55] px-6 py-5 pr-12 text-white">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2.5 text-xl font-bold tracking-tight text-white">
                         <span className="grid size-8 place-items-center rounded-lg bg-white/15">

@@ -46,7 +46,7 @@ import {
 export const Route = createFileRoute("/dock-management")({
   head: () => ({
     meta: [
-      { title: "Dock Management · KaizenX" },
+      { title: "Dock Management · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -631,6 +631,15 @@ function DockManagement() {
 
     return matchesTab && matchesCategory && matchesSearch;
   });
+  const historyQuery = activeTab === "HISTORY" ? searchTerm.trim().toLowerCase() : "";
+  const visibleHistory = historyQuery
+    ? history.filter((entry) =>
+        [entry.dock_code, entry.existing_gate_pass_id, entry.vehicle_number, entry.action,
+          entry.previous_status, entry.new_status, entry.performed_by, entry.remarks].some(
+          (value) => value?.toLowerCase().includes(historyQuery),
+        ),
+      )
+    : history;
 
   if (mounted && isStoreUser && !isWarehouseOrAdmin) {
     return (
@@ -736,18 +745,19 @@ function DockManagement() {
       </div>
 
       {/* 2. Filter Bar & Search Container */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-full border border-border/80 bg-card p-1.5 px-4 shadow-2xs">
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-3 shadow-xs">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           {/* Search Box */}
-          <div className="relative flex items-center w-56 sm:w-64">
-            <Search className="size-4 text-muted-foreground/70 shrink-0 ml-1" />
+          {activeTab !== "PENDING" && <div className="relative w-full sm:w-64">
+            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search truck no, PO, vendor, gate entry..."
-              className="h-8 border-none bg-transparent pl-2.5 pr-2 text-xs focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
+              aria-label={activeTab === "HISTORY" ? "Search allocation history" : "Search docks"}
+              placeholder={activeTab === "HISTORY" ? "Search allocation history…" : "Search docks or vehicles…"}
+              className="h-9 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] pl-9 text-sm shadow-none"
             />
-          </div>
+          </div>}
 
           {/* Filter Pills */}
           <div className="flex flex-wrap items-center gap-1">
@@ -764,6 +774,8 @@ function DockManagement() {
             ).map((tab) => (
               <button
                 key={tab.key}
+                type="button"
+                aria-pressed={activeTab === tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
                   "rounded-full px-3.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
@@ -807,9 +819,12 @@ function DockManagement() {
         </div>
       ) : activeTab === "HISTORY" ? (
         /* History Section */
-        <Card className="overflow-hidden rounded-2xl p-0 shadow-soft">
+        <Card className="gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xs">
+          <div className="border-b border-[#DCE6F3] px-4 py-4">
+            <h2 className="text-base font-bold text-foreground">Dock Allocation History</h2>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table aria-label="Dock allocation history" className="w-full min-w-[64rem] text-left text-sm">
               <thead className="border-b bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
                 <tr>
                   <th className="px-4 py-3">Timestamp</th>
@@ -823,16 +838,16 @@ function DockManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {history.length === 0 ? (
+                {visibleHistory.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-xs text-muted-foreground">
-                      No dock allocation history recorded.
+                      {historyQuery ? "No history entries match your search." : "No dock allocation history recorded."}
                     </td>
                   </tr>
                 ) : (
-                  history.map((h) => (
-                    <tr key={h.id} className="hover:bg-muted/20">
-                      <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
+                  visibleHistory.map((h) => (
+                    <tr key={h.id} className="align-top hover:bg-muted/20">
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
                         {new Date(h.performed_at).toLocaleString()}
                       </td>
                       <td className="px-4 py-3 font-mono font-bold">{h.dock_code || "—"}</td>
@@ -849,7 +864,7 @@ function DockManagement() {
                         <span className="font-bold text-foreground">{h.new_status}</span>
                       </td>
                       <td className="px-4 py-3 text-xs">{h.performed_by}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-xs truncate">
+                      <td className="min-w-44 max-w-xs break-words px-4 py-3 text-xs leading-relaxed text-muted-foreground">
                         {h.remarks || "—"}
                       </td>
                     </tr>
@@ -987,11 +1002,11 @@ function DockManagement() {
           open={Boolean(selectedDetailsDock)}
           onOpenChange={() => setSelectedDetailsDock(null)}
         >
-          <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <div className="flex items-center justify-between">
-                <DialogTitle className="font-mono text-xl font-black text-primary flex items-center gap-2">
-                  <Warehouse className="size-5" /> {selectedDetailsDock.dock_code}
+          <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+            <DialogHeader className="rounded-t-2xl bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <DialogTitle className="flex min-w-0 items-center gap-2 break-all font-mono text-lg font-bold text-white">
+                  <Warehouse className="size-5 shrink-0 text-blue-200" aria-hidden="true" /> {selectedDetailsDock.dock_code}
                 </DialogTitle>
                 <span
                   className={cn(
@@ -1006,18 +1021,18 @@ function DockManagement() {
                   {selectedDetailsDock.status === "OCCUPIED" ? "AT DOCK" : selectedDetailsDock.status}
                 </span>
               </div>
-              <DialogDescription className="text-xs">
+              <DialogDescription className="text-sm text-blue-100">
                 {selectedDetailsDock.dock_name}
                 {selectedDetailsDock.location ? ` · ${selectedDetailsDock.location}` : ""}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-2 text-xs">
-              <div className="rounded-xl border bg-card p-3 space-y-2 shadow-sm">
+            <div className="space-y-4 p-6 text-xs">
+              <div className="space-y-3 rounded-xl border border-[#DCE6F3] bg-white p-4">
                 <h4 className="font-extrabold uppercase tracking-wider text-[11px] text-primary flex items-center gap-1.5 border-b pb-1.5">
                   <Warehouse className="size-3.5" /> Dock Information
                 </h4>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid gap-x-4 gap-y-3 text-xs sm:grid-cols-2">
                   <div>
                     <span className="text-muted-foreground block text-[11px]">
                       Dock Code & Name
@@ -1177,7 +1192,7 @@ function DockManagement() {
               )}
             </div>
 
-            <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <DialogFooter className="gap-2 rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:space-x-0">
               <Button
                 variant="outline"
                 className="rounded-xl"
@@ -1346,38 +1361,38 @@ function DockManagement() {
       {/* 5b. Allocate Available Dock to Selected Pending Request Modal */}
       {allocateModalPendingReq && (
         <Dialog open={Boolean(allocateModalPendingReq)} onOpenChange={() => setAllocateModalPendingReq(null)}>
-          <DialogContent className="max-w-lg rounded-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <ArrowRight className="size-5 text-primary" /> Allocate Dock for:{" "}
-                <span className="font-mono font-black text-primary">
+          <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+            <DialogHeader className="rounded-t-2xl bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+              <DialogTitle className="flex flex-wrap items-center gap-2 text-lg font-bold text-white">
+                <ArrowRight className="size-5 shrink-0 text-blue-200" aria-hidden="true" /> Allocate Dock
+                <span className="break-all font-mono text-sm text-blue-100">
                   {allocateModalPendingReq.vehicle_number}
                 </span>
               </DialogTitle>
-              <DialogDescription className="text-xs">
+              <DialogDescription className="break-words text-sm text-blue-100">
                 Pass: {allocateModalPendingReq.existing_gate_pass_id} · Vendor: {allocateModalPendingReq.vendor_reference || "Supplier"}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-3 py-2 text-xs">
-              <Label className="text-xs font-semibold">Select Available Dock:</Label>
+            <div className="space-y-4 p-6 text-xs">
+              <fieldset className="min-w-0 space-y-2">
+              <legend className="text-sm font-semibold">Available docks</legend>
               {docks.filter((d) => d.status === "AVAILABLE").length === 0 ? (
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs text-rose-600 font-semibold">
                   No docks currently available for allocation.
                 </div>
               ) : (
-                <div className="max-h-52 overflow-y-auto space-y-2 border rounded-xl p-2 bg-muted/20">
+                <div className="max-h-52 space-y-2 overflow-y-auto overscroll-contain rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-2">
                   {docks
                     .filter((d) => d.status === "AVAILABLE")
                     .map((d) => (
                       <label
                         key={d.id}
-                        onClick={() => setSelectedDockIdToAllocate(d.id)}
                         className={cn(
-                          "flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-all",
+                          "flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 transition-colors",
                           selectedDockIdToAllocate === d.id
                             ? "border-primary bg-primary-soft/30 shadow-sm"
-                            : "border-border/60 hover:bg-muted/50",
+                            : "border-[#DCE6F3] bg-white hover:border-primary/40",
                         )}
                       >
                         <div>
@@ -1390,20 +1405,21 @@ function DockManagement() {
                           name="dock_select"
                           checked={selectedDockIdToAllocate === d.id}
                           onChange={() => setSelectedDockIdToAllocate(d.id)}
-                          className="size-4 accent-primary"
+                          className="size-4 shrink-0 accent-primary"
                         />
                       </label>
                     ))}
                 </div>
               )}
+              </fieldset>
 
               {/* Assigned Store Selection */}
-              <div className="pt-2">
-                <Label className="text-xs font-semibold flex items-center justify-between">
+              <div>
+                <Label htmlFor="pending-allocation-store" className="flex items-center justify-between text-sm font-semibold">
                   <span>Assign Available Store:</span>
                   <span className="text-[10px] text-muted-foreground font-normal">Required</span>
                 </Label>
-                <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="mt-1.5 w-full h-9 rounded-xl border border-input bg-background px-3 text-xs font-medium">
+                <select id="pending-allocation-store" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-[#DCE6F3] bg-white px-3 text-sm">
                   <option value="">-- Select Active Store --</option>
                   {stores.filter((s) => (s.status || "").toUpperCase() === "ACTIVE").map((s) => (
                     <option key={s.id} value={s.id}>{s.store_code} · {s.store_name}</option>
@@ -1411,15 +1427,16 @@ function DockManagement() {
                 </select>
               </div>
               {/* Store Manager Selection */}
-              <div className="pt-2">
-                <Label className="text-xs font-semibold flex items-center justify-between">
+              <div>
+                <Label htmlFor="pending-allocation-manager" className="flex items-center justify-between text-sm font-semibold">
                   <span>Assign Responsible Store Manager:</span>
                   <span className="text-[10px] text-muted-foreground font-normal">Required</span>
                 </Label>
                 <select
+                  id="pending-allocation-manager"
                   value={selectedStoreManagerId}
                   onChange={(e) => setSelectedStoreManagerId(e.target.value)}
-                  className="mt-1.5 w-full h-9 rounded-xl border border-input bg-background px-3 text-xs font-medium focus:ring-2 focus:ring-primary/20"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#DCE6F3] bg-white px-3 text-sm"
                 >
                   <option value="">-- Select Store Manager --</option>
                   {storeManagers.map((sm) => (
@@ -1431,7 +1448,7 @@ function DockManagement() {
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:space-x-0">
               <Button
                 variant="outline"
                 className="rounded-xl"
@@ -1441,7 +1458,7 @@ function DockManagement() {
               </Button>
               <Button
                 disabled={!selectedDockIdToAllocate || !selectedStoreId || actionBusy}
-                className="rounded-xl shadow-glow bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                className="rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
                 onClick={() => void handleAllocateDock()}
               >
                 {actionBusy && <Loader2 className="size-4 animate-spin" />} Confirm Allocation
@@ -1511,31 +1528,34 @@ function DockManagement() {
 
       {/* 8. Edit Dock Dialog */}
       <Dialog open={Boolean(editDockModalDock)} onOpenChange={() => setEditDockModalDock(null)}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <SquarePen className="size-5 text-blue-600" /> Edit Dock: {editDockModalDock?.dock_code}
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+          <DialogHeader className="rounded-t-2xl bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <SquarePen className="size-5 shrink-0 text-blue-200" aria-hidden="true" />
+              <span className="min-w-0 break-words">Edit Dock: {editDockModalDock?.dock_code}</span>
             </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-sm text-blue-100">
               Update dock parameters and configuration.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3.5 py-2 text-xs">
+          <div className="space-y-4 p-6 text-sm">
             <div>
-              <Label className="text-xs font-semibold">Dock Name</Label>
+              <Label htmlFor="edit_dock_name" className="text-xs font-semibold">Dock Name</Label>
               <Input
+                id="edit_dock_name"
                 value={editDockForm.name}
                 onChange={(e) => setEditDockForm({ ...editDockForm, name: e.target.value })}
-                className="mt-1"
+                className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-white shadow-none"
               />
             </div>
             <div>
-              <Label className="text-xs font-semibold">Dock Category</Label>
+              <Label htmlFor="edit_dock_type" className="text-xs font-semibold">Dock Category</Label>
               <select
+                id="edit_dock_type"
                 value={editDockForm.type}
                 onChange={(e) => setEditDockForm({ ...editDockForm, type: e.target.value })}
-                className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-xs"
+                className="mt-1.5 h-10 w-full rounded-xl border border-[#DCE6F3] bg-white px-3 text-sm focus-visible:ring-2 focus-visible:ring-primary/20"
               >
                 <option value="CHEMICAL_HAZARDOUS">Chemical / Hazardous</option>
                 <option value="ELECTRONICS">Electronics</option>
@@ -1545,16 +1565,17 @@ function DockManagement() {
               </select>
             </div>
             <div>
-              <Label className="text-xs font-semibold">Location</Label>
+              <Label htmlFor="edit_dock_location" className="text-xs font-semibold">Location</Label>
               <Input
+                id="edit_dock_location"
                 value={editDockForm.location}
                 onChange={(e) => setEditDockForm({ ...editDockForm, location: e.target.value })}
-                className="mt-1"
+                className="mt-1.5 h-10 rounded-xl border-[#DCE6F3] bg-white shadow-none"
               />
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:space-x-0">
             <Button
               variant="outline"
               className="rounded-xl"
@@ -1564,7 +1585,7 @@ function DockManagement() {
             </Button>
             <Button
               disabled={actionBusy}
-              className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+              className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={() => void handleUpdateDock()}
             >
               {actionBusy && <Loader2 className="size-4 animate-spin mr-1" />} Save Changes
@@ -1578,16 +1599,17 @@ function DockManagement() {
         open={Boolean(maintenanceConfirmDock)}
         onOpenChange={() => setMaintenanceConfirmDock(null)}
       >
-        <AlertDialogContent className="rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
-              <Wrench className="size-5" />{" "}
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg gap-0 overflow-y-auto overscroll-contain rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl">
+          <AlertDialogHeader className="rounded-t-2xl bg-[#0B2A55] px-6 py-5 text-left">
+            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <Wrench className="size-5 shrink-0 text-amber-300" aria-hidden="true" />
               {maintenanceConfirmDock?.status === "MAINTENANCE"
                 ? "Complete Maintenance?"
                 : "Put Dock Under Maintenance?"}
             </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+          </AlertDialogHeader>
+          <AlertDialogDescription asChild>
+              <div className="space-y-2 px-6 py-5 text-sm text-muted-foreground">
                 <p>
                   Dock:{" "}
                   <strong className="text-foreground font-mono">
@@ -1608,13 +1630,12 @@ function DockManagement() {
                   </p>
                 )}
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+          </AlertDialogDescription>
+          <AlertDialogFooter className="gap-2 rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:space-x-0">
             <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={maintenanceConfirmDock?.status === "OCCUPIED" || actionBusy}
-              className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white"
+              className="rounded-xl bg-amber-700 text-white hover:bg-amber-800"
               onClick={(e) => {
                 e.preventDefault();
                 void handleToggleMaintenance();
@@ -1628,18 +1649,21 @@ function DockManagement() {
 
       {/* 10. Create New Dock Modal */}
       <Dialog open={showCreateDock} onOpenChange={setShowCreateDock}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="font-semibold text-lg flex items-center gap-2">
-              <Plus className="size-5 text-primary" /> Create New Dock
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-0 rounded-2xl border-[#DCE6F3] bg-white p-0 sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+          <DialogHeader className="rounded-t-2xl bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <Plus className="size-5 text-blue-200" aria-hidden="true" /> Create New Dock
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-sm text-blue-100">
               Add a new dock bay to the warehouse dock management system.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreateDock} className="space-y-3.5 py-2 text-xs">
-            <div>
+          <form
+            onSubmit={handleCreateDock}
+            className="grid grid-cols-1 gap-4 p-6 text-sm sm:grid-cols-2 [&_input:not([type=hidden])]:border-[#DCE6F3] [&_input:not([type=hidden])]:bg-white [&_input:not([type=hidden])]:shadow-none [&_select]:border-[#DCE6F3] [&_select]:bg-white"
+          >
+            <div className="sm:col-span-2">
               <Label htmlFor="create_dock_type" className="text-xs font-semibold">
                 Dock Category / Type
               </Label>
@@ -1665,10 +1689,13 @@ function DockManagement() {
                 Dock Code{" "}
                 <span className="text-muted-foreground font-normal">(Auto-generated)</span>
               </Label>
-              <div className="mt-1.5 h-10 rounded-xl bg-muted/50 border border-transparent px-3 flex items-center text-muted-foreground font-mono font-semibold">
-                {createDockCode}
-              </div>
-              <input type="hidden" name="dock_code" value={createDockCode} />
+              <Input
+                id="create_dock_code"
+                name="dock_code"
+                value={createDockCode}
+                readOnly
+                className="mt-1.5 h-10 rounded-xl font-mono font-semibold text-muted-foreground"
+              />
             </div>
 
             <div>
@@ -1730,7 +1757,7 @@ function DockManagement() {
               </select>
             </div>
 
-            <DialogFooter className="pt-3">
+            <DialogFooter className="-mx-6 -mb-6 mt-1 gap-2 rounded-b-2xl border-t border-[#DCE6F3] bg-[#F5F8FF] px-6 py-4 sm:col-span-2 sm:space-x-0">
               <Button
                 type="button"
                 variant="outline"

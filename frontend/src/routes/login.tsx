@@ -147,9 +147,9 @@ function LoginPage() {
       <div className="login-brand hidden lg:flex lg:w-1/2 flex-col bg-primary p-12 text-primary-foreground relative overflow-hidden">
         <div className="relative z-10">
           <div className="flex items-center gap-3">
-            <img src="/kaizenx-cube.png" alt="KaizenX Logo" className="h-9 w-9 object-contain" />
+            <img src="/kaizenx-cube.png" alt="Warehub 360 degree Logo" className="h-9 w-9 object-contain" />
             <span className="text-2xl font-bold tracking-tight text-white">
-              Kaizen<span className="text-sky-400">X</span>
+              Warehub 360°
             </span>
             <span className="h-6 w-px bg-white/40 mx-2" />
             <span className="text-[11px] font-normal text-white/90 leading-tight">
@@ -224,9 +224,9 @@ function LoginPage() {
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <div className="lg:hidden flex items-center gap-2 mb-3">
-                <img src="/kaizenx-cube.png" alt="KaizenX Logo" className="h-7 w-7" />
+                <img src="/kaizenx-cube.png" alt="Warehub 360 degree Logo" className="h-7 w-7" />
                 <span className="text-xl font-bold text-slate-900">
-                  Kaizen<span className="text-blue-600">X</span>
+                  Warehub 360°
                 </span>
               </div>
               <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">Staff Login</h2>
@@ -371,7 +371,7 @@ function LoginPage() {
               and{" "}
               <a href="#" className="text-blue-600 hover:underline font-medium">Privacy Policy</a>.
               <br />
-              &copy; 2026 KaizenX Industrial Systems. All rights reserved.
+              &copy; 2026 Warehub 360° Industrial Systems. All rights reserved.
             </p>
           </div>
         </div>

@@ -83,8 +83,6 @@ export function hasRole(roles: string[] | string): boolean {
 export function getRequiredRolesForPath(pathname: string): string[] | null {
   if (pathname.startsWith("/admin")) return ["ADMIN", "SUPERUSER"];
   if (pathname === "/procurement/reports") return ["PROCUREMENT", "FINANCE", "ADMIN", "SUPERUSER"];
-  if (/^\/procurement\/asns\/[^/]+$/.test(pathname))
-    return ["SUPPLIER", "PROCUREMENT", "ADMIN", "SUPERUSER"];
   if (
     pathname.startsWith("/procurement") ||
     pathname === "/master-data" ||
@@ -92,7 +90,7 @@ export function getRequiredRolesForPath(pathname: string): string[] | null {
   )
     return ["PROCUREMENT", "MANAGER", "ADMIN", "SUPERUSER"];
   if (pathname.startsWith("/finance")) return ["FINANCE", "ADMIN", "SUPERUSER"];
-  if (pathname === "/supplier/asns/new") return ["SUPPLIER"];
+  if (pathname.startsWith("/supplier/asns/")) return ["SUPPLIER"];
   if (
     pathname.startsWith("/supplier") ||
     pathname === "/supplier-dashboard" ||

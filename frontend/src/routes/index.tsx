@@ -50,7 +50,7 @@ function HomePage() {
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
                 <span className="text-base font-black tracking-wider uppercase bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 dark:from-cyan-300 dark:via-blue-400 dark:to-indigo-300 bg-clip-text text-transparent">
-                  KaizenX
+                  Warehub 360 degree
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[9px] font-mono font-bold text-cyan-600 dark:text-cyan-300">
                   <span className="size-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -133,7 +133,7 @@ function HomePage() {
       {/* Footer */}
       <footer className={`border-t py-10 text-center text-xs transition-colors duration-300 relative z-10 ${isDarkMode ? "border-white/10 bg-slate-950 text-slate-500" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
         <div className="mx-auto max-w-7xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© 2026 Kaizentrix Global Solutions. KaizenX Enterprise Logistics OS.</p>
+          <p>© 2026 Kaizentrix Global Solutions. Warehub 360 degree Enterprise Logistics OS.</p>
           <p className="font-mono text-cyan-600 dark:text-cyan-500/60">Continuous 3D Logistics Lifecycle • Gate to Exit</p>
         </div>
       </footer>

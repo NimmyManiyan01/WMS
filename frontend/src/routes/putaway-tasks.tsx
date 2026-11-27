@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import jsQR from "jsqr";
+import QRCode from "qrcode";
 import {
   ArrowRight,
   Boxes,
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   FileUp,
@@ -54,7 +56,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/putaway-tasks")({
   head: () => ({
     meta: [
-      { title: "Putaway Execution & Tracking · KaizenX" },
+      { title: "Putaway Execution & Tracking · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -583,7 +585,7 @@ function CompactQrInput({
           />
         </label>
       </div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <label className={cn(
           "inline-flex h-10 cursor-pointer items-center rounded-xl border border-blue-300 bg-white px-4 text-base font-bold text-slate-900",
           disabled && "pointer-events-none opacity-50",
@@ -600,11 +602,21 @@ function CompactQrInput({
             }}
           />
         </label>
-        {onViewQr && (
-          <Button type="button" variant="outline" className="h-10 rounded-xl border-blue-300 bg-white px-4 text-base font-bold" onClick={onViewQr}>
-            View QR
+        <div className="ml-auto flex items-center gap-3">
+          {onViewQr && (
+            <Button type="button" variant="outline" className="h-10 rounded-xl border-blue-300 bg-white px-4 text-base font-bold" onClick={onViewQr}>
+              View QR
+            </Button>
+          )}
+          <Button
+            type="button"
+            className="h-10 rounded-xl bg-[#0d568d] px-5 text-base font-extrabold text-white hover:bg-[#0a4776]"
+            disabled={disabled || !value.trim()}
+            onClick={() => onScan(value.trim())}
+          >
+            <CheckCircle2 className="size-4" /> Validate QR
           </Button>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -650,6 +662,10 @@ function WarehousePutawayTasksPage() {
   const [materialScanValue, setMaterialScanValue] = useState("");
   const [binScanValue, setBinScanValue] = useState("");
   const [executionResult, setExecutionResult] = useState<any | null>(null);
+  const [selectedBinQr, setSelectedBinQr] = useState<{
+    binCode: string;
+    dataUrl: string;
+  } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -700,10 +716,16 @@ function WarehousePutawayTasksPage() {
     setPutawayQuantity(
       String(Math.max(0, Number(task.quantity || 0) - Number(task.putaway_quantity || 0))),
     );
-    setMaterialScanValue("");
+    const materialQr =
+      task.material_qr || task.barcode_value || task.batch_number || task.item_code;
+    setMaterialScanValue(materialQr || "");
     setBinScanValue("");
     setExecutionResult(null);
-
+    if (materialQr) {
+      void handleResolveGrnQr(materialQr);
+    } else {
+      toast.error("This task has no material QR, batch number, or material code to validate.");
+    }
   };
 
   const handleOpenPutawayModal = () => {
@@ -772,6 +794,28 @@ function WarehousePutawayTasksPage() {
       });
     } finally {
       setIsResolvingBin(false);
+    }
+  };
+
+  const handleViewAssignedBinQr = async () => {
+    const binCode =
+      executionTask?.destination_bin_code ||
+      executionTask?.destination_bin ||
+      executionTask?.destination_rack;
+    if (!binCode) {
+      toast.info("No assigned BIN is recorded for this batch.");
+      return;
+    }
+    try {
+      const dataUrl = await QRCode.toDataURL(
+        JSON.stringify({ type: "STORE_BIN", bin_code: binCode }),
+        { width: 480, margin: 2, errorCorrectionLevel: "M" },
+      );
+      setSelectedBinQr({ binCode, dataUrl });
+    } catch (error) {
+      toast.error("Unable to generate the assigned BIN QR", {
+        description: error instanceof Error ? error.message : undefined,
+      });
     }
   };
 
@@ -1782,6 +1826,49 @@ function WarehousePutawayTasksPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!selectedBinQr} onOpenChange={(open) => !open && setSelectedBinQr(null)}>
+        <DialogContent className="max-w-lg rounded-3xl border-slate-300 bg-slate-50 p-7">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-2xl font-black text-slate-900">
+              <QrCode className="size-6 text-[#0d568d]" /> Assigned BIN QR
+            </DialogTitle>
+            <DialogDescription className="text-base font-bold text-slate-700">
+              Scan this QR to select BIN {selectedBinQr?.binCode} for the current putaway task.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedBinQr && (
+            <div className="space-y-5 pt-2">
+              <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm">
+                <img
+                  src={selectedBinQr.dataUrl}
+                  alt={`QR code for BIN ${selectedBinQr.binCode}`}
+                  className="mx-auto aspect-square w-full max-w-[360px] object-contain"
+                />
+                <p className="mt-3 text-center font-mono text-lg font-black text-slate-950">
+                  {selectedBinQr.binCode}
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                className="h-12 w-full rounded-xl bg-[#0d568d] text-base font-extrabold text-white hover:bg-[#0a4776]"
+                onClick={() => {
+                  const link = document.createElement("a");
+                  link.href = selectedBinQr.dataUrl;
+                  link.download = `BIN-${selectedBinQr.binCode.replace(/[^a-z0-9._-]+/gi, "-")}-QR.png`;
+                  document.body.appendChild(link);
+                  link.click();
+                  window.setTimeout(() => link.remove(), 1000);
+                }}
+              >
+                <Download className="size-5" /> Download BIN QR
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* ========================================================================= */}
       {/* 3-STEP QR PUTAWAY EXECUTION MODAL (PRIMARY REQUIREMENT)                  */}
       {/* ========================================================================= */}
@@ -1915,16 +2002,15 @@ function WarehousePutawayTasksPage() {
                 onValueChange={setBinScanValue}
                 onScan={(value) => void handleResolveBinQr(value)}
                 disabled={!grnData || isResolvingBin || isExecuting}
-                onViewQr={() => {
-                  const assignedBin = executionTask?.destination_bin_code || executionTask?.destination_bin;
-                  if (assignedBin) {
-                    void navigator.clipboard.writeText(assignedBin);
-                    toast.success("Assigned BIN QR copied", { description: assignedBin });
-                  } else {
-                    toast.info("No assigned BIN is recorded for this batch.");
-                  }
-                }}
+                onViewQr={() => void handleViewAssignedBinQr()}
               />
+              {!grnData && (
+                <p className="-mt-5 text-sm font-semibold text-amber-700">
+                  {isResolvingGrn
+                    ? "Validating the material QR before enabling BIN scanning…"
+                    : "Validate the Material QR first to enable BIN camera and image upload."}
+                </p>
+              )}
 
               <div className="space-y-2">
                 <label className="text-base font-black text-slate-900">

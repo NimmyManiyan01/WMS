@@ -236,16 +236,16 @@ function Rfqs() {
         </div>
 
         {/* 3. Summary Cards (KPIs) */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {/* Total RFQs */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Total RFQs</span>
               <div className="grid size-10 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
                 <FileText className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {totalCount}
               </span>
@@ -254,14 +254,14 @@ function Rfqs() {
           </div>
 
           {/* Draft RFQs */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Draft RFQs</span>
               <div className="grid size-10 place-items-center rounded-xl bg-amber-50 text-[#F5A623]">
                 <Clock className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {draftCount}
               </span>
@@ -270,14 +270,14 @@ function Rfqs() {
           </div>
 
           {/* Published / Sent */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Published / Sent</span>
               <div className="grid size-10 place-items-center rounded-xl bg-cyan-50 text-[#00A3C4]">
                 <Send className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {sentCount}
               </span>
@@ -286,14 +286,14 @@ function Rfqs() {
           </div>
 
           {/* Awarded / Closed */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Awarded / Closed</span>
               <div className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-[#16C784]">
                 <CheckCircle2 className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {closedCount}
               </span>
@@ -304,9 +304,9 @@ function Rfqs() {
 
         {/* 4. Search & Status Filter Toolbar */}
         <div className="rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="grid gap-3 xl:grid-cols-[minmax(320px,1fr)_auto] xl:items-center">
             {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative min-w-0 xl:max-w-2xl">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
               <input
                 type="text"
@@ -327,7 +327,7 @@ function Rfqs() {
             </div>
 
             {/* Status Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
               {(
                 [
                   { id: "ALL", label: "All", count: totalCount },
@@ -418,9 +418,9 @@ function Rfqs() {
                   key={rfq.id}
                   className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 sm:p-6 shadow-xs transition-all hover:border-[#0866FF]/40 hover:shadow-md"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     {/* Left: Info */}
-                    <div className="flex flex-1 items-start gap-4">
+                    <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-start gap-4">
                       <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#EBF3FF] to-[#D5E8FF] border border-[#CBE0FC] text-[#0866FF] shadow-xs">
                         <Mail className="size-6 text-[#0866FF]" />
                       </div>
@@ -447,22 +447,22 @@ function Rfqs() {
                         </p>
 
                         {/* Metadata Pills */}
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#E7EDF6] pt-3">
                           {rfq.materialRequestNumber && (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-[#0866FF] bg-[#EBF3FF] border border-[#CBE0FC] px-2.5 py-1 rounded-lg">
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-[#0866FF]">
                               Ref: {rfq.materialRequestNumber}
                             </span>
                           )}
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#526580] bg-[#F5F8FF] border border-[#DCE6F3] px-2.5 py-1 rounded-lg">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#526580]">
                             <Building2 className="size-3.5 text-[#0866FF]" />
                             {rfq.suppliers?.length || 0} Suppliers invited
                           </span>
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#526580] bg-[#F5F8FF] border border-[#DCE6F3] px-2.5 py-1 rounded-lg font-mono">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#526580] font-mono">
                             <Package className="size-3.5 text-[#0866FF]" />
                             {rfq.items?.length || 0} materials
                           </span>
                           {rfq.requiredDeliveryDate && (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#526580] bg-[#F5F8FF] border border-[#DCE6F3] px-2.5 py-1 rounded-lg">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#526580]">
                               <Calendar className="size-3.5 text-amber-500" />
                               Req Delivery: {rfq.requiredDeliveryDate}
                             </span>
@@ -472,7 +472,7 @@ function Rfqs() {
                     </div>
 
                     {/* Right: Actions */}
-                    <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-[#DCE6F3]/60 lg:border-t-0 lg:pt-0">
+                    <div className="flex flex-wrap items-center gap-2.5 border-t border-[#DCE6F3] pt-4 lg:min-w-72 lg:justify-end lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                       <Button
                         variant="outline"
                         className="h-10 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF] hover:border-[#0866FF]/40 font-bold text-xs shadow-xs"

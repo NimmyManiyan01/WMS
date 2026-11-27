@@ -69,7 +69,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/warehouse/materials")({
   head: () => ({
     meta: [
-      { title: "Material Master · KaizenX" },
+      { title: "Material Master · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -346,7 +346,7 @@ function WarehouseMaterials() {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `KaizenX_Material_Master_${new Date().toISOString().slice(0, 10)}.csv`,
+      `Warehub_360_degree_Material_Master_${new Date().toISOString().slice(0, 10)}.csv`,
     );
     document.body.appendChild(link);
     link.click();

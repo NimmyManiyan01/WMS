@@ -46,7 +46,7 @@ import { requireRole } from "@/lib/auth-utils";
 
 export const Route = createFileRoute("/assembly-dashboard")({
   beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ASSEMBLY", "ADMIN", "SUPERUSER"]),
-  head: () => ({ meta: [{ title: "Assembly Dashboard · KaizenX" }] }),
+  head: () => ({ meta: [{ title: "Assembly Dashboard · Warehub 360 degree" }] }),
   component: AssemblyDashboard,
 });
 
@@ -195,7 +195,11 @@ function AssemblyDashboard() {
     },
     {
       label: "Genealogies & Serials",
-      value: String(finishedGoods.filter((f) => f.serial_number || f.qr_code).length || finishedGoods.length || 0),
+      value: String(
+        finishedGoods.filter((f) => f.serial_number || f.qr_code).length ||
+          finishedGoods.length ||
+          0,
+      ),
       delta: "End-to-end component traceability",
       icon: GitFork,
       tone: "indigo" as const,
@@ -226,112 +230,140 @@ function AssemblyDashboard() {
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>
       ) : (
-        <>
-          {/* Main 8 Stat Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {cards.map((c) => (
-              <StatCard
-                key={c.label}
-                label={c.label}
-                value={c.value}
-                delta={c.delta}
-                icon={c.icon}
-                tone={c.tone as any}
-                to={c.to}
-              />
-            ))}
+        <div className="space-y-6">
+          {/* Operational overview */}
+          <div>
+            <div className="mb-3 flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-base font-extrabold text-[#101D3A]">Operational overview</h2>
+                <p className="mt-0.5 text-xs font-medium text-[#526580]">
+                  Current assembly workload, material flow, and finished-goods status
+                </p>
+              </div>
+              <span className="hidden text-xs font-semibold text-[#526580] sm:block">
+                9 key metrics
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {cards.map((c) => (
+                <StatCard
+                  key={c.label}
+                  label={c.label}
+                  value={c.value}
+                  delta={c.delta}
+                  icon={c.icon}
+                  tone={c.tone}
+                  to={c.to}
+                />
+              ))}
+            </div>
           </div>
 
-          {/* Assembly Notifications */}
-          <SectionCard
-            title="Assembly notifications"
-            description="Shortages, delays, quality, rework, and inventory events"
-            icon={Bell}
-            className="mt-4"
-          >
-            {data?.notifications?.length ? (
-              <div className="grid gap-2 lg:grid-cols-2">
-                {data.notifications.map((notice: any) => (
-                  <a
-                    key={notice.id}
-                    href={notice.link || "/assembly-dashboard"}
-                    className={`rounded-xl border p-3 transition-colors hover:bg-muted/50 ${
-                      notice.is_read ? "bg-background" : "border-primary/30 bg-primary/5"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
-                      <div>
-                        <p className="text-sm font-bold">{notice.title}</p>
-                        <p className="text-xs text-muted-foreground">{notice.message}</p>
-                        <p className="mt-1 text-[10px] text-muted-foreground">
-                          {new Date(notice.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No assembly notifications.
-              </div>
-            )}
-          </SectionCard>
-
-          {/* Assembly material pickup requests */}
-          <SectionCard
-            title="Material pickup requests"
-            description="Track warehouse-to-store handoff for your assembly requisitions"
-            icon={PackageCheck}
-            className="mt-4"
-          >
-            {requisitions.length ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {requisitions.slice(0, 6).map((req: any) => {
-                  const status = String(req.status || "PENDING").toUpperCase();
-                  const isPickupState = [
-                    "STORE_ASSIGNED",
-                    "PICKING",
-                    "PICKED",
-                    "PARTIALLY_PICKED",
-                  ].includes(status);
-                  return (
-                    <div key={req.id} className="rounded-xl border bg-background p-4">
-                      <div className="flex items-start justify-between gap-3">
+          <div className="grid items-start gap-6 xl:grid-cols-2">
+            {/* Assembly Notifications */}
+            <SectionCard
+              title="Assembly notifications"
+              description="Shortages, delays, quality, rework, and inventory events"
+              icon={Bell}
+            >
+              {data?.notifications?.length ? (
+                <div className="grid gap-2 lg:grid-cols-2">
+                  {data.notifications.map((notice: any) => (
+                    <a
+                      key={notice.id}
+                      href={notice.link || "/assembly-dashboard"}
+                      className={`rounded-xl border p-3 transition-colors hover:bg-muted/50 ${
+                        notice.is_read ? "bg-background" : "border-primary/30 bg-primary/5"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
                         <div>
-                          <p className="font-mono text-sm font-bold text-primary">
-                            {req.requisitionNumber || req.requisition_number || req.request_number}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {(req.items || []).length} material item(s)
-                            {req.assignedStoreName || req.assigned_store_name
-                              ? ` · ${req.assignedStoreName || req.assigned_store_name}`
-                              : " · Store not assigned"}
+                          <p className="text-sm font-bold">{notice.title}</p>
+                          <p className="text-xs text-muted-foreground">{notice.message}</p>
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {new Date(notice.created_at).toLocaleString()}
                           </p>
                         </div>
-                        <Badge className={isPickupState ? "bg-purple-500/15 text-purple-700 dark:text-purple-300" : "bg-muted text-muted-foreground"}>
-                          {status.replaceAll("_", " ")}
-                        </Badge>
                       </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
-                        <span className="text-xs text-muted-foreground">
-                          {isPickupState ? "Pickup task is active" : "Awaiting warehouse assignment"}
-                        </span>
-                        <Button size="sm" variant="outline" className="rounded-xl text-xs" asChild>
-                          <Link to="/assembly/requests">View request</Link>
-                        </Button>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No assembly notifications.
+                </div>
+              )}
+            </SectionCard>
+
+            {/* Assembly material pickup requests */}
+            <SectionCard
+              title="Material pickup requests"
+              description="Track warehouse-to-store handoff for your assembly requisitions"
+              icon={PackageCheck}
+            >
+              {requisitions.length ? (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {requisitions.slice(0, 6).map((req: any) => {
+                    const status = String(req.status || "PENDING").toUpperCase();
+                    const isPickupState = [
+                      "STORE_ASSIGNED",
+                      "PICKING",
+                      "PICKED",
+                      "PARTIALLY_PICKED",
+                    ].includes(status);
+                    return (
+                      <div key={req.id} className="rounded-xl border bg-background p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-mono text-sm font-bold text-primary">
+                              {req.requisitionNumber ||
+                                req.requisition_number ||
+                                req.request_number}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {(req.items || []).length} material item(s)
+                              {req.assignedStoreName || req.assigned_store_name
+                                ? ` · ${req.assignedStoreName || req.assigned_store_name}`
+                                : " · Store not assigned"}
+                            </p>
+                          </div>
+                          <Badge
+                            className={
+                              isPickupState
+                                ? "bg-purple-500/15 text-purple-700 dark:text-purple-300"
+                                : "bg-muted text-muted-foreground"
+                            }
+                          >
+                            {status.replaceAll("_", " ")}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
+                          <span className="text-xs text-muted-foreground">
+                            {isPickupState
+                              ? "Pickup task is active"
+                              : "Awaiting warehouse assignment"}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl text-xs"
+                            asChild
+                          >
+                            <Link to="/assembly/requests">View request</Link>
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No assembly material pickup requests.
-              </div>
-            )}
-          </SectionCard>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No assembly material pickup requests.
+                </div>
+              )}
+            </SectionCard>
+          </div>
 
           {/* Operational Reports & Summaries */}
           {reports && (
@@ -339,7 +371,6 @@ function AssemblyDashboard() {
               title="Assembly Operational Summary"
               description={`Report generated ${new Date(reports.generated_at).toLocaleString()}`}
               icon={BarChart3}
-              className="mt-4"
             >
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <ReportMetric
@@ -393,7 +424,11 @@ function AssemblyDashboard() {
                   headers={["Material", "Scrap", "Wastage %"]}
                   rows={(reports.wastage?.lines || [])
                     .slice(0, 8)
-                    .map((row: any) => [row.material_code, row.scrap_quantity, `${row.wastage_percent}%`])}
+                    .map((row: any) => [
+                      row.material_code,
+                      row.scrap_quantity,
+                      `${row.wastage_percent}%`,
+                    ])}
                 />
               </div>
             </SectionCard>
@@ -428,7 +463,10 @@ function AssemblyDashboard() {
               <div className="flex flex-wrap justify-center gap-3 text-xs text-muted-foreground">
                 {statusChart.map((entry: any, index: number) => (
                   <span key={entry.status} className="flex items-center gap-1.5">
-                    <i className="size-2 rounded-full" style={{ background: COLORS[index % COLORS.length] }} />
+                    <i
+                      className="size-2 rounded-full"
+                      style={{ background: COLORS[index % COLORS.length] }}
+                    />
                     {entry.status}: {entry.count}
                   </span>
                 ))}
@@ -443,7 +481,11 @@ function AssemblyDashboard() {
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={outputChart} margin={{ left: -22, right: 8, top: 8 }}>
-                    <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--color-border)" />
+                    <CartesianGrid
+                      strokeDasharray="4 4"
+                      vertical={false}
+                      stroke="var(--color-border)"
+                    />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={11} />
                     <YAxis tickLine={false} axisLine={false} fontSize={11} />
                     <Tooltip />
@@ -476,8 +518,16 @@ function AssemblyDashboard() {
               <div className="h-[280px]">
                 {consumptionChart.length ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={consumptionChart} layout="vertical" margin={{ left: 24, right: 16 }}>
-                      <CartesianGrid strokeDasharray="4 4" horizontal={false} stroke="var(--color-border)" />
+                    <BarChart
+                      data={consumptionChart}
+                      layout="vertical"
+                      margin={{ left: 24, right: 16 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="4 4"
+                        horizontal={false}
+                        stroke="var(--color-border)"
+                      />
                       <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
                       <YAxis
                         dataKey="material"
@@ -537,7 +587,9 @@ function AssemblyDashboard() {
                 <div>
                   <Factory className="mx-auto mb-2 size-8 opacity-40" />
                   <p>No assembly orders yet.</p>
-                  <p className="text-xs">Issue a completed warehouse pick task to create the first order.</p>
+                  <p className="text-xs">
+                    Issue a completed warehouse pick task to create the first order.
+                  </p>
                 </div>
               </div>
             ) : (
@@ -546,7 +598,9 @@ function AssemblyDashboard() {
                   <Card key={order.id} className="gap-3 rounded-xl p-4 shadow-none">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-mono text-sm font-bold text-primary">{order.order_number}</p>
+                        <p className="font-mono text-sm font-bold text-primary">
+                          {order.order_number}
+                        </p>
                         <p className="text-sm font-semibold">{order.product_name}</p>
                         <p className="text-xs text-muted-foreground">
                           {order.request_number} · {order.department}
@@ -567,7 +621,9 @@ function AssemblyDashboard() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => (window.location.href = `/assembly-orders?q=${order.order_number}`)}
+                        onClick={() =>
+                          (window.location.href = `/assembly-orders?q=${order.order_number}`)
+                        }
                       >
                         <ClipboardList className="size-3.5 mr-1" /> Requirements
                       </Button>
@@ -632,7 +688,7 @@ function AssemblyDashboard() {
               </div>
             )}
           </SectionCard>
-        </>
+        </div>
       )}
     </AppShell>
   );
@@ -652,7 +708,9 @@ function ReportMetric({
   return (
     <div
       className={`rounded-xl border p-4 ${
-        danger ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300" : "bg-muted/20"
+        danger
+          ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+          : "bg-muted/20"
       }`}
     >
       <p className="text-xs font-bold uppercase text-muted-foreground">{label}</p>
@@ -706,7 +764,10 @@ function ReportTable({
               ))
             ) : (
               <tr>
-                <td colSpan={headers.length} className="border-t px-3 py-6 text-center text-muted-foreground">
+                <td
+                  colSpan={headers.length}
+                  className="border-t px-3 py-6 text-center text-muted-foreground"
+                >
                   No data recorded.
                 </td>
               </tr>

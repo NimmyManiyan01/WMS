@@ -21,6 +21,8 @@ import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { getUserInfo, requireRole } from "@/lib/auth-utils";
 import { AppShell } from "@/components/wms/app-shell";
+import { StatCard } from "@/components/wms/primitives";
+import { isQuotationLocked, QuotationResponse } from "@/components/wms/quotation-response";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +37,7 @@ function SupplierDashboard() {
   const [loading, setLoading] = useState(true);
   const [supplierId, setSupplierId] = useState("");
   const [username, setUsername] = useState("");
+  const [openRfqId, setOpenRfqId] = useState<string | null>(null);
 
   // Lists
   const [rfqs, setRfqs] = useState<any[]>([]);
@@ -101,9 +104,10 @@ function SupplierDashboard() {
 
   // Calculated stats
   const rfqsReceived = rfqs.length;
-  const bidRfqIds = new Set(quotations.map((q) => q.rfq_id || q.rfqId));
+  const submittedQuotes = quotations.filter((q) => isQuotationLocked(q.status));
+  const bidRfqIds = new Set(submittedQuotes.map((q) => q.rfq_id || q.rfqId));
   const rfqsPending = rfqs.filter((r) => !bidRfqIds.has(r.id)).length;
-  const quotesSubmitted = quotations.length;
+  const quotesSubmitted = submittedQuotes.length;
   const asnsDispatched = asns.length;
   const asnsByPoId = asns.reduce<Record<string, any[]>>((groups, asn) => {
     const key = asn.po_id || asn.poId || asn.po_number || asn.poNumber;
@@ -115,66 +119,17 @@ function SupplierDashboard() {
   return (
     <AppShell title="Supplier Portal" subtitle={`Welcome back, ${username}`}>
       <div className="space-y-8">
-        {/* KPI Grid */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-border/40 bg-card/60 backdrop-blur-md shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                RFQs Received
-              </span>
-              <FileSpreadsheet className="size-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-extrabold tracking-tight">{rfqsReceived}</div>
-              <p className="text-[10px] text-muted-foreground mt-1">Total bid requests received</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/40 bg-card/60 backdrop-blur-md shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Pending Bid
-              </span>
-              <Clock className="size-4 text-amber-500 animate-pulse" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-extrabold tracking-tight text-amber-500">
-                {rfqsPending}
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Requires immediate response</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/40 bg-card/60 backdrop-blur-md shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Bids Submitted
-              </span>
-              <FileCheck className="size-4 text-success" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-extrabold tracking-tight text-success">
-                {quotesSubmitted}
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Quotation logs archived</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/40 bg-card/60 backdrop-blur-md shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                ASNs Dispatched
-              </span>
-              <Truck className="size-4 text-rose-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-extrabold tracking-tight text-rose-500">
-                {asnsDispatched}
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Total shipment notifications</p>
-            </CardContent>
-          </Card>
-        </div>
+        <section aria-labelledby="supplier-overview" className="space-y-3">
+          <h2 id="supplier-overview" className="text-lg font-bold tracking-tight text-[#101D3A]">
+            Supplier overview
+          </h2>
+          <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="RFQs Received" value={String(rfqsReceived)} icon={FileSpreadsheet} />
+            <StatCard label="Pending Bids" value={String(rfqsPending)} icon={Clock} tone="warning" />
+            <StatCard label="Bids Submitted" value={String(quotesSubmitted)} icon={FileCheck} tone="success" />
+            <StatCard label="ASNs Dispatched" value={String(asnsDispatched)} icon={Truck} tone="teal" />
+          </div>
+        </section>
 
         {qualityIssues.length > 0 && (
           <Card className="border-destructive/30 bg-destructive/5 shadow-soft">
@@ -254,7 +209,7 @@ function SupplierDashboard() {
 
         {/* Tabular Lists */}
         <Tabs defaultValue="rfqs" className="w-full space-y-4">
-          <TabsList className="bg-muted/40 p-1 rounded-xl">
+          <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl border border-[#DCE6F3] bg-white p-1 sm:w-fit [&_[data-state=active]]:bg-[#0B2A55] [&_[data-state=active]]:text-white [&_button]:h-full [&_button]:whitespace-normal [&_button]:px-2 sm:[&_button]:px-4">
             <TabsTrigger value="rfqs" className="rounded-lg px-4 py-2 text-xs font-bold">
               RFQs Received
             </TabsTrigger>
@@ -268,11 +223,11 @@ function SupplierDashboard() {
 
           {/* RFQs tab */}
           <TabsContent value="rfqs">
-            <Card className="border-border/40 shadow-soft">
-              <CardHeader>
+            <Card className="gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs">
+              <CardHeader className="border-b border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4">
                 <CardTitle className="text-base font-bold">Requests for Quotation</CardTitle>
                 <CardDescription className="text-xs">
-                  View all RFQs you have been invited to submit proposals for.
+                  Open an RFQ to fill in or review your quotation.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -284,60 +239,81 @@ function SupplierDashboard() {
                   <div className="divide-y divide-border/60">
                     {rfqs.map((rfq, idx) => {
                       const hasBid = bidRfqIds.has(rfq.id);
+                      const isOpen = openRfqId === rfq.id;
+                      const formId = `quotation-response-${rfq.id}`;
                       return (
-                        <div
-                          key={rfq.id || `rfq-${idx}`}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 hover:bg-muted/10 transition-colors"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-sm font-bold">{rfq.rfqNumber || rfq.rfq_number}</h4>
-                              <span
-                                className={cn(
-                                  "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
-                                  hasBid
-                                    ? "bg-success-soft/30 text-success"
-                                    : "bg-amber-soft/30 text-amber-500 animate-pulse",
-                                )}
-                              >
-                                {hasBid ? "Submitted" : "Pending Bid"}
-                              </span>
+                        <div key={rfq.id || `rfq-${idx}`}>
+                          <div className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-bold">
+                                  {rfq.rfqNumber || rfq.rfq_number}
+                                </h4>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                                    hasBid
+                                      ? "bg-success-soft/30 text-success"
+                                      : "bg-amber-100 text-amber-800",
+                                  )}
+                                >
+                                  {hasBid ? "Submitted" : "Pending Bid"}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="size-3.5" /> Delivery:{" "}
+                                  {rfq.requiredDeliveryDate || rfq.required_delivery_date || "N/A"}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Building2 className="size-3.5" /> WH: {rfq.warehouse}
+                                </span>
+                                <span className="font-semibold text-primary">
+                                  {rfq.items?.length || 0} Materials requested
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="size-3.5" /> Delivery:{" "}
-                                {rfq.requiredDeliveryDate || rfq.required_delivery_date || "N/A"}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Building2 className="size-3.5" /> WH: {rfq.warehouse}
-                              </span>
-                              <span className="font-semibold text-primary">
-                                {rfq.items?.length || 0} Materials requested
-                              </span>
+                            <div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={hasBid || isOpen ? "outline" : "default"}
+                                className="rounded-xl text-xs font-semibold"
+                                aria-expanded={isOpen}
+                                aria-controls={isOpen ? formId : undefined}
+                                onClick={() => setOpenRfqId(isOpen ? null : rfq.id)}
+                              >
+                                {isOpen
+                                  ? "Close Quotation"
+                                  : hasBid
+                                    ? "View Quotation"
+                                    : "Fill Quotation"}
+                                <ChevronRight
+                                  className={cn(
+                                    "size-3.5 transition-transform",
+                                    isOpen && "rotate-90",
+                                  )}
+                                />
+                              </Button>
                             </div>
                           </div>
-                          <div>
-                            {hasBid ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="rounded-xl text-xs"
-                                disabled
-                              >
-                                Bid Submitted
-                              </Button>
-                            ) : (
-                              <Button
-                                asChild
-                                size="sm"
-                                className="rounded-xl text-xs bg-amber-500 hover:bg-amber-600 text-white shadow-glow"
-                              >
-                                <Link to="/submit-quotation" search={{ rfqId: rfq.id }}>
-                                  Submit Bid <ChevronRight className="ml-1.5 size-3.5" />
-                                </Link>
-                              </Button>
-                            )}
-                          </div>
+                          {isOpen && (
+                            <section
+                              id={formId}
+                              aria-label="Quotation response"
+                              className="border-t border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:p-5"
+                            >
+                              <QuotationResponse
+                                rfqId={rfq.id}
+                                onSubmitted={(quotation) => {
+                                  setQuotations((current) => [
+                                    quotation,
+                                    ...current.filter((entry) => entry.id !== quotation.id),
+                                  ]);
+                                }}
+                              />
+                            </section>
+                          )}
                         </div>
                       );
                     })}
@@ -349,8 +325,8 @@ function SupplierDashboard() {
 
           {/* Quotations tab */}
           <TabsContent value="quotations">
-            <Card className="border-border/40 shadow-soft">
-              <CardHeader>
+            <Card className="gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs">
+              <CardHeader className="border-b border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4">
                 <CardTitle className="text-base font-bold">Quotations Archive</CardTitle>
                 <CardDescription className="text-xs">
                   History of all submissions sent to the procurement team.
@@ -497,8 +473,8 @@ function SupplierDashboard() {
 
           {/* ASNs tab */}
           <TabsContent value="asns">
-            <Card className="border-border/40 shadow-soft">
-              <CardHeader>
+            <Card className="gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs">
+              <CardHeader className="border-b border-[#DCE6F3] bg-[#F5F8FF] px-5 py-4">
                 <CardTitle className="text-base font-bold">Purchase Orders & Advance Shipping Notices</CardTitle>
                 <CardDescription className="text-xs">
                   Create multiple shipment notices against the same purchase order and track dispatched ASNs.
@@ -598,7 +574,7 @@ function SupplierDashboard() {
                             size="sm"
                             className="mt-3 rounded-xl text-xs"
                           >
-                            <Link to="/procurement/asns/$asnId" params={{ asnId: asn.id }}>
+                            <Link to="/supplier/asns/$asnId" params={{ asnId: asn.id }}>
                               View / Edit
                             </Link>
                           </Button>

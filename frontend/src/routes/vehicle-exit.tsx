@@ -32,6 +32,7 @@ import {
 import { toast } from "sonner";
 
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
+import { StatCard } from "@/components/wms/primitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -50,7 +51,7 @@ export const Route = createFileRoute("/vehicle-exit")({
   // immediately redirect the user away.
   beforeLoad: () =>
     requireRole(["WAREHOUSE", "WAREHOUSE_MANAGER", "GATE_SECURITY", "GATE_OPERATOR", "ADMIN", "SUPERUSER"]),
-  head: () => ({ meta: [{ title: "Vehicle Exit · Outbound Gate Security · KaizenX" }] }),
+  head: () => ({ meta: [{ title: "Vehicle Exit · Outbound Gate Security · Warehub 360 degree" }] }),
   component: VehicleExit,
 });
 
@@ -373,55 +374,50 @@ function VehicleExit() {
       title="Outbound Vehicle Exit"
       subtitle="Security verification and gate exit confirmation for outbound vehicles (Warehouse → Customer)"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" className="rounded-xl shadow-sm border-primary/30 text-primary hover:bg-primary-soft/50" onClick={() => void handleSeedTestData()}>
             <PlusCircle className="size-4 text-primary" /> Seed Test Data
           </Button>
-          <Button variant="outline" className="rounded-xl shadow-sm" onClick={() => void loadQueue()}>
-            <RefreshCw className="size-4" /> Refresh Queue
+          <Button className="rounded-xl bg-[#0866FF] text-white hover:bg-[#0054D6]" disabled={loading} onClick={() => void loadQueue()}>
+            <RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} /> Refresh Queue
           </Button>
         </div>
       }
     >
-      {/* Overview Banner */}
-      <Card className="mb-6 rounded-2xl border-primary/20 bg-primary-soft/30 p-4 shadow-soft">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
-              <LogOut className="size-5" />
-            </span>
-            <div>
-              <p className="font-semibold text-foreground">Outbound Finished Goods Gate Exit</p>
-              <p className="text-xs text-muted-foreground">
-                Verify outbound vehicles & drivers physically against dispatch manifest before releasing to customer.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning-soft px-3 py-1 text-xs font-semibold text-warning">
-              <Clock3 className="size-3.5" /> {awaitingCount} Awaiting Gate Exit
-            </span>
-            {mismatchCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
-                <AlertTriangle className="size-3.5" /> {mismatchCount} Action Required
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-success/30 bg-success-soft px-3 py-1 text-xs font-semibold text-success">
-              <CheckCircle2 className="size-3.5" /> {completedCount} Exit Completed
-            </span>
-          </div>
-        </div>
-      </Card>
+      <section aria-label="Outbound vehicle exit KPIs" className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Awaiting gate exit"
+          value={loading ? "..." : String(awaitingCount)}
+          delta="Ready for vehicle and driver checks"
+          icon={Clock3}
+          tone="warning"
+        />
+        <StatCard
+          label="Verification mismatches"
+          value={loading ? "..." : String(mismatchCount)}
+          delta="Require review before release"
+          icon={AlertTriangle}
+          tone="danger"
+        />
+        <StatCard
+          label="Completed exits"
+          value={loading ? "..." : String(completedCount)}
+          delta="Vehicles cleared for dispatch"
+          icon={LogOut}
+          tone="success"
+        />
+      </section>
 
       {/* Filter & Search Bar */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative min-w-[260px] flex-1 max-w-md">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs">
+        <div className="relative min-w-0 flex-1 basis-64 sm:max-w-md">
           <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search Dispatch #, Customer, Vehicle, Driver..."
+            placeholder="Search dispatch, customer, vehicle, or driver"
+            aria-label="Search outbound dispatches"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="rounded-xl pl-9"
+            className="h-10 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] pl-9"
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -465,7 +461,10 @@ function VehicleExit() {
       {/* Queue Listing */}
       <Card className="rounded-2xl border-border/60 shadow-soft">
         <CardHeader>
-          <CardTitle className="text-base">Outbound Dispatches Queue</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-[#101D3A]">
+            <LogOut className="size-4 text-[#0866FF]" aria-hidden="true" />
+            Outbound dispatch queue
+          </CardTitle>
           <CardDescription>
             Outbound finished-goods dispatches ready for security verification & gate exit
           </CardDescription>

@@ -30,7 +30,7 @@ export const Route = createFileRoute("/assembly-genealogy")({
   beforeLoad: () => requireRole(["ASSEMBLY_MANAGER", "ASSEMBLY", "ADMIN", "SUPERUSER"]),
   head: () => ({
     meta: [
-      { title: "Product Genealogy & Traceability · KaizenX" },
+      { title: "Product Genealogy & Traceability · Warehub 360 degree" },
       {
         name: "description",
         content:

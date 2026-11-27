@@ -48,7 +48,7 @@ import { getUserInfo } from "@/lib/auth-utils";
 export const Route = createFileRoute("/warehouse/assembly-requisitions")({
   head: () => ({
     meta: [
-      { title: "Assembly Material Requisitions · KaizenX" },
+      { title: "Assembly Material Requisitions · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -346,20 +346,21 @@ function WarehouseAssemblyRequisitionsPage() {
     >
       <div className="space-y-6">
         {/* Filters */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="relative w-72">
-            <Search className="size-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
             <Input
               placeholder="Search requisition or item..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-9 text-xs rounded-xl bg-background/60 border-border/40"
+              aria-label="Search requisitions"
+              className="h-10 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] pl-9 text-sm"
             />
           </div>
 
           <div className="flex items-center gap-2">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-44 h-9 text-xs rounded-xl border-border/40">
+              <SelectTrigger aria-label="Requisition status" className="h-10 min-w-0 flex-1 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] text-sm sm:w-48">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -377,7 +378,7 @@ function WarehouseAssemblyRequisitionsPage() {
               variant="outline"
               size="sm"
               onClick={fetchData}
-              className="h-9 rounded-xl text-xs"
+              className="h-10 rounded-xl border-[#DCE6F3] text-sm"
             >
               Refresh
             </Button>
@@ -424,11 +425,11 @@ function WarehouseAssemblyRequisitionsPage() {
               return (
                 <Card
                   key={req.id}
-                  className="border-border/40 hover:border-primary/40 transition-colors shadow-soft"
+                  className="gap-0 rounded-2xl border-[#DCE6F3] bg-white py-0 shadow-xs transition-colors hover:border-primary/40"
                 >
                   <CardContent className="p-5">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                      <div className="space-y-3 flex-1">
+                    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+                      <div className="min-w-0 flex-1 space-y-3">
                         <div className="flex items-center gap-2.5 flex-wrap">
                           <span className="font-mono text-sm font-bold text-foreground">
                             {req.requisitionNumber || req.requisition_number}
@@ -518,11 +519,11 @@ function WarehouseAssemblyRequisitionsPage() {
                       </div>
 
                       {/* Action buttons */}
-                      <div className="flex flex-wrap sm:flex-col lg:flex-row items-center gap-2 shrink-0 justify-end">
+                      <div className="flex flex-wrap items-center gap-2 xl:max-w-[45%] xl:justify-end">
                         <Button
                           variant="outline"
                           size="sm"
-                          className="rounded-xl h-9 text-xs"
+                          className="h-9 rounded-xl border-[#DCE6F3] bg-[#F5F8FF] text-xs text-[#101D3A]"
                           onClick={() => setViewingReq(req)}
                         >
                           <Eye className="size-3.5 mr-1" /> View Details
@@ -549,10 +550,10 @@ function WarehouseAssemblyRequisitionsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="rounded-xl h-9 text-xs border-red-500/40 text-red-700 dark:text-red-300 hover:bg-red-500/10 font-bold"
+                            className="h-9 rounded-xl border-[#0866FF] bg-[#0866FF] text-xs font-bold text-white hover:bg-[#0054D6] hover:text-white"
                             onClick={() => handleCreateShortageMR(req)}
                           >
-                            <Plus className="size-3.5 mr-1.5 text-red-500" />
+                            <Plus className="mr-1.5 size-3.5" />
                             Create Material Request ({totalShortage})
                           </Button>
                         )}
@@ -587,10 +588,10 @@ function WarehouseAssemblyRequisitionsPage() {
 
       {/* Assign Store Modal */}
       {!isStoreUser && <Dialog open={Boolean(assigningReq)} onOpenChange={(open) => !open && setAssigningReq(null)}>
-        <DialogContent className="max-w-md rounded-3xl p-6 bg-card border-none shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <Warehouse className="size-5 text-blue-600" />
+        <DialogContent className="max-w-md rounded-2xl border-[#DCE6F3] bg-white p-6 shadow-xl [&>button[data-state=open]]:bg-transparent [&>button[data-state=open]]:text-white">
+          <DialogHeader className="-mx-6 -mt-6 bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <Warehouse className="size-5 shrink-0 text-blue-100" />
               Automatic Store Assignment
             </DialogTitle>
           </DialogHeader>
@@ -677,17 +678,17 @@ function WarehouseAssemblyRequisitionsPage() {
 
       {/* View Details Modal */}
       <Dialog open={Boolean(viewingReq)} onOpenChange={(open) => !open && setViewingReq(null)}>
-        <DialogContent className="max-w-3xl rounded-3xl p-6 bg-card border-none shadow-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <ClipboardCheck className="size-5 text-blue-600" />
+        <DialogContent className="w-[calc(100%-2rem)] max-w-5xl grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xl sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+          <DialogHeader className="bg-[#0B2A55] px-5 py-5 pr-12 text-left sm:pl-6">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <ClipboardCheck className="size-5 shrink-0 text-blue-100" />
               Requisition Details & Stock Availability
             </DialogTitle>
           </DialogHeader>
 
           {viewingReq && (
-            <div className="space-y-4 py-2 text-xs">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-muted/40 p-3.5 rounded-2xl">
+            <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto overscroll-contain p-5 text-xs sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3.5">
                 <div>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground">
                     Requisition Number
@@ -706,7 +707,7 @@ function WarehouseAssemblyRequisitionsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 [&_strong]:mt-1 [&_strong]:block [&_strong]:text-xl [&_strong]:tabular-nums">
                 <div className="p-3 bg-muted/20 rounded-2xl border border-border/30">
                   <span className="text-muted-foreground block text-[11px]">Total Required</span>
                   <strong className="text-sm font-mono text-foreground">
@@ -733,7 +734,7 @@ function WarehouseAssemblyRequisitionsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs bg-muted/20 p-3 rounded-2xl">
+              <div className="grid gap-3 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-3 text-xs sm:grid-cols-2">
                 <div>
                   <span className="text-muted-foreground">Department:</span>{" "}
                   <strong className="text-foreground">{viewingReq.department}</strong>
@@ -799,9 +800,9 @@ function WarehouseAssemblyRequisitionsPage() {
                     Requested Materials & Stock Availability Breakdown
                   </p>
                 </div>
-                <div className="border border-border/40 rounded-2xl overflow-hidden bg-card">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
+                <div className="overflow-hidden rounded-xl border border-[#DCE6F3] bg-white">
+                  <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Stock availability table">
+                    <table className="w-full min-w-[720px] border-collapse text-left text-xs [&_td:nth-child(-n+5):not(:first-child)]:whitespace-nowrap">
                       <thead>
                         <tr className="border-b border-border/40 bg-muted/40 text-muted-foreground text-[11px] font-semibold">
                           <th className="p-3">Material</th>
@@ -930,7 +931,7 @@ function WarehouseAssemblyRequisitionsPage() {
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between items-center pt-2">
+          <DialogFooter className="flex-col gap-2 border-t border-[#DCE6F3] bg-[#F5F8FF] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="flex items-center gap-2 flex-wrap">
               {viewingReq &&
                 (viewingReq.status === "PENDING" || viewingReq.status === "RESERVED") && (
@@ -961,14 +962,14 @@ function WarehouseAssemblyRequisitionsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="rounded-xl h-9 text-xs border-red-500/40 text-red-700 dark:text-red-300 hover:bg-red-500/10 font-bold"
+                        className="h-9 rounded-xl border-[#0866FF] bg-[#0866FF] text-xs font-bold text-white hover:bg-[#0054D6] hover:text-white"
                         disabled={creatingMrId === viewingReq.id}
                         onClick={() => handleCreateShortageMR(viewingReq)}
                       >
                         {creatingMrId === viewingReq.id ? (
                           <Loader2 className="size-3.5 animate-spin mr-1.5" />
                         ) : (
-                          <Plus className="size-3.5 mr-1.5 text-red-500" />
+                          <Plus className="mr-1.5 size-3.5" />
                         )}
                         Create Material Request ({Number(viewingReq.total_shortage ?? viewingReq.totalShortage ?? 0)})
                       </Button>
@@ -1016,10 +1017,10 @@ function WarehouseAssemblyRequisitionsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg rounded-3xl p-6 bg-card border-none shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <Sparkles className="size-5 text-amber-500" />
+        <DialogContent className="max-w-lg rounded-2xl border-[#DCE6F3] bg-white p-6 shadow-xl [&>button[data-state=open]]:bg-transparent [&>button[data-state=open]]:text-white">
+          <DialogHeader className="-mx-6 -mt-6 bg-[#0B2A55] px-6 py-5 pr-12 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-white">
+              <Sparkles className="size-5 shrink-0 text-amber-300" />
               Create Material in Master Data
             </DialogTitle>
           </DialogHeader>

@@ -263,9 +263,10 @@ function MaterialRequests() {
   const routeParams = new URLSearchParams(location.searchStr || "");
   const routeStatus = routeParams.get("status");
   const [requests, setRequests] = useState<any[]>(sampleMaterialRequests);
-  const [supplierAvailability, setSupplierAvailability] = useState<Record<string, boolean>>({
+  const [supplierAvailability, setSupplierAvailability] = useState<Record<string, true | string>>({
     "mr-demo-1": true,
   });
+  const [categoryRfqOptions, setCategoryRfqOptions] = useState<Record<string, { key: string; label: string }[]>>({});
   const [loading, setLoading] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -386,46 +387,15 @@ function MaterialRequests() {
     (request.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
 
   const itemCategory = (item: any) => item.category || item.materialCategory || item.material_category;
-  const itemMaterialName = (item: any) => item.materialName || item.material_name || item.materialCode || item.material_code;
   const hasMatchingSuppliers = (request: any) => supplierAvailability[request.id] === true;
-
-  const normalizeMatchText = (value: unknown) =>
-    String(value || "")
-      .toLowerCase()
-      .replace(/&/g, " and ")
-      .replace(/[^a-z0-9]+/g, " ")
-      .split(" ")
-      .map((part) => part.trim())
-      .filter((part) => part && part !== "and")
-      .map((part) => (part.length > 3 && part.endsWith("s") ? part.slice(0, -1) : part));
-
-  const normalizedValues = (value: unknown) => {
-    const values = Array.isArray(value) ? value : [value];
-    return values.flatMap((entry) => normalizeMatchText(entry));
+  const supplierWarning = (request: any) => {
+    const availability = supplierAvailability[request.id];
+    return typeof availability === "string" ? availability : null;
   };
 
-  const hasSharedMatchToken = (left: unknown, right: unknown) => {
-    const leftTokens = new Set(normalizedValues(left));
-    if (leftTokens.size === 0) return false;
-    return normalizedValues(right).some((token) => leftTokens.has(token));
-  };
-
-  const supplierCategories = (supplier: any) =>
-    supplier.category || supplier.categories || supplier.materialCategories || supplier.material_categories || [];
-
-  const supplierMaterials = (supplier: any) =>
-    supplier.mainMaterials || supplier.main_materials || supplier.materials || [];
-
-  const supplierMatchesItem = (supplier: any, item: any) => {
-    const category = itemCategory(item);
-    const material = itemMaterialName(item);
-    return (
-      (!!category && hasSharedMatchToken(category, supplierCategories(supplier))) ||
-      (!!category && hasSharedMatchToken(category, supplierMaterials(supplier))) ||
-      (!!material && hasSharedMatchToken(material, supplierMaterials(supplier))) ||
-      (!!material && hasSharedMatchToken(material, supplierCategories(supplier)))
-    );
-  };
+  // Match the RFQ API: each invited supplier must cover every requested category.
+  const normalizeCategory = (value: unknown) =>
+    String(value ?? "").trim().toLowerCase().replace(/&/g, "and").replace(/-/g, " ").replace(/\s+/g, " ");
 
   const fetchSupplierAvailability = async (materialRequests: any[]) => {
     const approvedRequests = materialRequests.filter(
@@ -433,36 +403,58 @@ function MaterialRequests() {
     );
     if (approvedRequests.length === 0) {
       setSupplierAvailability({});
+      setCategoryRfqOptions({});
       return;
     }
 
     try {
-      const activeSuppliers = (await timeoutPromise(api.getSuppliers({ status: "Active" }), 2000, [])).filter(
-        (supplier: any) =>
-          String(supplier.status ?? "")
-            .trim()
-            .toLowerCase() === "active",
-      );
-      if (activeSuppliers.length === 0) {
-        setSupplierAvailability(Object.fromEntries(approvedRequests.map((r) => [r.id, true])));
-        return;
-      }
-      const availabilityEntries = approvedRequests.map((request) => {
-        const items = request.items || [];
-        if (items.length === 0) return [request.id, false] as const;
+      const [suppliers, rfqs] = await Promise.all([
+        api.getSuppliers({ status: "Active" }),
+        api.getRfqs(),
+      ]);
+      const registeredCategories = suppliers
+        .filter((supplier: any) => String(supplier.status ?? "").trim().toLowerCase() === "active")
+        .map((supplier: any) => {
+          const categories = supplier.category ?? supplier.categories ?? supplier.materialCategories ?? supplier.material_categories;
+          return new Set((Array.isArray(categories) ? categories : [categories]).map(normalizeCategory));
+        });
 
-        const itemMatches = items.map((item: any) =>
-          activeSuppliers.some((supplier: any) => supplierMatchesItem(supplier, item)),
+      const options: typeof categoryRfqOptions = {};
+      setSupplierAvailability(Object.fromEntries(approvedRequests.map((request) => {
+        const categories = new Map<string, string>();
+        for (const item of request.items ?? []) {
+          const category = itemCategory(item) || "Raw Materials";
+          const key = normalizeCategory(category);
+          if (key) categories.set(key, category);
+        }
+
+        const keys = [...categories.keys()];
+        const covered = new Set(rfqs
+          .filter((rfq) => (rfq.material_request_number ?? rfq.materialRequestNumber) === (request.requestNumber ?? request.request_number))
+          .flatMap((rfq) => (rfq.items ?? []).map((item: any) => normalizeCategory(item.category))));
+        if (covered.size === 0 && registeredCategories.some((registered) => keys.every((key) => registered.has(key)))) {
+          return [request.id, true] as const;
+        }
+        options[request.id] = keys
+          .filter((key) => !covered.has(key) && registeredCategories.some((registered) => registered.has(key)))
+          .map((key) => ({ key, label: categories.get(key)! }));
+        if (options[request.id].length) return [request.id, ""] as const;
+
+        const uncovered = keys.filter(
+          (key) => !covered.has(key) && !registeredCategories.some((registered) => registered.has(key)),
         );
-        return [request.id, itemMatches.every(Boolean)] as const;
-      });
-
-      setSupplierAvailability(Object.fromEntries(availabilityEntries));
+        const message = uncovered.length
+          ? `No active supplier for ${uncovered.map((key) => categories.get(key)).join(", ")}`
+          : keys.length ? "No active supplier covers all required categories" : "No active supplier";
+        return [request.id, message] as const;
+      })));
+      setCategoryRfqOptions(options);
     } catch (error) {
+      setCategoryRfqOptions({});
       console.error("Failed to check matching suppliers:", error);
-      setSupplierAvailability(
-        Object.fromEntries(approvedRequests.map((request) => [request.id, true])),
-      );
+      setSupplierAvailability(Object.fromEntries(
+        approvedRequests.map((request) => [request.id, "Supplier availability unavailable"]),
+      ));
     }
   };
 
@@ -561,7 +553,7 @@ function MaterialRequests() {
 
         {/* 3. 4 KPI Summary Stat Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="flex items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-[#0866FF]/30 transition-all">
+          <div className="flex min-h-[104px] items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-[#0866FF]/30 transition-all">
             <div className="size-11 sm:size-12 rounded-2xl bg-[#EBF3FF] text-[#0866FF] flex items-center justify-center shrink-0 shadow-2xs">
               <ClipboardList className="size-6" />
             </div>
@@ -573,7 +565,7 @@ function MaterialRequests() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-amber-400/40 transition-all">
+          <div className="flex min-h-[104px] items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-amber-400/40 transition-all">
             <div className="size-11 sm:size-12 rounded-2xl bg-[#FEF3C7] text-[#D97706] flex items-center justify-center shrink-0 shadow-2xs">
               <Clock className="size-6" />
             </div>
@@ -585,7 +577,7 @@ function MaterialRequests() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-purple-400/40 transition-all">
+          <div className="flex min-h-[104px] items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-purple-400/40 transition-all">
             <div className="size-11 sm:size-12 rounded-2xl bg-[#F3E8FF] text-[#7C4DFF] flex items-center justify-center shrink-0 shadow-2xs">
               <Layers className="size-6" />
             </div>
@@ -597,7 +589,7 @@ function MaterialRequests() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-emerald-400/40 transition-all">
+          <div className="flex min-h-[104px] items-center gap-4 p-4 lg:p-5 rounded-2xl bg-white border border-[#DCE6F3] shadow-xs hover:border-emerald-400/40 transition-all">
             <div className="size-11 sm:size-12 rounded-2xl bg-[#DCFCE7] text-[#16A34A] flex items-center justify-center shrink-0 shadow-2xs">
               <CheckCircle2 className="size-6" />
             </div>
@@ -724,7 +716,7 @@ function MaterialRequests() {
             {filteredRequests.map((req) => (
               <div
                 key={req.id}
-                className="group relative rounded-2xl border border-[#DCE6F3] bg-white p-4 sm:p-5 shadow-xs hover:border-[#0866FF]/60 hover:shadow-md transition-all duration-200"
+                className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-4 sm:p-5 shadow-xs hover:border-[#0866FF]/60 hover:shadow-md transition-all duration-200"
               >
                 {/* Card Header: Request #, Badges & Actions */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#DCE6F3]/70">
@@ -770,18 +762,25 @@ function MaterialRequests() {
                       </Button>
                     )}
 
-                    {req.status === "Approved" && supplierAvailability[req.id] === false && (
+                    {req.status === "Approved" && categoryRfqOptions[req.id]?.map(({ key, label }) => (
+                      <Button key={key} size="sm" asChild>
+                        <Link to="/procurement/new-rfq" search={{ fromRequestId: req.id, category: key }}>
+                          Create RFQ · {label}
+                        </Link>
+                      </Button>
+                    ))}
+                    {req.status === "Approved" && supplierWarning(req) && (
                       <span className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-amber-300 bg-[#FFFBEB] px-2.5 text-[11px] font-bold text-[#B45309]">
                         <AlertCircle className="size-3.5 text-[#D97706]" />
-                        No Active Supplier
+                        {supplierWarning(req)}
                       </span>
                     )}
                   </div>
                 </div>
 
                 {/* Card Middle: 4 Grouped Fields (Warehouse, Requested By, Required Date, Department) */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-3 text-xs">
-                  <div className="space-y-0.5 min-w-0">
+                <div className="grid grid-cols-1 gap-y-4 py-4 text-xs sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-[#DCE6F3]">
+                  <div className="min-w-0 px-1 sm:px-3 xl:pl-0">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">Warehouse</p>
                     <p className="flex items-center gap-1.5 font-bold text-[#101D3A] truncate">
                       <Building2 className="size-3.5 text-[#0866FF] shrink-0" />
@@ -789,7 +788,7 @@ function MaterialRequests() {
                     </p>
                   </div>
 
-                  <div className="space-y-0.5 min-w-0">
+                  <div className="min-w-0 px-1 sm:px-3">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">Requested By</p>
                     <p className="flex items-center gap-1.5 font-bold text-[#101D3A] truncate">
                       <UserRound className="size-3.5 text-[#0866FF] shrink-0" />
@@ -797,7 +796,7 @@ function MaterialRequests() {
                     </p>
                   </div>
 
-                  <div className="space-y-0.5 min-w-0">
+                  <div className="min-w-0 px-1 sm:px-3">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">Required Date</p>
                     <p className="flex items-center gap-1.5 font-bold text-[#101D3A] tabular-nums">
                       <Calendar className="size-3.5 text-[#0866FF] shrink-0" />
@@ -805,7 +804,7 @@ function MaterialRequests() {
                     </p>
                   </div>
 
-                  <div className="space-y-0.5 min-w-0">
+                  <div className="min-w-0 px-1 sm:px-3 xl:pr-0">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[#526580]">Department / Route</p>
                     <p className="flex items-center gap-1.5 font-bold text-[#101D3A] truncate">
                       <Factory className="size-3.5 text-[#7C4DFF] shrink-0" />
@@ -815,8 +814,8 @@ function MaterialRequests() {
                 </div>
 
                 {/* Card Bottom: Summary Strip of Items & Qty */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-[#DCE6F3]/80 bg-[#F5F8FF] px-3.5 py-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-3">
+                <div className="grid gap-3 border-t border-[#DCE6F3] pt-3 text-xs lg:grid-cols-[minmax(0,1fr)_minmax(220px,300px)] lg:items-center">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold text-[#526580]">Items:</span>
                       <span className="font-extrabold text-[#101D3A] rounded-md bg-white border border-[#DCE6F3] px-2 py-0.5 text-xs">
@@ -852,13 +851,13 @@ function MaterialRequests() {
                   </div>
 
                   {/* Right side snippet */}
-                  <div className="ml-auto text-[11px] text-[#526580] font-medium flex items-center gap-1">
+                  <div className="min-w-0 border-t border-[#DCE6F3] pt-2 text-left text-[11px] font-medium text-[#526580] lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0 lg:text-right">
                     {req.remarks?.includes("[Note to Procurement:") ? (
-                      <span className="font-semibold text-amber-700 max-w-xs truncate">
+                      <span className="block truncate font-semibold text-amber-700">
                         {req.remarks.match(/\[Note to Procurement:[^\]]+\]/)?.[0]}
                       </span>
                     ) : (
-                      <span className="italic text-[#8FA3BF] truncate max-w-[220px]">
+                      <span className="block truncate italic text-[#8FA3BF]">
                         {req.remarks || "Standard requisition"}
                       </span>
                     )}
@@ -1060,7 +1059,7 @@ function MaterialRequests() {
                   >
                     Close
                   </Button>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {selectedRequest.status === "Approved" && hasMatchingSuppliers(selectedRequest) && (
                       <Button
                         className="rounded-xl h-10 px-6 font-bold text-xs bg-[#0866FF] hover:bg-[#0054D6] text-white shadow-xs"
@@ -1071,9 +1070,16 @@ function MaterialRequests() {
                         </Link>
                       </Button>
                     )}
-                    {selectedRequest.status === "Approved" && supplierAvailability[selectedRequest.id] === false && (
+                    {selectedRequest.status === "Approved" && categoryRfqOptions[selectedRequest.id]?.map(({ key, label }) => (
+                      <Button key={key} size="sm" asChild>
+                        <Link to="/procurement/new-rfq" search={{ fromRequestId: selectedRequest.id, category: key }}>
+                          Create RFQ · {label}
+                        </Link>
+                      </Button>
+                    ))}
+                    {selectedRequest.status === "Approved" && supplierWarning(selectedRequest) && (
                       <span className="flex h-10 items-center rounded-xl border border-amber-300 bg-[#FFFBEB] px-3.5 text-xs font-bold text-[#B45309]">
-                        <AlertCircle className="mr-2 size-4 text-[#D97706]" /> No Active Supplier
+                        <AlertCircle className="mr-2 size-4 text-[#D97706]" /> {supplierWarning(selectedRequest)}
                       </span>
                     )}
                   </div>

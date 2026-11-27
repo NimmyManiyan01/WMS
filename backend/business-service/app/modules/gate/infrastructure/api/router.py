@@ -913,16 +913,20 @@ async def create_gate_entry(
                     po_model.status = "COMPLETED"
                     po_completed_at_gate = True
 
+    # Flush required changes before isolating the optional dock request.
+    await uow.session.flush()
     try:
         from app.modules.dock.application.service import DockAllocationService
-        await DockAllocationService.auto_create_allocation_request(
-            session=uow.session,
-            gate_pass_id=entry.gate_entry_number or str(entry.id),
-            vehicle_number=plate,
-            vendor_reference=request.supplier_name or (ocr_res.supplier_name if ocr_res else None),
-            material_description=request.material_description or (ocr_res.material_description if ocr_res else None),
-            quantity=Decimal(str(request.total_quantity)) if request.total_quantity else (Decimal(str(ocr_res.total_quantity)) if (ocr_res and ocr_res.total_quantity) else Decimal("100.0")),
-        )
+
+        async with uow.session.begin_nested():
+            await DockAllocationService.auto_create_allocation_request(
+                session=uow.session,
+                gate_pass_id=entry.gate_entry_number or str(entry.id),
+                vehicle_number=plate,
+                vendor_reference=request.supplier_name or (ocr_res.supplier_name if ocr_res else None),
+                material_description=request.material_description or (ocr_res.material_description if ocr_res else None),
+                quantity=Decimal(str(request.total_quantity)) if request.total_quantity else (Decimal(str(ocr_res.total_quantity)) if (ocr_res and ocr_res.total_quantity) else Decimal("100.0")),
+            )
     except Exception as exc:
         logger.warning(f"Auto-creation of dock allocation request skipped/failed: {exc}")
 

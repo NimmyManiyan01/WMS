@@ -80,7 +80,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "KaizenX — Warehouse Gate Entry & Arrival" },
+      { title: "Warehub 360° — Warehouse Gate Entry & Arrival" },
       {
         name: "description",
         content:
@@ -136,7 +136,13 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
-      <Toaster position="top-right" richColors closeButton />
+      <Toaster
+        position="top-right"
+        offset={{ top: 16, right: "clamp(16px, 24vw, 440px)" }}
+        mobileOffset={16}
+        richColors
+        closeButton
+      />
     </QueryClientProvider>
   );
 }

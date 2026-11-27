@@ -105,7 +105,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   // Inject user roles and store context headers from session when available
   try {
     const userInfo = getUserInfo();
-    if (userInfo) {
+    // The backend handles role headers before bearer auth. Let the supplier
+    // token supply both the role and the supplier identity for ownership checks.
+    if (userInfo && !(token && userInfo.roles?.includes("SUPPLIER"))) {
       if (userInfo.roles && userInfo.roles.length > 0 && !headers.has("X-User-Roles")) {
         headers.set("X-User-Roles", userInfo.roles.join(","));
       }
@@ -2151,6 +2153,11 @@ export const api = {
   },
   async getAdminRoles(): Promise<any[]> {
     return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/admin/roles`);
+  },
+  async getAdminAuditLogs(limit = 200): Promise<any[]> {
+    return request<any[]>(`${BUSINESS_API_URL}/api/v1/procurement/admin/audit-logs?limit=${limit}`, {
+      cache: "no-store",
+    });
   },
   async createAdminUser(data: Record<string, unknown>): Promise<any> {
     return request<any>(`${BUSINESS_API_URL}/api/v1/procurement/admin/users`, {

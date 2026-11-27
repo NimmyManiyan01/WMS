@@ -16,41 +16,49 @@ export function StatCard({
   compact = false,
   infoTooltip,
   showTrend = false,
+  valueStyle = "metric",
 }: {
   label: string;
   value: string;
   delta?: string;
-  icon: LucideIcon;
-  tone?: "primary" | "teal" | "success" | "warning" | "danger" | "purple";
+  icon?: LucideIcon;
+  tone?: "primary" | "teal" | "success" | "warning" | "amber" | "danger" | "purple" | "indigo";
   to?: string;
   showArrow?: boolean;
   compact?: boolean;
   infoTooltip?: string;
   showTrend?: boolean;
+  valueStyle?: "metric" | "text";
 }) {
   const tones: Record<string, string> = {
     primary: "bg-[#EBF3FF] text-[#0866FF]",
     teal: "bg-[#F0FDFA] text-[#0D9488]",
     success: "bg-[#E8FAF2] text-[#16C784]",
     warning: "bg-[#FEF7EA] text-[#F5A623]",
+    amber: "bg-[#FEF7EA] text-[#F5A623]",
     danger: "bg-[#FEECEE] text-[#E5484D]",
     purple: "bg-[#F3E8FF] text-[#7C4DFF]",
+    indigo: "bg-indigo-50 text-indigo-600",
   };
   const accentBorders: Record<string, string> = {
-    primary: "hover:border-[#0866FF]/40",
-    teal: "hover:border-[#0D9488]/40",
-    success: "hover:border-[#16C784]/40",
-    warning: "hover:border-[#F5A623]/40",
-    danger: "hover:border-[#E5484D]/40",
-    purple: "hover:border-[#7C4DFF]/40",
+    primary: "border-[#CBE0FC] hover:border-[#0866FF]/50",
+    teal: "border-teal-200 hover:border-[#0D9488]/50",
+    success: "border-emerald-200 hover:border-[#16C784]/50",
+    warning: "border-amber-200 hover:border-[#F5A623]/50",
+    amber: "border-amber-200 hover:border-[#F5A623]/50",
+    danger: "border-red-200 hover:border-[#E5484D]/50",
+    purple: "border-purple-200 hover:border-[#7C4DFF]/50",
+    indigo: "border-indigo-200 hover:border-indigo-400",
   };
   const trendTones: Record<string, string> = {
     primary: "text-[#0866FF]",
     teal: "text-[#0D9488]",
     success: "text-[#16C784]",
     warning: "text-[#F5A623]",
+    amber: "text-[#F5A623]",
     danger: "text-[#E5484D]",
     purple: "text-[#7C4DFF]",
+    indigo: "text-indigo-600",
   };
 
   const isLoading = value === "..." || value === "loading";
@@ -63,10 +71,12 @@ export function StatCard({
         compact ? "min-h-[110px]" : "min-h-[136px]",
       )}
     >
-      <div className="flex items-center justify-between">
-        <span className={cn("grid size-10 place-items-center rounded-xl", tones[tone] || tones.primary)}>
+      <div className="flex min-h-10 items-center justify-between">
+        {Icon && <span
+          className={cn("grid size-10 place-items-center rounded-xl", tones[tone] || tones.primary)}
+        >
           <Icon className="size-5" />
-        </span>
+        </span>}
         {to && showArrow && (
           <ArrowRight className="size-3.5 -translate-x-1 text-[#526580] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
         )}
@@ -76,7 +86,16 @@ export function StatCard({
         {isLoading ? (
           <div className="h-8 w-20 animate-pulse rounded-lg bg-slate-100" />
         ) : (
-          <p className="text-[28px] lg:text-[32px] font-extrabold tracking-tight text-[#101D3A] leading-none tabular-nums">
+          <p
+            className={cn(
+              valueStyle === "text"
+                ? "flex min-h-8 items-center text-lg font-bold leading-tight text-[#101D3A]"
+                : cn(
+                    "text-[28px] lg:text-[32px] font-extrabold tracking-tight leading-none tabular-nums",
+                    trendTones[tone] || "text-[#101D3A]",
+                  ),
+            )}
+          >
             {value}
           </p>
         )}
@@ -111,7 +130,13 @@ export function StatCard({
       </div>
 
       {showTrend && (
-        <div className={cn("absolute right-4 top-1/2 mt-2 flex h-7 -translate-y-1/2 items-end gap-0.5", trendTones[tone])} aria-label={`${label} trend`}>
+        <div
+          className={cn(
+            "absolute right-4 top-1/2 mt-2 flex h-7 -translate-y-1/2 items-end gap-0.5",
+            trendTones[tone],
+          )}
+          aria-label={`${label} trend`}
+        >
           {[35, 55, 42, 72, 58, 86, 68].map((height, index) => (
             <span
               key={index}
@@ -122,9 +147,7 @@ export function StatCard({
         </div>
       )}
       {!compact && delta && (
-        <p className="mt-1.5 min-h-4 text-xs font-medium text-[#526580]">
-          {delta}
-        </p>
+        <p className="mt-1.5 min-h-4 text-xs font-medium text-[#526580]">{delta}</p>
       )}
     </Card>
   );
@@ -183,7 +206,9 @@ export function SectionCard({
   infoTooltip?: string;
 }) {
   return (
-    <Card className={cn("gap-0 rounded-2xl border border-[#DCE6F3] bg-white p-0 shadow-xs", className)}>
+    <Card
+      className={cn("gap-0 rounded-2xl border border-[#DCE6F3] bg-white p-0 shadow-xs", className)}
+    >
       <div className="flex flex-wrap items-center gap-3 border-b border-[#DCE6F3] px-6 py-4">
         {Icon && (
           <span className="grid size-9 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
@@ -240,10 +265,10 @@ export function Timeline({
   return (
     <ol className="relative space-y-5 border-l border-dashed border-border pl-6">
       {items.map((i, idx) => (
-        <li key={idx} className="animate-fade-up" style={{ animationDelay: `${idx * 60}ms` }}>
+        <li key={idx} className="relative animate-fade-up" style={{ animationDelay: `${idx * 60}ms` }}>
           <span
             className={cn(
-              "absolute -left-[5px] mt-1.5 size-2.5 rounded-full ring-4 ring-background",
+              "absolute -left-[29px] top-1.5 size-2.5 rounded-full ring-4 ring-background",
               tones[i.tone ?? "primary"],
             )}
           />

@@ -381,7 +381,7 @@
     border-top: 1px solid #e2e8f0;
   }
 
-  .wms-page-content table tbody tr:hover td {
+  .wms-page-content table tbody tr:not([data-preserve-row-background]):hover td {
     background-color: #f8fafc;
   }
 }

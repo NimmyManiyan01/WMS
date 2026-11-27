@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   Trash2,
   Save,
-  X,
   Check,
   Info,
   Send,
@@ -20,7 +19,7 @@ import {
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -756,10 +755,9 @@ function WarehouseMaterialRequests() {
 
       toast.success(
         matchingSuppliers.length === 0
-          ? "Request submitted to Procurement (Vendor Sourcing Required)"
-          : "Material request submitted to Procurement",
+          ? "Request submitted for manager approval (vendor sourcing required)"
+          : "Material request submitted for manager approval",
       );
-      toast.success("Material request submitted to Procurement");
       setShowConfirmModal(false);
       setIsCreating(false);
       setItems([
@@ -1000,26 +998,19 @@ function WarehouseMaterialRequests() {
         </Button>
       }
     >
-      {isCreating ? (
-        <Card className="mb-8 overflow-hidden rounded-2xl border-border/70 shadow-soft animate-in slide-in-from-top-4">
-          <CardHeader className="border-b border-border/70 bg-muted/20 px-5 py-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold tracking-tight">
-                Create Stock Requirement
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-                onClick={() => setIsCreating(false)}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5 sm:p-6">
+      <Dialog open={isCreating} onOpenChange={setIsCreating}>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[82rem] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xl sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+          <div className="bg-[#0B2A55] px-5 py-5 pr-12 sm:pl-6">
+            <DialogTitle className="text-lg font-bold text-white">Create Stock Requirement</DialogTitle>
+            <DialogDescription className="sr-only">
+              Enter request details and order quantities for the materials you need.
+            </DialogDescription>
+          </div>
+          <div className="min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 sm:p-6">
             <form onSubmit={handleOpenPreSubmitModal} className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <section aria-labelledby="stock-request-details" className="space-y-4 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4">
+              <h2 id="stock-request-details" className="text-sm font-bold text-[#101D3A]">Request details</h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(5,minmax(0,1fr))] [&_input]:border-[#DCE6F3] [&_label]:font-semibold [&_label]:text-[#526580] [&_[role=combobox]]:border-[#DCE6F3]">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Request Number</Label>
                   <Input
@@ -1075,7 +1066,9 @@ function WarehouseMaterialRequests() {
                 </div>
               </div>
 
-              <div className="space-y-3">
+              </section>
+
+              <section aria-labelledby="stock-request-items" className="space-y-3">
                 {searchParams.source_requisition_number && (
                   <div className="rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
                     <strong>From Assembly Requisition {searchParams.source_requisition_number}:</strong>{" "}
@@ -1085,35 +1078,35 @@ function WarehouseMaterialRequests() {
                   </div>
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <Label className="text-xs font-semibold text-foreground">
+                  <h2 id="stock-request-items" className="text-sm font-bold text-[#101D3A]">
                     Material Items
-                  </Label>
+                  </h2>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 rounded-xl px-3 text-xs font-medium"
+                    className="h-9 rounded-xl border-[#CBE0FC] bg-[#EBF3FF] px-3 text-xs font-semibold text-[#0866FF] hover:bg-[#DDEBFF] hover:text-[#0866FF]"
                     onClick={addItem}
                   >
                     <Plus className="size-3 mr-1" /> Add Item
                   </Button>
                 </div>
 
-                <div className="rounded-2xl border border-border/60 overflow-hidden bg-card shadow-inner">
-                  <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-left text-sm border-collapse min-w-[920px]">
+                <div className="overflow-hidden rounded-xl border border-[#DCE6F3] bg-white">
+                  <div className="overflow-x-auto" role="region" aria-label="Stock request material items" tabIndex={0}>
+                    <table className="w-full min-w-[1050px] table-fixed border-collapse text-left text-sm">
                       <colgroup>
-                        <col className="w-[18%]" />
-                        <col className="w-[16%]" />
-                        <col className="w-[21%]" />
+                        <col className="w-[17%]" />
+                        <col className="w-[15%]" />
+                        <col className="w-[20%]" />
                         <col className="w-[13%]" />
                         <col className="w-[13%]" />
                         <col className="w-[9%]" />
-                        <col className="w-[6%]" />
+                        <col className="w-[8%]" />
                         <col className="w-[5%]" />
                       </colgroup>
                       <thead>
-                        <tr className="bg-muted/40 border-b border-border/60">
+                        <tr className="border-b border-[#DCE6F3] bg-[#F1F5FA]">
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Material Master</th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Specification</th>
                           <th className="p-3 text-[10px] uppercase font-black text-muted-foreground truncate">Material Description</th>
@@ -1313,11 +1306,12 @@ function WarehouseMaterialRequests() {
                     * Informational notice: Supplier availability will not prevent submission. You can submit to Procurement with 0, 1, or multiple active suppliers.
                   </p>
                 </div>
-              </div>
+              </section>
 
-              <div className="space-y-2">
-                <Label className="text-xs font-medium">Remarks / Justification</Label>
+              <div className="space-y-2 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4">
+                <Label htmlFor="stock-request-remarks" className="text-sm font-bold text-[#101D3A]">Remarks / Justification</Label>
                 <Textarea
+                  id="stock-request-remarks"
                   placeholder="Why is this stock needed?"
                   className="min-h-24 resize-y rounded-xl text-sm"
                   value={formData.remarks}
@@ -1334,7 +1328,7 @@ function WarehouseMaterialRequests() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" className="h-10 rounded-xl px-8 shadow-glow" disabled={submitting}>
+                <Button type="submit" className="h-10 rounded-xl bg-[#0866FF] px-8 font-semibold text-white hover:bg-[#0054D6]" disabled={submitting}>
                   {submitting ? (
                     <Loader2 className="size-4 animate-spin mr-2" />
                   ) : (
@@ -1344,12 +1338,12 @@ function WarehouseMaterialRequests() {
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
-      ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="relative w-72">
+      <div className="mb-6 flex flex-col justify-between gap-3 rounded-2xl border border-[#DCE6F3] bg-white p-3 shadow-xs sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-xs">
           <Search className="size-3.5 absolute left-3 top-2.5 text-muted-foreground" />
           <Input
             placeholder="Search request or item..."
@@ -1923,7 +1917,7 @@ function WarehouseMaterialRequests() {
       {/* PRE-SUBMISSION MATERIAL REQUEST CONFIRMATION POPUP MODAL */}
       <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
         <DialogContent className="max-w-2xl w-[calc(100%-2rem)] max-h-[calc(100vh-2rem)] rounded-3xl p-0 overflow-hidden border-none shadow-2xl flex flex-col">
-          <div className="shrink-0 p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+          <div className="flex shrink-0 items-start justify-between bg-[#0B2A55] p-6 pr-12 text-white">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <DialogTitle className="text-xl font-bold tracking-tight text-white">

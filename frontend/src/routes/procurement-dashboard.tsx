@@ -46,7 +46,7 @@ export const Route = createFileRoute("/procurement-dashboard")({
   beforeLoad: () => requireRole("PROCUREMENT"),
   head: () => ({
     meta: [
-      { title: "Procurement Dashboard · KaizenX" },
+      { title: "Procurement Dashboard · Warehub 360 degree" },
       {
         name: "description",
         content: "Manage suppliers, purchase orders, and procurement workflows.",
@@ -190,19 +190,32 @@ const threeWayMatchPlan = [
   { label: "3-Way Match", detail: "Auto-pass exact matches; route quantity, price, or tax exceptions to Finance" },
 ] as const;
 
-const categoryBreakdown = [
-  { name: "Raw Material", value: 42, color: "#0866FF" },
-  { name: "Packaging", value: 20, color: "#00D4FF" },
-  { name: "Consumables", value: 16, color: "#16C784" },
-  { name: "MRO", value: 12, color: "#7C4DFF" },
-  { name: "Others", value: 10, color: "#F5A623" },
-];
+const categoryColors = ["#0866FF", "#00D4FF", "#16C784", "#7C4DFF", "#F5A623"];
 
 function ProcurementDashboard() {
   const [loading, setLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [pos, setPos] = useState<any[]>([]);
+  const [categoryDataUnavailable, setCategoryDataUnavailable] = useState(false);
+  const supplierCategories = new Map<string, string>();
+  for (const supplier of suppliers) {
+    const id = supplier.id ?? supplier.supplierId ?? supplier.supplier_id;
+    const categories = [supplier.category].flat();
+    const category = categories.find((value) => typeof value === "string" && value.trim());
+    if (id && category) supplierCategories.set(String(id), category.trim());
+  }
+  const valueByCategory = new Map<string, number>();
+  for (const po of pos) {
+    const amount = Number(po.total_amount ?? po.totalAmount ?? po.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const category = supplierCategories.get(String(po.supplierId ?? po.supplier_id)) ?? "Uncategorized";
+    valueByCategory.set(category, (valueByCategory.get(category) ?? 0) + amount);
+  }
+  const categoryBreakdown = [...valueByCategory]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, value], index) => ({ name, value, color: categoryColors[index % categoryColors.length] }));
+  const categoryTotal = categoryBreakdown.reduce((total, entry) => total + entry.value, 0);
   const [moduleCounts, setModuleCounts] = useState({
     suppliers: 0,
     requests: 0,
@@ -249,9 +262,9 @@ function ProcurementDashboard() {
     try {
       setLoading(true);
       const [sData, nData, poData, statsData, requestData, rfqData, quoteData, asnData] = await Promise.all([
-        timeoutPromise(api.getSuppliers(), 2000, []),
+        api.getSuppliers().catch(() => null),
         timeoutPromise(api.getNotifications("PROCUREMENT"), 2000, []),
-        timeoutPromise(api.getPurchaseOrders(), 2000, []),
+        api.getPurchaseOrders().catch(() => null),
         timeoutPromise(api.getProcurementStats(), 2000, {}),
         timeoutPromise(api.getMaterialRequests(), 2000, []),
         timeoutPromise(api.getRfqs(), 2000, []),
@@ -270,6 +283,7 @@ function ProcurementDashboard() {
       setSuppliers(supplierList);
       setNotifications(notifList);
       setPos(poList);
+      setCategoryDataUnavailable(!Array.isArray(poData) || !Array.isArray(sData));
 
       setModuleCounts({
         suppliers: supplierList.length,
@@ -618,8 +632,12 @@ function ProcurementDashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="PO Value by Category" description="Current purchase order distribution" icon={FileBadge}>
-          <div className="flex min-w-0 flex-col items-center gap-4">
+        <SectionCard title="PO Value by Category" description="Purchase order value by supplier’s first listed category" icon={FileBadge}>
+          {loading || categoryDataUnavailable || !categoryTotal ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {loading ? "Loading category breakdown…" : categoryDataUnavailable ? "Category breakdown is unavailable." : "No purchase orders with a positive value."}
+            </p>
+          ) : <div className="flex min-w-0 flex-col items-center gap-4">
             <div className="relative h-[180px] w-[180px] shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -629,7 +647,7 @@ function ProcurementDashboard() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-extrabold text-[#101D3A] tabular-nums">{formatInrCompact(Number(stats.totalPoValue || 0))}</span>
+                <span className="max-w-24 break-all text-center text-sm font-extrabold text-[#101D3A] tabular-nums">{formatInrCompact(categoryTotal)}</span>
                 <span className="text-[11px] font-semibold text-[#526580]">Total Value</span>
               </div>
             </div>
@@ -640,11 +658,11 @@ function ProcurementDashboard() {
                     <span className="mt-0.5 size-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
                     <span className="min-w-0 break-words">{entry.name}</span>
                   </span>
-                  <span className="shrink-0 font-bold tabular-nums text-[#101D3A]">{entry.value}%</span>
+                  <span className="shrink-0 font-bold tabular-nums text-[#101D3A]">{(entry.value / categoryTotal).toLocaleString("en-IN", { style: "percent", maximumFractionDigits: 1 })}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
         </SectionCard>
 
         <SectionCard title="Action Required" description="Items needing attention" icon={AlertTriangle}>

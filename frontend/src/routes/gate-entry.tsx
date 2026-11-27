@@ -90,7 +90,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-
 function gateQrPayload(gateEntryNumber: string) {
   return `KAIZENX:GATE_ENTRY:${gateEntryNumber.trim().toUpperCase()}`;
 }
@@ -144,7 +143,8 @@ function formatVehicleNumber(value: string): string {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 11);
   const bharat = compact.match(/^(\d{2})BH(\d{4})([A-Z]{2})$/);
-  if (bharat && bharat[1] && bharat[2] && bharat[3]) return `${bharat[1]}-BH-${bharat[2]}-${bharat[3]}`;
+  if (bharat && bharat[1] && bharat[2] && bharat[3])
+    return `${bharat[1]}-BH-${bharat[2]}-${bharat[3]}`;
   const standard = compact.match(/^([A-Z]{2})(\d{1,2})([A-Z]{1,3})(\d{4})$/);
   if (standard && standard[1] && standard[2] && standard[3] && standard[4])
     return `${standard[1]}-${standard[2].padStart(2, "0")}-${standard[3]}-${standard[4]}`;
@@ -187,8 +187,14 @@ function extractVehiclesFromAsns(matchingAsns: any[]): PlannedVehicle[] {
             asnNumber: asnNum,
             vehicleNumber: formattedVeh,
             transporter: item.transporter || asn.transporter || "",
-            driverName: item.driver_name || item.driverName || asn.driverName || asn.driver_name || "",
-            driverPhone: item.driver_contact || item.driverContact || asn.driverContact || asn.driver_contact || "",
+            driverName:
+              item.driver_name || item.driverName || asn.driverName || asn.driver_name || "",
+            driverPhone:
+              item.driver_contact ||
+              item.driverContact ||
+              asn.driverContact ||
+              asn.driver_contact ||
+              "",
             pkgCount: item.number_of_packages ?? item.numberOfPackages ?? asn.numberOfPackages,
             pkgType: item.package_type || item.packageType || asn.packageType,
           });
@@ -337,7 +343,7 @@ function GateEntry() {
         freshGateEntry?.assignedDock ||
         freshGateEntry?.assigned_dock_id ||
         freshGateEntry?.assignedDockId;
-      
+
       let dockAllocationStatus = "AWAITING_DOCK";
       if (assignedDock) {
         dockAllocationStatus = "DOCK_ASSIGNED";
@@ -415,7 +421,11 @@ function GateEntry() {
     const items = rawItems
       .map((item: any, idx: number) => ({
         material_code: String(
-          item.material_code ?? item.materialCode ?? item.item_code ?? item.itemCode ?? `MAT-${101 + idx}`,
+          item.material_code ??
+            item.materialCode ??
+            item.item_code ??
+            item.itemCode ??
+            `MAT-${101 + idx}`,
         ),
         material_description: String(
           item.material_description ??
@@ -427,7 +437,11 @@ function GateEntry() {
         // ASN lines expose their quantity as shippedQuantity, whereas PO and
         // OCR lines use quantity. Support both when populating the gate form.
         quantity: formatQuantityInputValue(
-          item.shipped_quantity ?? item.shippedQuantity ?? item.quantity ?? item.ordered_quantity ?? "10",
+          item.shipped_quantity ??
+            item.shippedQuantity ??
+            item.quantity ??
+            item.ordered_quantity ??
+            "10",
         ),
         uom: String(item.uom ?? item.unit ?? "PCS"),
       }))
@@ -479,7 +493,8 @@ function GateEntry() {
             poStatus: record.poStatus ?? record.po_status,
             asnNumber: record.asnNumber ?? record.asn_number,
             asnStatus: record.asnStatus ?? record.asn_status,
-            vehiclePlate: record.vehiclePlate ?? record.vehicle_plate ?? record.vehicle_number ?? "",
+            vehiclePlate:
+              record.vehiclePlate ?? record.vehicle_plate ?? record.vehicle_number ?? "",
             driverName: record.driverName ?? record.driver_name ?? "",
             assignedDock,
             dockAllocationStatus,
@@ -509,7 +524,10 @@ function GateEntry() {
 
   // Load available PO list for quick selection
   useEffect(() => {
-    void api.getPurchaseOrders().then((pos) => setAvailablePos(pos || [])).catch(() => {});
+    void api
+      .getPurchaseOrders()
+      .then((pos) => setAvailablePos(pos || []))
+      .catch(() => {});
   }, []);
 
   // Real-time auto-fetch PO details when entering PO number
@@ -553,8 +571,6 @@ function GateEntry() {
       toast.success("Vehicle photo attached. Enter vehicle details manually.");
     }
   }
-
-
 
   async function fetchPoDetails(number: string, preserveScannedFields = false) {
     if (!number || number.trim().length < 3) return;
@@ -623,7 +639,10 @@ function GateEntry() {
       setPoNumber(resolvedPoNumber);
       setPoVerificationStatus("PO_VERIFIED");
 
-      const normalizePo = (val: string) => String(val || "").toUpperCase().replace(/^PO-?/, "");
+      const normalizePo = (val: string) =>
+        String(val || "")
+          .toUpperCase()
+          .replace(/^PO-?/, "");
       const targetPoNorm = normalizePo(resolvedPoNumber);
 
       const matchingAsns = asns.filter((asn: any) => {
@@ -999,7 +1018,7 @@ function GateEntry() {
       title="Gate Entry"
       subtitle="Security verification, vehicle photo capture, and arrival queue management."
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             className="rounded-xl text-destructive hover:bg-destructive/10 border-destructive/20"
@@ -1009,7 +1028,7 @@ function GateEntry() {
           </Button>
           <Button
             variant="outline"
-            className="rounded-xl"
+            className="rounded-xl border-transparent bg-[#0866FF] text-white hover:bg-[#0054D6] hover:text-white"
             onClick={() => void loadEntries()}
             disabled={loading}
           >
@@ -1018,16 +1037,16 @@ function GateEntry() {
         </div>
       }
     >
-      <div className="grid gap-4 xl:grid-cols-3">
-        <form onSubmit={submit} className="space-y-4 xl:col-span-2">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <form onSubmit={submit} className="min-w-0 space-y-6">
           <SectionCard
-            title="ASN Reference Lookup (Optional)"
-            description="Enter an ASN reference to quickly auto-populate PO, supplier, vehicle, and item details"
+            title="ASN reference lookup"
+            description="Optional. Load PO, supplier, vehicle, and item details from an ASN."
             icon={ScanLine}
           >
             <div className="w-full">
               <Label htmlFor="asn_reference">ASN Reference</Label>
-              <div className="relative mt-1.5">
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <Input
                   suppressHydrationWarning
                   id="asn_reference"
@@ -1041,28 +1060,30 @@ function GateEntry() {
                       void fetchAsnDetails(asnReference);
                     }
                   }}
-                  placeholder="e.g. ASN-2026-0001 (Press Enter or click refresh to load)"
-                  className={cn(inputClass, "pr-10")}
+                  placeholder="e.g. ASN-2026-0001"
+                  className={cn(inputClass, "mt-0 min-w-0 flex-1 basis-44")}
                 />
-                <button
+                <Button
                   suppressHydrationWarning
                   type="button"
                   onClick={() => void fetchAsnDetails(asnReference)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
-                  title="Load ASN Details"
+                  variant="outline"
+                  className="h-10 shrink-0 rounded-xl border-[#DCE6F3] bg-[#EBF3FF] font-semibold text-[#0866FF] hover:bg-[#DCEBFF] hover:text-[#0054D6]"
+                  disabled={!asnReference.trim()}
                 >
                   <RefreshCw className="size-4" />
-                </button>
+                  Load ASN
+                </Button>
               </div>
             </div>
           </SectionCard>
 
           <SectionCard
-            title="Arrival photo capture & upload"
-            description="Capture from camera or upload PO photo/PDF and vehicle photo"
+            title="Arrival documents and photos"
+            description="Use your camera or upload an existing file."
             icon={Camera}
           >
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 w-full">
+            <div className="grid gap-4 sm:grid-cols-2">
               <ScanCard
                 label="PO document"
                 detail={poDocument ? "PO document photo ready" : "Optional (Photo/PDF)"}
@@ -1152,7 +1173,11 @@ function GateEntry() {
             <datalist id="po-options">
               {availablePos.map((item: any, idx: number) => {
                 const num = item.poNumber || item.po_number;
-                return num ? <option key={`${num}-${idx}`} value={num}>{item.supplierName || item.supplier_name || ""}</option> : null;
+                return num ? (
+                  <option key={`${num}-${idx}`} value={num}>
+                    {item.supplierName || item.supplier_name || ""}
+                  </option>
+                ) : null;
               })}
             </datalist>
 
@@ -1163,7 +1188,10 @@ function GateEntry() {
                     Purchase order number <span className="text-destructive">*</span>
                   </Label>
                   {fieldSources.poNumber === "system" && (
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Fetched
                     </Badge>
                   )}
@@ -1180,7 +1208,7 @@ function GateEntry() {
                       setPoVerificationStatus(null);
                     }}
                     onBlur={() => fetchPoDetails(poNumber)}
-                    placeholder="Type or select a PO number (e.g. PO-1001)"
+                    placeholder="Enter or select a PO"
                     className={cn(inputClass, "pr-10 font-mono")}
                   />
                   <button
@@ -1190,7 +1218,9 @@ function GateEntry() {
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
                     title="Lookup PO details"
                   >
-                    <RefreshCw className={cn("size-4", autoFetchingPo && "animate-spin text-primary")} />
+                    <RefreshCw
+                      className={cn("size-4", autoFetchingPo && "animate-spin text-primary")}
+                    />
                   </button>
                 </div>
                 {poVerificationStatus && (
@@ -1210,11 +1240,17 @@ function GateEntry() {
                     Supplier name <span className="text-destructive">*</span>
                   </Label>
                   {fieldSources.supplier === "system" ? (
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Fetched
                     </Badge>
                   ) : fieldSources.supplier === "generated" ? (
-                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Generated
                     </Badge>
                   ) : null}
@@ -1325,11 +1361,17 @@ function GateEntry() {
                 <div className="flex items-center justify-between">
                   <Label htmlFor="po_date">PO date</Label>
                   {fieldSources.dates === "system" ? (
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Fetched
                     </Badge>
                   ) : fieldSources.dates === "generated" ? (
-                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Generated
                     </Badge>
                   ) : null}
@@ -1347,11 +1389,17 @@ function GateEntry() {
                 <div className="flex items-center justify-between">
                   <Label htmlFor="delivery_date">Delivery date</Label>
                   {fieldSources.dates === "system" ? (
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Fetched
                     </Badge>
                   ) : fieldSources.dates === "generated" ? (
-                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4">
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 h-4"
+                    >
                       Auto-Generated
                     </Badge>
                   ) : null}
@@ -1396,17 +1444,21 @@ function GateEntry() {
                   <div className="flex items-center gap-2">
                     <Truck className="size-4 text-primary" />
                     <p className="text-xs font-bold text-foreground">
-                      Planned Vehicle Arrivals ({plannedVehicles.length} Vehicle{plannedVehicles.length > 1 ? "s" : ""})
+                      Planned Vehicle Arrivals ({plannedVehicles.length} Vehicle
+                      {plannedVehicles.length > 1 ? "s" : ""})
                     </p>
                   </div>
                   <Badge variant="outline" className="text-[10px] font-bold">
-                    {plannedVehicles.filter((shipment) =>
-                      entries.some(
-                        (entry) =>
-                          String(entry.poNumber || "").toUpperCase() === poNumber.toUpperCase() &&
-                          formatVehicleNumber(entry.vehiclePlate || "") === shipment.vehicleNumber,
-                      ),
-                    ).length}
+                    {
+                      plannedVehicles.filter((shipment) =>
+                        entries.some(
+                          (entry) =>
+                            String(entry.poNumber || "").toUpperCase() === poNumber.toUpperCase() &&
+                            formatVehicleNumber(entry.vehiclePlate || "") ===
+                              shipment.vehicleNumber,
+                        ),
+                      ).length
+                    }
                     /{plannedVehicles.length} arrived
                   </Badge>
                 </div>
@@ -1464,11 +1516,17 @@ function GateEntry() {
                         </div>
                         <div>
                           {hasArrived ? (
-                            <Badge variant="outline" className="text-[9px] bg-emerald-500/20 text-emerald-700 border-emerald-500/40 font-bold">
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] bg-emerald-500/20 text-emerald-700 border-emerald-500/40 font-bold"
+                            >
                               Arrived
                             </Badge>
                           ) : isSelected ? (
-                            <Badge variant="outline" className="text-[9px] bg-primary/20 text-primary border-primary/40 font-bold">
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] bg-primary/20 text-primary border-primary/40 font-bold"
+                            >
                               Selected
                             </Badge>
                           ) : (
@@ -1482,7 +1540,8 @@ function GateEntry() {
                   })}
                 </div>
                 <p className="mt-2 text-[10px] text-muted-foreground">
-                  Select a planned vehicle to auto-fill its vehicle number, driver details, and ASN reference.
+                  Select a planned vehicle to auto-fill its vehicle number, driver details, and ASN
+                  reference.
                 </p>
               </div>
             )}
@@ -1531,7 +1590,7 @@ function GateEntry() {
             </div>
           </SectionCard>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary-soft/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs sm:px-6">
             <p className="text-sm text-muted-foreground">
               Creating the entry publishes the verified arrival to the yard in real time.
             </p>
@@ -1563,22 +1622,21 @@ function GateEntry() {
           title="Live gate queue"
           description="Refreshes automatically every 2 seconds"
           icon={CheckCircle2}
+          className="min-w-0"
         >
           {loading ? (
             <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Loading live entries…
             </div>
           ) : entries.length === 0 ? (
-            <div className="grid min-h-56 place-items-center rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+            <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-[#DCE6F3] bg-[#F5F8FF] p-5 text-center text-sm text-muted-foreground">
               No gate entries yet.
             </div>
           ) : (
             <div className="space-y-3">
               {entries.slice(0, 8).map((entry) => (
-                <div key={entry.id} className="relative group">
-                  <div
-                    className="flex items-center gap-3 rounded-xl border border-border/70 p-3 transition-colors hover:border-primary/30 hover:bg-primary-soft/50"
-                  >
+                <div key={entry.id} className="relative">
+                  <div className="flex items-start gap-3 rounded-xl border border-[#DCE6F3] bg-[#F8FAFD] p-3 pb-11 transition-colors hover:border-primary/30">
                     {entry.truckPhotoBase64 ? (
                       <div className="size-14 shrink-0 overflow-hidden rounded-lg border border-border/40">
                         <img
@@ -1599,8 +1657,8 @@ function GateEntry() {
                     />
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="font-mono text-sm font-semibold text-primary truncate">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                        <p className="min-w-0 break-words font-mono text-sm font-semibold text-primary">
                           {entry.vehiclePlate || "NO PLATE"}
                         </p>
                         <StatusBadge status={entry.status} />
@@ -1623,14 +1681,16 @@ function GateEntry() {
                         </p>
                       )}
 
-                      {(entry.status === "VEHICLE_EXITED" || entry.exited_at || entry.exitedAt) ? (
+                      {entry.status === "VEHICLE_EXITED" || entry.exited_at || entry.exitedAt ? (
                         <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs space-y-0.5">
                           <p className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                             <ShieldCheck className="size-3.5" /> Status: Gate Exit Approved
                           </p>
                           {(entry.exited_at || entry.exitedAt) && (
                             <p className="text-[10px] text-muted-foreground">
-                              <span className="font-medium text-foreground">Approved Exit Time:</span>{" "}
+                              <span className="font-medium text-foreground">
+                                Approved Exit Time:
+                              </span>{" "}
                               {new Date(entry.exited_at || entry.exitedAt!).toLocaleString()}
                             </p>
                           )}
@@ -1667,7 +1727,8 @@ function GateEntry() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-2 bottom-2 size-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm"
+                    className="absolute right-3 bottom-2 size-8 rounded-lg border border-[#DCE6F3] bg-white text-[#0866FF] hover:bg-[#EBF3FF] hover:text-[#0054D6]"
+                    aria-label="Print gate pass"
                     title="Print Gate Pass"
                     onClick={(e) => {
                       e.preventDefault();
@@ -1693,7 +1754,9 @@ function GateEntry() {
           </DialogHeader>
           {qrModalEntry && (
             <div className="flex flex-col items-center bg-white px-6 py-7 text-slate-950">
-              <LargeQrCode value={gateQrPayload(qrModalEntry.gate_entry_number || qrModalEntry.id)} />
+              <LargeQrCode
+                value={gateQrPayload(qrModalEntry.gate_entry_number || qrModalEntry.id)}
+              />
               <p className="mt-4 font-mono text-lg font-black tracking-wide">
                 {qrModalEntry.gate_entry_number || qrModalEntry.id}
               </p>
@@ -1831,11 +1894,15 @@ function GateEntry() {
                       <span className="rounded-lg border border-primary/20 bg-primary-soft/40 px-2.5 py-1 font-mono text-sm font-black text-primary">
                         {lastCreatedEntry.assignedDock}
                       </span>
-                      <StatusBadge status={lastCreatedEntry.dockAllocationStatus || "DOCK_ASSIGNED"} />
+                      <StatusBadge
+                        status={lastCreatedEntry.dockAllocationStatus || "DOCK_ASSIGNED"}
+                      />
                     </div>
                   ) : (
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <StatusBadge status={lastCreatedEntry.dockAllocationStatus || "AWAITING_DOCK"} />
+                      <StatusBadge
+                        status={lastCreatedEntry.dockAllocationStatus || "AWAITING_DOCK"}
+                      />
                       <span className="text-[11px] font-medium text-muted-foreground">
                         Waiting for Warehouse Manager allocation in Dock Management.
                       </span>

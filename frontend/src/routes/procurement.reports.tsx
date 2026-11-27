@@ -61,7 +61,7 @@ export const Route = createFileRoute("/procurement/reports")({
   beforeLoad: () => requireRole(["PROCUREMENT", "FINANCE"]),
   head: () => ({
     meta: [
-      { title: "Procurement Reports · KaizenX" },
+      { title: "Procurement Reports · Warehub 360 degree" },
       {
         name: "description",
         content: "Analytics and reporting across purchase spend, supplier performance, RFQs, and ASNs.",
@@ -73,18 +73,39 @@ export const Route = createFileRoute("/procurement/reports")({
 
 type ReportTab = "spend" | "supplier-performance" | "rfq-analytics" | "asns-compliance" | "material-requests";
 
+function reportDate(record: any) {
+  return record.poDate || record.po_date || record.rfqDate || record.rfq_date ||
+    record.dispatchDate || record.dispatch_date || record.createdAt || record.created_at || record.date;
+}
+
+function matchesReportDate(record: any, range: string) {
+  if (range === "all") return true;
+  const raw = reportDate(record);
+  if (!raw) return false;
+  const date = new Date(raw);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  if (range === "last-quarter") {
+    const quarterStart = Math.floor(month / 3) * 3;
+    return date >= new Date(year, quarterStart - 3, 1) && date < new Date(year, quarterStart, 1);
+  }
+  if (range === "ytd") return date >= new Date(year, 0, 1) && date <= now;
+  return date >= new Date(year, month, 1) && date < new Date(year, month + 1, 1);
+}
+
 const COLORS = ["#0866FF", "#16C784", "#F5A623", "#7C4DFF", "#00D4FF", "#526580"];
 
 function formatInr(val: number): string {
   if (!Number.isFinite(val)) return "₹0";
-  return `₹${val.toLocaleString("en-IN")}`;
+  return `₹${val.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
 function formatInrCompact(value: number): string {
   if (!Number.isFinite(value)) return "₹0";
   if (Math.abs(value) >= 10000000) return `₹${(value / 10000000).toFixed(2)} Cr`;
   if (Math.abs(value) >= 100000) return `₹${(value / 100000).toFixed(2)} L`;
-  return `₹${value.toLocaleString("en-IN")}`;
+  return formatInr(value);
 }
 
 function ProcurementReports() {
@@ -102,7 +123,6 @@ function ProcurementReports() {
   const [quotations, setQuotations] = useState<any[]>([]);
   const [materialRequests, setMaterialRequests] = useState<any[]>([]);
   const [asns, setAsns] = useState<any[]>([]);
-  const [procurementStats, setProcurementStats] = useState<any>({});
 
   // Filters
   const [search, setSearch] = useState("");
@@ -115,14 +135,13 @@ function ProcurementReports() {
     else setLoading(true);
 
     try {
-      const [sData, poData, rfqData, qData, mrData, asnData, statsData] = await Promise.all([
+      const [sData, poData, rfqData, qData, mrData, asnData] = await Promise.all([
         api.getSuppliers().catch(() => []),
         api.getPurchaseOrders().catch(() => []),
         api.getRfqs().catch(() => []),
         api.getQuotations().catch(() => []),
         api.getMaterialRequests().catch(() => []),
         api.getAsns().catch(() => []),
-        api.getProcurementStats().catch(() => ({})),
       ]);
 
       setSuppliers(Array.isArray(sData) ? sData : []);
@@ -131,7 +150,6 @@ function ProcurementReports() {
       setQuotations(Array.isArray(qData) ? qData : []);
       setMaterialRequests(Array.isArray(mrData) ? mrData : []);
       setAsns(Array.isArray(asnData) ? asnData : []);
-      setProcurementStats(statsData || {});
 
       if (isManual) toast.success("Procurement reports refreshed");
     } catch (err: any) {
@@ -192,40 +210,6 @@ function ProcurementReports() {
     return savings;
   }, [quotations]);
 
-  // Dynamic Monthly PO Spend & Volume
-  const monthlyTrendData = useMemo(() => {
-    if (
-      procurementStats.trend &&
-      Array.isArray(procurementStats.trend) &&
-      procurementStats.trend.length > 0
-    ) {
-      return procurementStats.trend.map((t: any) => ({
-        month: t.month,
-        pos: Number(t.pos || 0),
-        spend: Number(t.spend || 0),
-      }));
-    }
-
-    const monthMap: Record<string, { pos: number; spend: number }> = {};
-    purchaseOrders.forEach((po) => {
-      const dateStr = po.po_date || po.created_at || po.date;
-      if (dateStr) {
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime())) {
-          const mLabel = d.toLocaleString("default", { month: "short" });
-          if (!monthMap[mLabel]) monthMap[mLabel] = { pos: 0, spend: 0 };
-          monthMap[mLabel].pos += 1;
-          monthMap[mLabel].spend += Number(po.total_amount || po.totalAmount || 0);
-        }
-      }
-    });
-
-    return Object.entries(monthMap).map(([month, val]) => ({
-      month,
-      pos: val.pos,
-      spend: val.spend,
-    }));
-  }, [procurementStats, purchaseOrders]);
 
   // Dynamic Category Distribution
   const categorySpendData = useMemo(() => {
@@ -239,15 +223,6 @@ function ProcurementReports() {
     return Object.entries(catMap).map(([name, value]) => ({ name, value }));
   }, [suppliers]);
 
-  // Dynamic PO Status Distribution
-  const poStatusDistribution = useMemo(() => {
-    const dist: Record<string, number> = {};
-    purchaseOrders.forEach((po) => {
-      const st = po.status || "Draft";
-      dist[st] = (dist[st] || 0) + 1;
-    });
-    return Object.entries(dist).map(([name, value]) => ({ name, value }));
-  }, [purchaseOrders]);
 
   // Filtered PO Records
   const filteredPurchaseOrders = useMemo(() => {
@@ -255,18 +230,51 @@ function ProcurementReports() {
       const q = search.trim().toLowerCase();
       const matchesSearch =
         !q ||
-        [po.po_number, po.poNumber, po.supplier_name, po.supplierName]
+        [po.po_number, po.poNumber, po.supplier_name, po.supplierName,
+          ...(po.items ?? po.lines ?? []).flatMap((item: any) => [
+            item.materialName, item.material_name, item.materialCode, item.material_code,
+            item.itemCode, item.item_code, item.variantCode, item.variant_code,
+          ]),
+        ]
           .filter(Boolean)
           .some((val) => String(val).toLowerCase().includes(q));
       const statusNorm = String(po.status || "").toUpperCase();
       const filterNorm = selectedStatus.toUpperCase();
       const matchesStatus =
         selectedStatus === "ALL" ||
-        statusNorm === filterNorm ||
-        (filterNorm === "APPROVED" && statusNorm.includes("APPROV"));
-      return matchesSearch && matchesStatus;
+        statusNorm === filterNorm;
+      return matchesSearch && matchesStatus && matchesReportDate(po, dateRange);
     });
-  }, [purchaseOrders, search, selectedStatus]);
+  }, [purchaseOrders, search, selectedStatus, dateRange]);
+
+  const monthlyTrendData = useMemo(() => {
+    const months = new Map<string, { month: string; pos: number; spend: number }>();
+    for (const po of filteredPurchaseOrders) {
+      const raw = reportDate(po);
+      if (!raw) continue;
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) continue;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const entry = months.get(key) ?? {
+        month: date.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+        pos: 0,
+        spend: 0,
+      };
+      entry.pos += 1;
+      entry.spend += Number(po.total_amount || po.totalAmount || 0);
+      months.set(key, entry);
+    }
+    return [...months.keys()].sort().map((key) => months.get(key)!);
+  }, [filteredPurchaseOrders]);
+
+  const poStatusDistribution = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const po of filteredPurchaseOrders) {
+      const name = po.status || "Draft";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].map(([name, value]) => ({ name, value }));
+  }, [filteredPurchaseOrders]);
 
   // Filtered Suppliers
   const filteredSuppliers = useMemo(() => {
@@ -287,9 +295,9 @@ function ProcurementReports() {
         (Array.isArray(s.category)
           ? s.category.includes(selectedCategory)
           : s.category === selectedCategory);
-      return matchesSearch && matchesStatus && matchesCat;
+      return matchesSearch && matchesStatus && matchesCat && matchesReportDate(s, dateRange);
     });
-  }, [suppliers, search, selectedStatus, selectedCategory]);
+  }, [suppliers, search, selectedStatus, selectedCategory, dateRange]);
 
   // Filtered RFQs
   const filteredRfqs = useMemo(() => {
@@ -303,9 +311,9 @@ function ProcurementReports() {
       const matchesStatus =
         selectedStatus === "ALL" ||
         String(r.status || "").toUpperCase() === selectedStatus.toUpperCase();
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesReportDate(r, dateRange);
     });
-  }, [rfqs, search, selectedStatus]);
+  }, [rfqs, search, selectedStatus, dateRange]);
 
   // Filtered ASNs
   const filteredAsns = useMemo(() => {
@@ -319,9 +327,9 @@ function ProcurementReports() {
       const matchesStatus =
         selectedStatus === "ALL" ||
         String(a.status || "").toUpperCase() === selectedStatus.toUpperCase();
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesReportDate(a, dateRange);
     });
-  }, [asns, search, selectedStatus]);
+  }, [asns, search, selectedStatus, dateRange]);
 
   // Filtered Material Requests
   const filteredMaterialRequests = useMemo(() => {
@@ -335,14 +343,25 @@ function ProcurementReports() {
       const matchesStatus =
         selectedStatus === "ALL" ||
         String(mr.status || "").toUpperCase() === selectedStatus.toUpperCase();
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesReportDate(mr, dateRange);
     });
-  }, [materialRequests, search, selectedStatus]);
+  }, [materialRequests, search, selectedStatus, dateRange]);
+
+  const recordsByTab = {
+    spend: purchaseOrders,
+    "supplier-performance": suppliers,
+    "rfq-analytics": rfqs,
+    "asns-compliance": asns,
+    "material-requests": materialRequests,
+  };
+  const statusOptions = Array.from(new Set<string>(
+    recordsByTab[activeTab].map((record) => String(record.status || "").trim().toUpperCase()).filter(Boolean),
+  )).sort();
 
   // Export Report to CSV with Active Filters Applied
   const handleExportCSV = () => {
     const rows: string[][] = [];
-    const filename = `kaizenx-procurement-${activeTab}-report.csv`;
+    const filename = `warehub-360-degree-procurement-${activeTab}-report.csv`;
 
     if (activeTab === "spend") {
       rows.push(["PO Number", "Supplier Name", "PO Date", "Status", "Total Amount (INR)"]);
@@ -426,26 +445,25 @@ function ProcurementReports() {
   return (
     <AppShell mainClassName="bg-[#F5F8FF]">
       <div className="space-y-6 pb-24 max-w-[1536px] mx-auto">
-        {/* 1. Breadcrumb Navigation */}
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#526580]">
-          <Link to="/procurement-dashboard" className="hover:text-[#0866FF] transition-colors">
-            Procurement
-          </Link>
-          <ChevronRight className="size-3 text-[#8FA3BF]" />
-          <span className="font-bold text-[#101D3A]">
-            {isFinanceOnly ? "Finance Reports" : "Procurement Reports"}
-          </span>
-        </div>
-
-        {/* 2. Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-100/75">
+            <Link to={isFinanceOnly ? "/finance-dashboard" : "/procurement-dashboard"} className="transition-colors hover:text-white">
+              {isFinanceOnly ? "Finance" : "Procurement"}
+            </Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <span className="font-bold text-white">
+              {isFinanceOnly ? "Finance Reports" : "Procurement Reports"}
+            </span>
+          </div>
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3.5">
-            <div className="size-12 rounded-2xl bg-[#EBF3FF] border border-[#DCE6F3] text-[#0866FF] flex items-center justify-center shadow-xs shrink-0">
-              <BarChart3 className="size-6 text-[#0866FF]" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white shadow-xs">
+              <BarChart3 className="size-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-[30px] font-extrabold tracking-tight text-[#101D3A] leading-tight">
+                <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-[30px]">
                   {isFinanceOnly ? "Finance Reports" : "Procurement Reports"}
                 </h1>
                 <TooltipProvider>
@@ -454,7 +472,7 @@ function ProcurementReports() {
                       <button
                         type="button"
                         aria-label="Reports Info"
-                        className="inline-flex items-center text-[#526580] hover:text-[#0866FF] transition-colors cursor-help"
+                        className="inline-flex cursor-help items-center text-blue-100/75 transition-colors hover:text-white"
                       >
                         <Info className="size-4" />
                       </button>
@@ -468,7 +486,7 @@ function ProcurementReports() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p className="text-xs sm:text-sm font-medium text-[#526580] mt-0.5">
+              <p className="mt-0.5 text-xs font-medium text-blue-100/85 sm:text-sm">
                 {isFinanceOnly
                   ? "Financial analytics for purchase order spend and RFQ savings"
                   : "Analyze purchase order spend, supplier ratings, quotation bidding, and receiving compliance"}
@@ -494,19 +512,22 @@ function ProcurementReports() {
               Export CSV
             </Button>
           </div>
+          </div>
         </div>
 
         {/* 3. 4 Strengthened KPI Stat Cards */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <section aria-labelledby="reports-overview" className="space-y-3">
+        <h2 id="reports-overview" className="text-lg font-bold text-[#101D3A]">Reports overview</h2>
+        <div className="grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 [&>div]:min-w-0">
           {/* Total Purchase Value */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Total Purchase Value</span>
               <div className="grid size-10 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
                 <IndianRupee className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {loading ? "..." : formatInrCompact(totalPoValue)}
               </span>
@@ -517,14 +538,14 @@ function ProcurementReports() {
           </div>
 
           {/* Active Suppliers */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Active Suppliers</span>
               <div className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-[#16C784]">
                 <Building2 className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {loading ? "..." : String(activeSupplierCount)}
               </span>
@@ -535,14 +556,14 @@ function ProcurementReports() {
           </div>
 
           {/* RFQs Issued */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">RFQs Issued</span>
               <div className="grid size-10 place-items-center rounded-xl bg-amber-50 text-[#F5A623]">
                 <FileQuestion className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {loading ? "..." : String(rfqs.length)}
               </span>
@@ -553,14 +574,14 @@ function ProcurementReports() {
           </div>
 
           {/* Est. Bidding Savings */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#7C4DFF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#7C4DFF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Est. Bidding Savings</span>
               <div className="grid size-10 place-items-center rounded-xl bg-purple-50 text-[#7C4DFF]">
                 <TrendingUp className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {loading ? "..." : formatInrCompact(totalBidsSavings)}
               </span>
@@ -571,9 +592,10 @@ function ProcurementReports() {
           </div>
         </div>
 
-        {/* 4. Tab Navigation Strip */}
-        <div className="rounded-2xl border border-[#DCE6F3] bg-white p-2 shadow-xs">
-          <div className="flex items-center gap-1.5 overflow-x-auto">
+        </section>
+
+        <section aria-label="Report controls" className="rounded-2xl border border-[#DCE6F3] bg-white shadow-xs">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-t-2xl border-b border-[#DCE6F3] bg-[#F5F8FF] p-3">
             {tabs.map((tab) => {
               const IconComp = tab.icon;
               const isActive = activeTab === tab.id;
@@ -581,10 +603,14 @@ function ProcurementReports() {
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    if (tab.id !== activeTab) setSelectedStatus("ALL");
+                    setActiveTab(tab.id);
+                  }}
                   className={`flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
                     isActive
-                      ? "bg-[#0866FF] text-white shadow-xs"
+                      ? "bg-[#0B2A55] text-white"
                       : "bg-transparent text-[#526580] hover:bg-[#F5F8FF] hover:text-[#101D3A]"
                   }`}
                 >
@@ -594,16 +620,13 @@ function ProcurementReports() {
               );
             })}
           </div>
-        </div>
-
-        {/* 5. Filters Toolbar */}
-        <div className="rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
             {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative min-w-0 lg:max-w-2xl">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
               <input
                 type="text"
+                aria-label="Search report records"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search vendor, PO number, or item..."
@@ -612,6 +635,7 @@ function ProcurementReports() {
               {search && (
                 <button
                   type="button"
+                  aria-label="Clear report search"
                   onClick={() => setSearch("")}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#526580] hover:text-[#101D3A]"
                 >
@@ -620,7 +644,7 @@ function ProcurementReports() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
               {/* Category Filter for Supplier Tab */}
               {activeTab === "supplier-performance" && categories.length > 0 && (
                 <Select value={selectedCategory} onValueChange={setSelectedCategory}>
@@ -645,21 +669,11 @@ function ProcurementReports() {
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-[#DCE6F3]">
                   <SelectItem value="ALL">All Statuses</SelectItem>
-                  {activeTab === "supplier-performance" ? (
-                    <>
-                      <SelectItem value="Active">Active</SelectItem>
-                      <SelectItem value="Pending Approval">Pending Approval</SelectItem>
-                      <SelectItem value="Draft">Draft</SelectItem>
-                      <SelectItem value="Blocked">Blocked</SelectItem>
-                    </>
-                  ) : (
-                    <>
-                      <SelectItem value="Draft">Draft</SelectItem>
-                      <SelectItem value="Approved">Approved</SelectItem>
-                      <SelectItem value="Issued">Issued</SelectItem>
-                      <SelectItem value="Completed">Completed</SelectItem>
-                    </>
-                  )}
+                  {statusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -693,7 +707,7 @@ function ProcurementReports() {
               )}
             </div>
           </div>
-        </div>
+        </section>
 
         {/* 6. Main Tab Content Area */}
         <div>
@@ -707,10 +721,10 @@ function ProcurementReports() {
               {/* TAB 1: PO SPEND & SUMMARY */}
               {activeTab === "spend" && (
                 <div className="space-y-6">
-                  <div className="grid gap-6 xl:grid-cols-3">
+                  <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                     {/* Monthly Trend Chart */}
-                    <div className="rounded-2xl border border-[#DCE6F3] bg-white p-6 shadow-xs xl:col-span-2">
-                      <div className="flex items-center justify-between mb-4">
+                    <div className="min-w-0 rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs sm:p-6">
+                      <div className="mb-4 flex items-start justify-between gap-3 border-b border-[#DCE6F3] pb-4">
                         <div>
                           <h3 className="text-base font-bold text-[#101D3A]">
                             Monthly PO Issuance & Spend Trend
@@ -758,8 +772,8 @@ function ProcurementReports() {
                     </div>
 
                     {/* PO Status Distribution Chart */}
-                    <div className="rounded-2xl border border-[#DCE6F3] bg-white p-6 shadow-xs">
-                      <div className="flex items-center justify-between mb-4">
+                    <div className="min-w-0 rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs sm:p-6">
+                      <div className="mb-4 flex items-start justify-between gap-3 border-b border-[#DCE6F3] pb-4">
                         <div>
                           <h3 className="text-base font-bold text-[#101D3A]">
                             PO Status Distribution

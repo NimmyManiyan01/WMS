@@ -489,11 +489,14 @@ async def create_store_manager(
         applications=payload.applications,
         password_hash=hashed_pwd,
         status=payload.status.strip().upper() if payload.status else "ACTIVE",
+        account_source="WAREHOUSE",
         created_at=now,
         updated_at=now,
     )
 
     uow.session.add(new_manager)
+    from app.modules.store.infrastructure.persistence.models import AdminAuditLogModel
+    uow.session.add(AdminAuditLogModel(actor=user.username, action="STORE_MANAGER_CREATED", target_type="USER", target_id=str(new_manager.id), target_name=new_manager.username, details={"employee_id": new_manager.employee_id, "store_code": store.store_code}))
     store.store_manager_id = clean_emp
     store.store_manager_name = payload.full_name.strip()
     store.updated_at = now

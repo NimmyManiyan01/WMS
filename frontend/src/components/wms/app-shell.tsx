@@ -43,12 +43,7 @@ import {
 import { Fragment, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
 import logoUrl from "@/assets/Logo.png";
 import { getUserInfo, type UserInfo } from "@/lib/auth-utils";
@@ -195,12 +190,10 @@ const procurementNav = [
   { label: "Suppliers", to: "/master-data", icon: Building2 },
   { label: "RFQs", to: "/procurement/rfqs", icon: FileQuestion },
   { label: "Quotations", to: "/procurement/quotations", icon: FileBadge },
-  { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText, hasSubmenu: true },
+  { label: "Purchase Orders", to: "/procurement/purchase-orders", icon: FileText },
   { label: "ASNs", to: "/procurement/asns", icon: Truck },
   { label: "Damage Claims", to: "/damage-claims", icon: ShieldAlert },
   { label: "Procurement Reports", to: "/procurement/reports", icon: BarChart3 },
-
-
 ];
 
 const supplierNav = [
@@ -212,7 +205,8 @@ const supplierNav = [
 const financeNav = [
   { label: "Dashboard", to: "/finance-dashboard", icon: LayoutDashboard },
   { label: "Pending Approvals", to: "/finance/approvals", icon: FileCheck2 },
-  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
+  { label: "Overall Reports", to: "/reports", icon: BarChart3 },
+  { label: "Audit Logs", to: "/admin/audit", icon: ClipboardList },
 ];
 
 const managerNav = [
@@ -242,7 +236,7 @@ const adminNav = [
   { label: "Warehouse", to: "/warehouse-dashboard", icon: Warehouse },
   { label: "Procurement", to: "/procurement-dashboard", icon: ClipboardList },
   { label: "Finance", to: "/finance-dashboard", icon: FileCheck2 },
-  { label: "Finance Reports", to: "/procurement/reports", icon: BarChart3 },
+  { label: "Reports", to: "/procurement/reports", icon: BarChart3 },
 ];
 
 const ICON_MAP: Record<string, any> = {
@@ -316,7 +310,11 @@ function getNotificationRole(user: { username?: string; roles?: string[] } | nul
     return "ASSEMBLY_MANAGER";
   if (isDispatchSession(user)) return "DISPATCH";
   if (isGrnSession(user)) return "GRN";
-  return "WAREHOUSE";
+  if (hasUserRole(user, "WAREHOUSE")) return "WAREHOUSE";
+  if (hasUserRole(user, "ADMIN") || hasUserRole(user, "SUPERUSER")) return "ADMIN";
+  return String(user?.roles?.[0] || "")
+    .trim()
+    .toUpperCase();
 }
 
 function getStrictRoleNav(user: { username?: string; roles?: string[] } | null): NavItem[] {
@@ -352,11 +350,22 @@ function getRoleLabel(user: { username?: string; roles?: string[] } | null): str
 }
 
 function getModuleBreadcrumb(pathname: string): string {
-  if (pathname.startsWith("/procurement") || pathname === "/master-data" || pathname === "/new-supplier") return "Procurement";
+  if (
+    pathname.startsWith("/procurement") ||
+    pathname === "/master-data" ||
+    pathname === "/new-supplier"
+  )
+    return "Procurement";
   if (pathname.startsWith("/gate") || pathname.startsWith("/vehicle")) return "Gate Security";
   if (pathname.startsWith("/dock")) return "Dock Management";
   if (pathname.startsWith("/grn") || pathname.startsWith("/receiving")) return "Receiving & GRN";
-  if (pathname.startsWith("/warehouse") || pathname === "/inventory" || pathname === "/my-store" || pathname === "/putaway-tasks") return "Warehouse";
+  if (
+    pathname.startsWith("/warehouse") ||
+    pathname === "/inventory" ||
+    pathname === "/my-store" ||
+    pathname === "/putaway-tasks"
+  )
+    return "Warehouse";
   if (pathname.startsWith("/assembly")) return "Assembly";
   if (pathname.startsWith("/dispatch")) return "Dispatch";
   if (pathname.startsWith("/finance")) return "Finance";
@@ -366,8 +375,19 @@ function getModuleBreadcrumb(pathname: string): string {
 }
 
 function getEnterpriseSubtitle(pathname: string): string {
-  if (pathname.startsWith("/procurement") || pathname === "/master-data" || pathname === "/new-supplier") return "Enterprise Procurement";
-  if (pathname.startsWith("/warehouse") || pathname === "/inventory" || pathname === "/my-store" || pathname === "/putaway-tasks") return "Enterprise Warehouse";
+  if (
+    pathname.startsWith("/procurement") ||
+    pathname === "/master-data" ||
+    pathname === "/new-supplier"
+  )
+    return "Enterprise Procurement";
+  if (
+    pathname.startsWith("/warehouse") ||
+    pathname === "/inventory" ||
+    pathname === "/my-store" ||
+    pathname === "/putaway-tasks"
+  )
+    return "Enterprise Warehouse";
   if (pathname.startsWith("/assembly")) return "Enterprise Assembly";
   if (pathname.startsWith("/dispatch")) return "Enterprise Dispatch";
   if (pathname.startsWith("/gate") || pathname.startsWith("/vehicle")) return "Enterprise Security";
@@ -431,7 +451,10 @@ export function AppShell({
         const data = await api.globalSearch(query);
         if (!cancelled) setSearchResults(data.results ?? []);
       } catch {
-        if (!cancelled) setSearchError("Record search is unavailable. Check that the backend service is running and try again.");
+        if (!cancelled)
+          setSearchError(
+            "Record search is unavailable. Check that the backend service is running and try again.",
+          );
       } finally {
         if (!cancelled) setIsSearching(false);
       }
@@ -537,7 +560,8 @@ export function AppShell({
     path === "/master-data" ||
     path === "/new-supplier" ||
     (path.startsWith("/supplier/") && !path.startsWith("/supplier/asns/"));
-  const isSupplierRoute = path === "/supplier-dashboard" || path === "/submit-quotation";
+  const isSupplierRoute =
+    path === "/supplier-dashboard" || path === "/submit-quotation" || path.startsWith("/supplier/asns/");
   const isFinanceUser = mounted && user?.roles?.includes("FINANCE");
   const isSharedFinanceRoute = path === "/procurement/reports";
   const isFinanceRoute =
@@ -585,39 +609,43 @@ export function AppShell({
       ? adminNav
       : isApprovalManager
         ? managerNav
-      : isDispatchUser || isDispatchRoute
-        ? dispatchNav
-        : isAssemblyUser || isAssemblyRoute
-          ? assemblyNav
-          : isStoreUser || isStoreRoute
-            ? storeManagerNav
-            : isGrnUser || isGrnRoute
-              ? grnNav
-              : isSupplierRoute
-                ? supplierNav
-                : isFinanceRoute
-                  ? financeNav
-                  : isProcurementRoute
-                    ? procurementNav
-                    : isGateSecurityRoute
-                      ? gateSecurityNav
-                      : isWarehouseRoute
-                        ? warehouseNav
-                        : mounted && user?.roles?.includes("DISPATCH")
-                          ? dispatchNav
-                          : mounted && user?.roles?.includes("ASSEMBLY")
-                            ? assemblyNav
-                            : mounted && user?.roles?.includes("SUPPLIER")
-                              ? supplierNav
-                              : mounted && user?.roles?.includes("FINANCE")
-                                ? financeNav
-                                : mounted && user?.roles?.includes("PROCUREMENT")
-                                  ? procurementNav
-                                  : isGateSecurityUser
-                                    ? gateSecurityNav
-                                    : warehouseNav;
-  const navigationPending = !mounted && (isSharedOperationsRoute || isSharedFinanceRoute);
-  const nav = navigationPending ? [] : resolvedNav;
+        : isDispatchUser || isDispatchRoute
+          ? dispatchNav
+          : isAssemblyUser || isAssemblyRoute
+            ? assemblyNav
+            : isStoreUser || isStoreRoute
+              ? storeManagerNav
+              : isGrnUser || isGrnRoute
+                ? grnNav
+                : isSupplierRoute
+                  ? supplierNav
+                  : isFinanceRoute
+                    ? financeNav
+                    : isProcurementRoute
+                      ? procurementNav
+                      : isGateSecurityRoute
+                        ? gateSecurityNav
+                        : isWarehouseRoute
+                          ? warehouseNav
+                          : mounted && user?.roles?.includes("DISPATCH")
+                            ? dispatchNav
+                            : mounted && user?.roles?.includes("ASSEMBLY")
+                              ? assemblyNav
+                              : mounted && user?.roles?.includes("SUPPLIER")
+                                ? supplierNav
+                                : mounted && user?.roles?.includes("FINANCE")
+                                  ? financeNav
+                                  : mounted && user?.roles?.includes("PROCUREMENT")
+                                    ? procurementNav
+                                    : isGateSecurityUser
+                                      ? gateSecurityNav
+                                      : warehouseNav;
+  const isOutboundGateRoute = path === "/dispatch-gate-exit" || path === "/dispatch-gate-out";
+  const navigationPending =
+    !mounted && (isSharedOperationsRoute || isSharedFinanceRoute || isOutboundGateRoute);
+  const useGateSecurityNav = isGateSecurityUser && !isAdminUser;
+  const nav = navigationPending ? [] : useGateSecurityNav ? gateSecurityNav : resolvedNav;
+  const showGateSecurityBranding = useGateSecurityNav && isOutboundGateRoute;
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [fullHref]);
@@ -659,10 +687,19 @@ export function AppShell({
     );
   };
   const query = searchTerm.trim().toLowerCase();
-  const matchingPages = query.length >= 2 ? nav
-    .filter((item) => `${item.label} ${item.to}`.toLowerCase().includes(query))
-    .slice(0, 6)
-    .map((item) => ({ id: item.to, type: "PAGE", title: item.label, subtitle: "Open page", link: item.to })) : [];
+  const matchingPages =
+    query.length >= 2
+      ? nav
+          .filter((item) => `${item.label} ${item.to}`.toLowerCase().includes(query))
+          .slice(0, 6)
+          .map((item) => ({
+            id: item.to,
+            type: "PAGE",
+            title: item.label,
+            subtitle: "Open page",
+            link: item.to,
+          }))
+      : [];
   const visibleSearchResults = [...matchingPages, ...searchResults];
   const desktopSidebarCollapsed = sidebarCollapsed;
 
@@ -681,12 +718,16 @@ export function AppShell({
               <div className="flex min-w-0 items-center gap-3">
                 <img
                   src="/kaizenx-cube.png"
-                  alt="KaizenX Logo"
+                  alt="Warehub 360° Logo"
                   className="size-8 object-contain shrink-0 drop-shadow"
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold tracking-tight text-white leading-tight">KaizenX</p>
-                  <p className="truncate text-[10px] font-medium text-[#8FA3BF]">Pune DC · Plant 1200</p>
+                  <p className="truncate text-sm font-bold tracking-tight text-white leading-tight">
+                    Warehub 360°
+                  </p>
+                  <p className="truncate text-[10px] font-medium text-[#8FA3BF]">
+                    Pune DC · Plant 1200
+                  </p>
                 </div>
               </div>
               <button
@@ -706,15 +747,13 @@ export function AppShell({
                 ))}
               {nav.map((item) => {
                 const active = isActiveNavItem(item.to);
+                const [path, query] = item.to.split("?");
                 return (
                   <Link
                     key={`${item.label}-${item.to}`}
-                    to={item.to as any}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setMobileSidebarOpen(false);
-                      void navigate({ to: item.to as any });
-                    }}
+                    to={path as any}
+                    search={Object.fromEntries(new URLSearchParams(query))}
+                    onClick={() => setMobileSidebarOpen(false)}
                     title={item.label}
                     className={cn(
                       "group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all",
@@ -723,7 +762,12 @@ export function AppShell({
                         : "text-[#8FA3BF] hover:bg-[#102D57] hover:text-white",
                     )}
                   >
-                    <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-[#8FA3BF] group-hover:text-white")} />
+                    <item.icon
+                      className={cn(
+                        "size-[18px] shrink-0",
+                        active ? "text-white" : "text-[#8FA3BF] group-hover:text-white",
+                      )}
+                    />
                     <span className="truncate">{item.label}</span>
                     {(item as any).badge && (
                       <span className="ml-auto grid size-5 place-items-center rounded-full bg-[#E5484D] text-[10px] font-semibold text-white">
@@ -734,7 +778,6 @@ export function AppShell({
                 );
               })}
             </nav>
-
           </aside>
         </div>
       )}
@@ -763,22 +806,22 @@ export function AppShell({
             <div className="flex items-center gap-2.5 min-w-0">
               <img
                 src="/kaizenx-cube.png"
-                alt="KaizenX Logo"
+                alt="Warehub 360° Logo"
                 className="size-8 object-contain shrink-0 drop-shadow"
               />
               <div className="min-w-0">
                 <p className="truncate text-base font-bold tracking-tight text-white leading-tight">
-                  KaizenX
+                  Warehub 360°
                 </p>
                 <p className="truncate text-[11px] font-medium text-[#8FA3BF]">
-                  {getEnterpriseSubtitle(path)}
+                  {showGateSecurityBranding ? "Enterprise Security" : getEnterpriseSubtitle(path)}
                 </p>
               </div>
             </div>
           ) : (
             <img
               src="/kaizenx-cube.png"
-              alt="KaizenX Logo"
+              alt="Warehub 360° Logo"
               className="size-8 object-contain shrink-0 drop-shadow"
             />
           )}
@@ -792,19 +835,21 @@ export function AppShell({
               ))}
             {nav.map((item: any) => {
               const active = isActiveNavItem(item.to);
-              const sectionHeader = item.section && !desktopSidebarCollapsed ? (
-                <div key={`section-${item.section}`} className="pt-4 pb-1.5 px-3.5 text-[11px] font-bold tracking-wider text-[#6B82A6] uppercase">
-                  {item.section}
-                </div>
-              ) : null;
+              const [path, query] = item.to.split("?");
+              const sectionHeader =
+                item.section && !desktopSidebarCollapsed ? (
+                  <div
+                    key={`section-${item.section}`}
+                    className="pt-4 pb-1.5 px-3.5 text-[11px] font-bold tracking-wider text-[#6B82A6] uppercase"
+                  >
+                    {item.section}
+                  </div>
+                ) : null;
               const navLink = (
                 <Link
                   key={`${item.label}-${item.to}`}
-                  to={item.to as any}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void navigate({ to: item.to as any });
-                  }}
+                  to={path as any}
+                  search={Object.fromEntries(new URLSearchParams(query))}
                   className={cn(
                     "group flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-all",
                     desktopSidebarCollapsed ? "justify-center px-0 size-11 mx-auto" : "px-3.5",
@@ -813,8 +858,17 @@ export function AppShell({
                       : "text-[#8FA3BF] hover:bg-[#102D57] hover:text-white",
                   )}
                 >
-                  <item.icon className={cn("size-[18px] shrink-0", active ? "text-white" : "text-[#8FA3BF] group-hover:text-white")} />
-                  {!desktopSidebarCollapsed && <span className={isFinishedGoodsPage ? "leading-5" : "truncate"}>{item.label}</span>}
+                  <item.icon
+                    className={cn(
+                      "size-[18px] shrink-0",
+                      active ? "text-white" : "text-[#8FA3BF] group-hover:text-white",
+                    )}
+                  />
+                  {!desktopSidebarCollapsed && (
+                    <span className={isFinishedGoodsPage ? "leading-5" : "truncate"}>
+                      {item.label}
+                    </span>
+                  )}
                   {!desktopSidebarCollapsed && item.hasSubmenu && (
                     <ChevronRight className="ml-auto size-3.5 text-[#526580] group-hover:text-white transition-colors" />
                   )}
@@ -831,10 +885,11 @@ export function AppShell({
                   {sectionHeader}
                   {desktopSidebarCollapsed ? (
                     <Tooltip>
-                      <TooltipTrigger asChild>
-                        {navLink}
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="font-semibold text-xs border-[#102D57] bg-[#071D3B] text-white shadow-lg">
+                      <TooltipTrigger asChild>{navLink}</TooltipTrigger>
+                      <TooltipContent
+                        side="right"
+                        className="font-semibold text-xs border-[#102D57] bg-[#071D3B] text-white shadow-lg"
+                      >
                         {item.label}
                       </TooltipContent>
                     </Tooltip>
@@ -845,7 +900,6 @@ export function AppShell({
               );
             })}
           </nav>
-
         </TooltipProvider>
       </aside>
 
@@ -893,8 +947,16 @@ export function AppShell({
                   <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)} />
                   <div className="absolute top-full left-0 mt-2 w-full min-w-[320px] max-h-[480px] overflow-y-auto z-50 rounded-2xl border border-border bg-card shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="p-2">
-                      {isSearching && <p role="status" className="px-4 py-3 text-sm text-muted-foreground">Searching records...</p>}
-                      {searchError && <p role="alert" className="px-4 py-3 text-sm text-red-600">{searchError}</p>}
+                      {isSearching && (
+                        <p role="status" className="px-4 py-3 text-sm text-muted-foreground">
+                          Searching records...
+                        </p>
+                      )}
+                      {searchError && (
+                        <p role="alert" className="px-4 py-3 text-sm text-red-600">
+                          {searchError}
+                        </p>
+                      )}
                       {visibleSearchResults.length > 0 ? (
                         <div className="space-y-1">
                           {visibleSearchResults.map((result) => (
@@ -928,7 +990,9 @@ export function AppShell({
                         <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                           <Search className="mb-2 size-8 opacity-20" />
                           <p className="text-sm font-medium">No results found for "{searchTerm}"</p>
-                          <p className="text-xs">Try a page name, truck number, PO, ASN, vendor or gate entry</p>
+                          <p className="text-xs">
+                            Try a page name, truck number, PO, ASN, vendor or gate entry
+                          </p>
                         </div>
                       ) : null}
                     </div>
@@ -940,7 +1004,11 @@ export function AppShell({
             <div className="ml-auto flex items-center gap-2">
               <Link
                 to="/notifications"
-                aria-label={unreadNotifications > 0 ? `Notifications (${unreadNotifications} unread)` : "Notifications"}
+                aria-label={
+                  unreadNotifications > 0
+                    ? `Notifications (${unreadNotifications} unread)`
+                    : "Notifications"
+                }
                 className="relative grid size-10 place-items-center rounded-xl text-[#526580] transition-colors hover:bg-[#EBF3FF] hover:text-[#0866FF] focus:bg-transparent focus-visible:outline-none"
               >
                 <Bell className="size-5" aria-hidden="true" />
@@ -991,7 +1059,7 @@ export function AppShell({
                     <div className="mb-2">{breadcrumbs}</div>
                   ) : title ? (
                     <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-blue-100/75">
-                      <span>{getModuleBreadcrumb(path)}</span>
+                      <span>{showGateSecurityBranding ? "Gate Security" : getModuleBreadcrumb(path)}</span>
                       <ChevronRight className="size-3 text-blue-200/70" />
                       <span className="font-bold text-white">
                         {typeof title === "string" ? title : "Current View"}
@@ -1003,9 +1071,15 @@ export function AppShell({
                       {title}
                     </h1>
                   )}
-                  {subtitle && <p className="mt-1 text-sm font-medium text-blue-100/85">{subtitle}</p>}
+                  {subtitle && (
+                    <p className="mt-1 text-sm font-medium text-blue-100/85">{subtitle}</p>
+                  )}
                 </div>
-                {actions && <div className="flex flex-wrap items-center gap-3 [&_button]:shrink-0">{actions}</div>}
+                {actions && (
+                  <div className="flex flex-wrap items-center gap-3 [&_button]:shrink-0">
+                    {actions}
+                  </div>
+                )}
               </div>
             )}
             {children}

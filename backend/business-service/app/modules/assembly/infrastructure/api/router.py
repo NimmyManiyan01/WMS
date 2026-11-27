@@ -1435,7 +1435,7 @@ async def get_assembly_finished_goods_request(
 
 
 class BOMItemCreate(BaseModel):
-    material_id: uuid.UUID
+    material_id: Optional[uuid.UUID] = None
     material_code: str
     material_name: str
     variant_code: Optional[str] = None
@@ -1461,15 +1461,16 @@ class BOMUpdate(BaseModel):
 
 
 async def _validate_bom_materials(items: list[BOMItemCreate], uow: UnitOfWork) -> None:
-    """Ensure every BOM component is an active material from the warehouse master."""
-    material_ids = {item.material_id for item in items}
+    """Validate BOM components and source their UOM from the warehouse master."""
+    material_ids = {item.material_id for item in items if item.material_id is not None}
     result = await uow.session.execute(
-        select(MaterialModel.id).where(
+        select(MaterialModel).where(
             MaterialModel.id.in_(material_ids),
             func.lower(MaterialModel.status) == "active",
         )
     )
-    active_material_ids = set(result.scalars().all())
+    active_materials = {material.id: material for material in result.scalars().all()}
+    active_material_ids = set(active_materials)
     missing_ids = material_ids - active_material_ids
     if missing_ids:
         raise HTTPException(
@@ -1478,20 +1479,32 @@ async def _validate_bom_materials(items: list[BOMItemCreate], uow: UnitOfWork) -
         )
 
     for item in items:
-        if not item.variant_code:
+        if item.material_id is None:
+            if item.material_code != "CUSTOM" or not item.material_name.strip() or not item.uom.strip() or item.variant_code:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Custom BOM components require a name and UOM, without a warehouse variant.",
+                )
+            item.material_name = item.material_name.strip()
+            item.uom = item.uom.strip().upper()
             continue
-        variant_exists = await uow.session.scalar(
-            select(MaterialVariantModel.id).where(
+        material = active_materials[item.material_id]
+        if not item.variant_code:
+            item.uom = (material.base_uom or "PCS").strip().upper()
+            continue
+        variant = await uow.session.scalar(
+            select(MaterialVariantModel).where(
                 MaterialVariantModel.material_id == item.material_id,
                 MaterialVariantModel.variant_code == item.variant_code,
                 func.lower(MaterialVariantModel.status) == "active",
             )
         )
-        if not variant_exists:
+        if not variant:
             raise HTTPException(
                 status_code=400,
                 detail=f"Variant {item.variant_code} is not active for the selected warehouse material.",
             )
+        item.uom = (variant.uom or material.base_uom or "PCS").strip().upper()
 
 
 @router.get("/bom")

@@ -18,6 +18,7 @@ import {
   Send,
   ClipboardCheck,
   Paperclip,
+  ArrowLeft,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { Field, SectionCard } from "@/components/wms/primitives";
@@ -31,6 +32,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { api, BUSINESS_API_URL } from "@/lib/api-client";
+import { getPoLifecycleIndex, poLifecycleSteps } from "@/lib/po-lifecycle";
 import { cn } from "@/lib/utils";
 
 type POSearch = {
@@ -42,7 +44,7 @@ type POSearch = {
 export const Route = createFileRoute("/purchase-order")({
   head: () => ({
     meta: [
-      { title: "Purchase Order Details · KaizenX" },
+      { title: "Purchase Order Details · Warehub 360 degree" },
       {
         name: "description",
         content: "Comprehensive Purchase Order details and supplier communication.",
@@ -197,17 +199,7 @@ function PurchaseOrder() {
   const deliveryTerms = poData.deliveryTerms || selectedQuotation?.deliveryTime || "Not specified";
   const warranty = poData.warranty || selectedQuotation?.warranty || "Not specified";
   const attachments = Array.isArray(poData.attachments) ? poData.attachments : selectedQuotation?.documents || [];
-  const lifecycleSteps = [
-    "DRAFT",
-    "PENDING_FINANCE",
-    "APPROVED",
-    "SENT",
-    "ACKNOWLEDGED",
-    "PARTIALLY_RECEIVED",
-    "FULLY_RECEIVED",
-    "CLOSED",
-  ];
-  const currentLifecycleIndex = Math.max(0, lifecycleSteps.indexOf(String(poData.status || "").toUpperCase()));
+  const currentLifecycleIndex = getPoLifecycleIndex(poData.status);
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -218,9 +210,19 @@ function PurchaseOrder() {
   return (
     <AppShell
       title={`Purchase Order: ${poData.poNumber}`}
-      subtitle={`${poData.supplierName} · ₹ ${parseFloat(poData.totalAmount).toLocaleString()}`}
+      subtitle={`${poData.supplierName} · ${formatCurrency(toNumber(poData.totalAmount))}`}
       actions={
-        <>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            variant="outline"
+            className="rounded-xl border-white/25 bg-white/10 text-white shadow-none hover:bg-white/20 hover:text-white"
+            asChild
+          >
+            <Link to="/procurement/purchase-orders">
+              <ArrowLeft className="mr-2 size-4" />
+              Back
+            </Link>
+          </Button>
           {poData.status === "APPROVED" && (
             <Button
               className="rounded-xl shadow-glow bg-primary hover:bg-primary/90"
@@ -273,14 +275,14 @@ function PurchaseOrder() {
             )}
             Download PDF
           </Button>
-        </>
+        </div>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         {/* PO Header & Supplier Info */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <SectionCard title="PO Information" icon={FileText}>
-            <div className="grid gap-3">
+            <div className="grid gap-x-4 gap-y-5 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 min-[420px]:grid-cols-2 [&>div:first-child]:col-span-full [&>div>div:last-child]:whitespace-normal [&>div>div:last-child]:break-words">
               <Field label="PO Number" value={poData.poNumber} mono />
               <Field label="Revision" value={`Version ${poData.revisionNumber || poData.revision_number || 1}`} />
               <Field label="PO Date" value={new Date(poData.createdAt).toLocaleDateString()} />
@@ -292,7 +294,7 @@ function PurchaseOrder() {
 
           <SectionCard title="PO Lifecycle" icon={ClipboardCheck}>
             <div className="space-y-2">
-              {lifecycleSteps.map((step, index) => (
+              {poLifecycleSteps.map((step, index) => (
                 <div
                   key={step}
                   className={cn(
@@ -392,9 +394,9 @@ function PurchaseOrder() {
         </div>
 
         {/* Item Details */}
-        <div className="xl:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-6">
           <SectionCard title="Order Items" icon={Truck}>
-            <div className="mt-2 -mx-5 overflow-x-auto px-5">
+            <div className="overflow-x-auto rounded-xl border border-[#DCE6F3]" role="region" aria-label="Purchase order items" tabIndex={0}>
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground font-bold">
@@ -414,16 +416,13 @@ function PurchaseOrder() {
                           {l.materialCode}
                         </p>
                       </td>
-                      <td className="py-4 text-right tabular-nums">{Math.floor(l.quantity)}</td>
+                      <td className="py-4 text-right tabular-nums">{toNumber(l.quantity).toLocaleString("en-IN")}</td>
                       <td className="py-4 text-muted-foreground">{l.uom}</td>
                       <td className="py-4 text-right tabular-nums">
-                        ₹ {parseFloat(l.unitPrice).toLocaleString()}
+                        {formatCurrency(toNumber(l.unitPrice))}
                       </td>
                       <td className="py-4 text-right tabular-nums font-bold text-foreground">
-                        ₹{" "}
-                        {(
-                          Math.floor(parseFloat(l.quantity)) * parseFloat(l.unitPrice)
-                        ).toLocaleString()}
+                        {formatCurrency(toNumber(l.quantity) * toNumber(l.unitPrice))}
                       </td>
                     </tr>
                   ))}
@@ -472,11 +471,11 @@ function PurchaseOrder() {
                 emphasis
               />
             </div>
-            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
-              <span>Expected delivery: {expectedDelivery}</span>
-              <span>Payment: {paymentTerms}</span>
-              <span>Delivery terms: {deliveryTerms}</span>
-              <span>Warranty: {warranty}</span>
+            <div className="mt-4 grid gap-4 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4 sm:grid-cols-2 2xl:grid-cols-4 [&>div>div:last-child]:whitespace-normal [&>div>div:last-child]:break-words">
+              <Field label="Expected delivery" value={expectedDelivery} />
+              <Field label="Payment terms" value={paymentTerms} />
+              <Field label="Delivery terms" value={deliveryTerms} />
+              <Field label="Warranty" value={warranty} />
             </div>
           </SectionCard>
 

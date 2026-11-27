@@ -28,13 +28,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/master-data")({
   head: () => ({
     meta: [
-      { title: "Supplier Management · KaizenX" },
+      { title: "Supplier Management · Warehub 360 degree" },
       {
         name: "description",
         content:
           "Maintain supplier master records used across procurement and receiving workflows.",
       },
-      { property: "og:title", content: "Supplier Management · KaizenX" },
+      { property: "og:title", content: "Supplier Management · Warehub 360 degree" },
       { property: "og:description", content: "Supplier master records for procurement." },
     ],
   }),
@@ -672,7 +672,7 @@ function MasterData() {
                   <span className="font-bold text-[#101D3A]">{suppliers.length}</span> suppliers
                 </span>
                 <span className="text-[11px] font-medium text-[#8FA3BF]">
-                  KaizenX Master Data Service
+                  Warehub 360 degree Master Data Service
                 </span>
               </div>
             </div>

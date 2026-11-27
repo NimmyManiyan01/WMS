@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api-client";
+import { getPoLifecycleIndex, poLifecycleSteps } from "@/lib/po-lifecycle";
 import { toast } from "sonner";
 import { requireRole } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
@@ -47,22 +48,12 @@ const statusOptions = [
   { value: "APPROVED", label: "Approved" },
   { value: "SENT", label: "Sent" },
   { value: "ACKNOWLEDGED", label: "Acknowledged" },
+  { value: "SHIPPED", label: "Shipped" },
   { value: "PARTIALLY_RECEIVED", label: "Partially Received" },
   { value: "FULLY_RECEIVED", label: "Fully Received" },
   { value: "CLOSED", label: "Closed" },
   { value: "CANCELLED", label: "Cancelled" },
   { value: "REJECTED", label: "Rejected" },
-];
-
-const poFlow = [
-  "DRAFT",
-  "PENDING_FINANCE",
-  "APPROVED",
-  "SENT",
-  "ACKNOWLEDGED",
-  "PARTIALLY_RECEIVED",
-  "FULLY_RECEIVED",
-  "CLOSED",
 ];
 
 function PurchaseOrders() {
@@ -163,24 +154,23 @@ function PurchaseOrders() {
   return (
     <AppShell mainClassName="bg-[#F5F8FF]">
       <div className="space-y-6 pb-24 max-w-[1536px] mx-auto">
-        {/* 1. Breadcrumbs */}
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#526580]">
-          <Link to="/procurement-dashboard" className="hover:text-[#0866FF] transition-colors">
-            Procurement
-          </Link>
-          <ChevronRight className="size-3 text-[#8FA3BF]" />
-          <span className="font-bold text-[#101D3A]">Purchase Orders</span>
-        </div>
-
-        {/* 2. Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-100/75">
+            <Link to="/procurement-dashboard" className="transition-colors hover:text-white">
+              Procurement
+            </Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <span className="font-bold text-white">Purchase Orders</span>
+          </div>
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3.5">
-            <div className="size-12 rounded-2xl bg-[#EBF3FF] border border-[#DCE6F3] text-[#0866FF] flex items-center justify-center shadow-xs shrink-0">
-              <FileText className="size-6 text-[#0866FF]" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white shadow-xs">
+              <FileText className="size-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-[30px] font-extrabold tracking-tight text-[#101D3A] leading-tight">
+                <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-[30px]">
                   Purchase Orders
                 </h1>
                 <TooltipProvider>
@@ -189,7 +179,7 @@ function PurchaseOrders() {
                       <button
                         type="button"
                         aria-label="Purchase Orders Info"
-                        className="inline-flex items-center text-[#526580] hover:text-[#0866FF] transition-colors cursor-help"
+                        className="inline-flex cursor-help items-center text-blue-100/75 transition-colors hover:text-white"
                       >
                         <Info className="size-4" />
                       </button>
@@ -203,7 +193,7 @@ function PurchaseOrders() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p className="text-xs sm:text-sm font-medium text-[#526580] mt-0.5">
+              <p className="mt-0.5 text-xs font-medium text-blue-100/85 sm:text-sm">
                 All supplier purchase orders, finance decisions, and downloadable PO PDFs
               </p>
             </div>
@@ -229,19 +219,20 @@ function PurchaseOrders() {
               </Link>
             </Button>
           </div>
+          </div>
         </div>
 
         {/* 3. 4 KPI Summary Cards */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {/* Total POs */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Total Purchase Orders</span>
               <div className="grid size-10 place-items-center rounded-xl bg-[#EBF3FF] text-[#0866FF]">
                 <FileText className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {totalCount}
               </span>
@@ -252,14 +243,14 @@ function PurchaseOrders() {
           </div>
 
           {/* Pending Approval */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#F5A623]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Pending Approval</span>
               <div className="grid size-10 place-items-center rounded-xl bg-amber-50 text-[#F5A623]">
                 <Clock className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {pendingCount}
               </span>
@@ -268,14 +259,14 @@ function PurchaseOrders() {
           </div>
 
           {/* Approved & Issued */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#0866FF]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Approved & Issued</span>
               <div className="grid size-10 place-items-center rounded-xl bg-cyan-50 text-[#00A3C4]">
                 <FileCheck2 className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {approvedIssuedCount}
               </span>
@@ -284,14 +275,14 @@ function PurchaseOrders() {
           </div>
 
           {/* Fully Received / Closed */}
-          <div className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
+          <div className="group relative flex min-h-40 flex-col rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs transition-all hover:border-[#16C784]/30 hover:shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs sm:text-[13px] font-bold text-[#526580]">Fulfilled & Closed</span>
               <div className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-[#16C784]">
                 <CheckCircle2 className="size-5" />
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-auto pt-3">
               <span className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-[#101D3A] tabular-nums">
                 {completedCount}
               </span>
@@ -302,9 +293,9 @@ function PurchaseOrders() {
 
         {/* 4. Search and Filter Toolbar */}
         <div className="rounded-2xl border border-[#DCE6F3] bg-white p-4 shadow-xs">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid gap-3 lg:grid-cols-[minmax(320px,1fr)_auto] lg:items-center">
             {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative min-w-0 lg:max-w-2xl">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#526580]" />
               <input
                 type="text"
@@ -324,7 +315,7 @@ function PurchaseOrders() {
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
               <Filter className="hidden size-4 text-[#526580] sm:block" />
               <select
                 value={statusFilter}
@@ -426,7 +417,7 @@ function PurchaseOrders() {
               const totalAmount = po.totalAmount ?? po.total_amount;
               const itemCount = po.items?.length || po.lines?.length || 0;
               const deliveryDate = po.expectedDeliveryDate || po.expected_delivery_date || "Not scheduled";
-              const currentStep = Math.max(0, poFlow.indexOf(String(po.status || "").toUpperCase()));
+              const currentStep = getPoLifecycleIndex(po.status);
               const isDownloading = downloadingId === po.id;
 
               return (
@@ -434,9 +425,9 @@ function PurchaseOrders() {
                   key={po.id}
                   className="group relative overflow-hidden rounded-2xl border border-[#DCE6F3] bg-white p-5 sm:p-6 shadow-xs transition-all hover:border-[#0866FF]/40 hover:shadow-md"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     {/* Left: Info */}
-                    <div className="flex flex-1 items-start gap-4">
+                    <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-start gap-4">
                       <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#EBF3FF] to-[#D5E8FF] border border-[#CBE0FC] text-[#0866FF] shadow-xs">
                         <FileText className="size-6 text-[#0866FF]" />
                       </div>
@@ -466,23 +457,23 @@ function PurchaseOrders() {
                         </div>
 
                         {/* Amount & Reference Pills */}
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-extrabold text-emerald-700">
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#E7EDF6] pt-3">
+                          <span className="inline-flex items-center text-xs font-extrabold text-emerald-700">
                             {formatCurrency(totalAmount)}
                           </span>
-                          <span className="inline-flex items-center rounded-lg border border-[#DCE6F3] bg-[#F5F8FF] px-2.5 py-1 text-xs font-semibold text-[#526580]">
+                          <span className="inline-flex items-center text-xs font-semibold text-[#526580]">
                             {po.warehouseId || po.deliveryWarehouseName || "Main Warehouse"}
                           </span>
                           {(po.rfqNumber || po.rfq_id) && (
-                            <span className="inline-flex items-center rounded-lg border border-[#CBE0FC] bg-[#EBF3FF] px-2.5 py-1 font-mono text-xs font-bold text-[#0866FF]">
+                            <span className="inline-flex items-center font-mono text-xs font-bold text-[#0866FF]">
                               Ref: {po.rfqNumber || String(po.rfq_id).substring(0, 8)}
                             </span>
                           )}
                         </div>
 
                         {/* Process Flow Tracker */}
-                        <div className="mt-4 grid grid-cols-4 gap-1 text-[9px] sm:text-[10px] font-bold uppercase sm:grid-cols-8">
-                          {poFlow.map((step, index) => {
+                        <div className="mt-4 grid grid-cols-4 gap-1 border-t border-[#E7EDF6] pt-3 text-[9px] font-bold uppercase sm:grid-cols-8 sm:text-[10px]">
+                          {poLifecycleSteps.map((step, index) => {
                             const isReached = index <= currentStep;
                             return (
                               <span
@@ -504,7 +495,7 @@ function PurchaseOrders() {
                     </div>
 
                     {/* Right: Actions */}
-                    <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-[#DCE6F3]/60 lg:border-t-0 lg:pt-0">
+                    <div className="flex flex-wrap items-center gap-2.5 border-t border-[#DCE6F3] pt-4 lg:min-w-64 lg:justify-end lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                       <Button
                         variant="outline"
                         className="h-10 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] hover:bg-[#F5F8FF] hover:border-[#0866FF]/40 font-bold text-xs shadow-xs"

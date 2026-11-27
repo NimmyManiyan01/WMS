@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -15,11 +15,11 @@ import {
   Trash2,
   Package,
   Sparkles,
-  ClipboardList,
   Send,
   Check,
   AlertCircle,
   X,
+  ChevronRight,
 } from "lucide-react";
 import { AppShell, StatusBadge } from "@/components/wms/app-shell";
 import { SectionCard } from "@/components/wms/primitives";
@@ -43,7 +43,8 @@ export const Route = createFileRoute("/procurement/new-rfq")({
   beforeLoad: () => requireRole(["PROCUREMENT", "ADMIN", "SUPERUSER"]),
   component: NewRfq,
 });
-const inputClass = "mt-1.5 h-11 rounded-xl border-border/80 bg-background";
+const inputClass =
+  "h-11 rounded-xl border-[#DCE6F3] bg-white text-[#101D3A] shadow-none focus-visible:border-[#0866FF] focus-visible:ring-[#0866FF]/15";
 function NewRfq() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
@@ -106,9 +107,17 @@ function NewRfq() {
   const supplierIdOf = (supplier: any) =>
     String(supplier?.supplierId || supplier?.supplier_id || supplier?.id || "");
   const supplierNameOf = (supplier: any) =>
-    supplier?.supplierName || supplier?.supplier_name || supplier?.registeredCompanyName || supplier?.registered_company_name || "Supplier";
+    supplier?.supplierName ||
+    supplier?.supplier_name ||
+    supplier?.registeredCompanyName ||
+    supplier?.registered_company_name ||
+    "Supplier";
   const supplierCategories = (supplier: any) =>
-    supplier?.category || supplier?.categories || supplier?.materialCategories || supplier?.material_categories || [];
+    supplier?.category ||
+    supplier?.categories ||
+    supplier?.materialCategories ||
+    supplier?.material_categories ||
+    [];
   const supplierMaterials = (supplier: any) =>
     supplier?.mainMaterials || supplier?.main_materials || supplier?.materials || [];
   const normalizeCategory = (value: unknown) =>
@@ -116,8 +125,8 @@ function NewRfq() {
       .trim()
       .toLowerCase()
       .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ");
   const supplierHasRegisteredCategory = (supplier: any, category: unknown) => {
     const requestedCategory = normalizeCategory(category);
     if (!requestedCategory) return true;
@@ -175,6 +184,7 @@ function NewRfq() {
       (!search || supplierText.includes(search)) &&
       (!city || supplierCityText.includes(city)) &&
       supplierHasRegisteredCategory(supplier, category) &&
+      items.every((item) => supplierHasRegisteredCategory(supplier, item.category)) &&
       (!material || hasSharedMatchToken(material, supplierMaterials(supplier)))
     );
   };
@@ -205,8 +215,19 @@ function NewRfq() {
     }));
 
     if (mr.items && mr.items.length > 0) {
+      const category = new URLSearchParams(window.location.search).get("category");
+      const scopedItems = category
+        ? mr.items.filter(
+            (item: any) => normalizeCategory(item.category || "Raw Materials") === category,
+          )
+        : mr.items;
+      if (scopedItems.length === 0) {
+        setItems([]);
+        toast.error("No materials found for the selected RFQ category");
+        return;
+      }
       setItems(
-        mr.items.map((item: any) => ({
+        scopedItems.map((item: any) => ({
           material_id: item.materialId || item.material_id || null,
           material_variant_id: item.materialVariantId || item.material_variant_id || null,
           material_code: item.materialCode || item.material_code || "",
@@ -217,7 +238,6 @@ function NewRfq() {
           uom: item.uom || "PCS",
         })),
       );
-
     }
   };
   useEffect(() => {
@@ -270,7 +290,10 @@ function NewRfq() {
     fetchCategories();
     const user = getUserInfo();
     if (user) {
-      setFormData((prev) => ({ ...prev, procurement_officer: user.full_name || user.username || "" }));
+      setFormData((prev) => ({
+        ...prev,
+        procurement_officer: user.full_name || user.username || "",
+      }));
     }
     const loadMaterialRequests = async () => {
       try {
@@ -318,6 +341,10 @@ function NewRfq() {
   };
   const handleOpenPreSubmitModal = (e: React.FormEvent) => {
     e.preventDefault();
+    if (items.length === 0) {
+      toast.error("No materials are available for this RFQ");
+      return;
+    }
     if (selectedSuppliers.length === 0) {
       toast.error("Please select at least one supplier for the RFQ invitation");
       return;
@@ -326,7 +353,9 @@ function NewRfq() {
       toast.error("Please fill in Material Code and Name for all items");
       return;
     }
-    if (items.some((item) => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+    if (
+      items.some((item) => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)
+    ) {
       toast.error("Order quantity must be greater than 0 for all items");
       return;
     }
@@ -359,348 +388,420 @@ function NewRfq() {
     }
   };
   return (
-    <AppShell
-      title="Create New RFQ"
-      subtitle="Request for Quotations — Auto-generate RFQ numbers and track bids"
-      actions={
-        <Button
-          variant="outline"
-          className="rounded-xl"
-          onClick={() => navigate({ to: "/procurement/rfqs" })}
-        >
-          <ArrowLeft className="mr-2 size-4" /> Cancel
-        </Button>
-      }
-    >
-      <form onSubmit={handleOpenPreSubmitModal} className="mx-auto max-w-4xl space-y-6">
-        <SectionCard
-          title="RFQ Metadata"
-          description="Core identification and scheduling for this request"
-          icon={FileText}
-        >
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="rfq_date">RFQ Date</Label>
-              <div className="relative">
-                <CalendarIcon className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="rfq_date"
-                  name="rfq_date"
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  className={cn(inputClass, "pl-10 bg-muted/50")}
-                  value={formData.rfq_date}
-                  readOnly
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="material_request_number">Material Request Number</Label>
-              <div className="relative">
-                <FileText className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="material_request_number"
-                  name="material_request_number"
-                  className={cn(inputClass, "pl-10 bg-muted/50 font-mono text-sm font-bold text-primary")}
-                  value={
-                    formData.material_request_number ||
-                    (loadingRequests ? "Loading material request..." : "None")
-                  }
-                  readOnly
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="department">Department</Label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="department"
-                  name="department"
-                  className={cn(inputClass, "pl-10 bg-muted/50 font-medium")}
-                  value={formData.department || "—"}
-                  readOnly
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="requested_by">Requested By</Label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="requested_by"
-                  name="requested_by"
-                  className={cn(inputClass, "pl-10 bg-muted/50 font-medium")}
-                  value={formData.requested_by || "—"}
-                  readOnly
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="required_delivery_date">Required Delivery Date</Label>
-              <div className="relative">
-                <CalendarIcon className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="required_delivery_date"
-                  name="required_delivery_date"
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  className={cn(inputClass, "pl-10")}
-                  value={formData.required_delivery_date}
-                  onChange={handleInputChange}
-                  readOnly
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="warehouse">Warehouse</Label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="warehouse"
-                  name="warehouse"
-                  placeholder="e.g. Pune Plant 1"
-                  className={cn(inputClass, "pl-10")}
-                  value={formData.warehouse}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="procurement_officer">Procurement Officer</Label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 size-4 text-muted-foreground" />
-                <Input
-                  id="procurement_officer"
-                  name="procurement_officer"
-                  placeholder="Officer name"
-                  className={cn(inputClass, "pl-10")}
-                  value={formData.procurement_officer}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="Material Requirements"
-          description="List materials required in this RFQ"
-          icon={Package}
-        >
-          <div className="space-y-4">
-            {items.map((item, index) => (
-              <div
-                key={index}
-                className="rounded-2xl border border-border/80 bg-muted/20 p-5 transition-all"
-              >
-                <p className="mb-3 text-xs font-bold text-primary uppercase tracking-wider">
-                  Item #{index + 1}
+    <AppShell mainClassName="bg-[#F5F8FF]">
+      <div className="mx-auto max-w-[1536px] space-y-6 pb-24">
+        <header className="rounded-2xl bg-[#0B2A55] p-5 shadow-sm sm:p-6">
+          <nav
+            className="flex items-center gap-2 text-xs font-semibold text-blue-100/75"
+            aria-label="Breadcrumb"
+          >
+            <Link to="/procurement-dashboard" className="transition-colors hover:text-white">
+              Procurement
+            </Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <Link to="/procurement/rfqs" className="transition-colors hover:text-white">
+              Request for Quotations
+            </Link>
+            <ChevronRight className="size-3 text-blue-200/70" />
+            <span className="font-bold text-white">Create New RFQ</span>
+          </nav>
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div>
+                <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-[30px]">
+                  Create New RFQ
+                </h1>
+                <p className="mt-0.5 text-xs font-medium text-blue-100/85 sm:text-sm">
+                  Build a supplier-ready quotation request from an approved material request
                 </p>
-
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="space-y-1.5 font-mono text-xs font-bold text-primary">
-                    <Label className="text-xs font-semibold">Material Code</Label>
-                    <Input
-                      className="h-10 rounded-xl bg-muted/50 font-mono text-xs font-bold text-primary"
-                      value={item.material_code}
-                      readOnly
-                    />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 self-start rounded-xl border-[#DCE6F3] bg-white px-4 font-semibold text-[#101D3A] shadow-xs hover:border-[#0866FF]/40 hover:bg-[#F5F8FF] sm:self-auto"
+              onClick={() => navigate({ to: "/procurement/rfqs" })}
+            >
+              <ArrowLeft className="mr-2 size-4 text-[#0866FF]" /> Back to RFQs
+            </Button>
+          </div>
+        </header>
+        <form onSubmit={handleOpenPreSubmitModal} className="space-y-6">
+          <div className="grid items-start gap-6 lg:grid-cols-12">
+            <div className="min-w-0 space-y-6 lg:col-span-8">
+              <SectionCard title="RFQ Details" icon={FileText}>
+                <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2 [&_label]:text-xs [&_label]:font-bold [&_label]:text-[#526580]">
+                  <div className="space-y-2">
+                    <Label htmlFor="rfq_date">RFQ Date</Label>
+                    <div className="relative">
+                      <CalendarIcon className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="rfq_date"
+                        name="rfq_date"
+                        type="date"
+                        min={new Date().toISOString().split("T")[0]}
+                        className={cn(inputClass, "pl-10 bg-muted/50")}
+                        value={formData.rfq_date}
+                        readOnly
+                        required
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Variant Code</Label>
-                    <Input
-                      className="h-10 rounded-xl font-mono text-xs text-teal-600 bg-muted/50 font-semibold"
-                      value={item.variant_code || "—"}
-                      readOnly
-                    />
+                  <div className="space-y-2">
+                    <Label htmlFor="material_request_number">Material Request Number</Label>
+                    <div className="relative">
+                      <FileText className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="material_request_number"
+                        name="material_request_number"
+                        className={cn(
+                          inputClass,
+                          "pl-10 bg-muted/50 font-mono text-sm font-bold text-primary",
+                        )}
+                        value={
+                          formData.material_request_number ||
+                          (loadingRequests ? "Loading material request..." : "None")
+                        }
+                        readOnly
+                        required
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Order Quantity</Label>
-                    <Input
-                      type="number"
-                      min="0.01"
-                      step="any"
-                      required
-                      className="h-10 rounded-xl font-mono font-bold text-orange-600 bg-background"
-                      value={item.quantity ?? ""}
-                      onChange={(event) => handleItemChange(index, "quantity", event.target.value)}
-                    />
+                  <div className="space-y-2">
+                    <Label htmlFor="department">Department</Label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="department"
+                        name="department"
+                        className={cn(inputClass, "pl-10 bg-muted/50 font-medium")}
+                        value={formData.department || "—"}
+                        readOnly
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">UOM</Label>
-                    <Input
-                      className="h-10 rounded-xl font-bold uppercase text-muted-foreground bg-muted/50"
-                      value={item.uom || "PCS"}
-                      readOnly
-                    />
+                  <div className="space-y-2">
+                    <Label htmlFor="requested_by">Requested By</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="requested_by"
+                        name="requested_by"
+                        className={cn(inputClass, "pl-10 bg-muted/50 font-medium")}
+                        value={formData.requested_by || "—"}
+                        readOnly
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
-                    <Label className="text-xs font-semibold">Material Name &amp; Specs</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="required_delivery_date">Required Delivery Date</Label>
+                    <div className="relative">
+                      <CalendarIcon className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="required_delivery_date"
+                        name="required_delivery_date"
+                        type="date"
+                        min={new Date().toISOString().split("T")[0]}
+                        className={cn(inputClass, "pl-10")}
+                        value={formData.required_delivery_date}
+                        onChange={handleInputChange}
+                        readOnly
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="warehouse">Warehouse</Label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="warehouse"
+                        name="warehouse"
+                        placeholder="e.g. Pune Plant 1"
+                        className={cn(inputClass, "pl-10")}
+                        value={formData.warehouse}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="procurement_officer">Procurement Officer</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                      <Input
+                        id="procurement_officer"
+                        name="procurement_officer"
+                        placeholder="Officer name"
+                        className={cn(inputClass, "pl-10")}
+                        value={formData.procurement_officer}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rfq-categories">Material Categories</Label>
                     <Input
-                      className="h-10 rounded-xl font-medium bg-muted/50"
-                      value={item.material_name}
+                      id="rfq-categories"
+                      className={cn(inputClass, "bg-muted/50")}
+                      value={[...new Set(items.map((item) => item.category).filter(Boolean))].join(
+                        ", ",
+                      )}
                       readOnly
                     />
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
+              </SectionCard>
 
-        <SectionCard
-          title="Select Suppliers"
-          description="Search and select active vendors from the master data"
-          icon={Building2}
-        >
-          <div className="mb-6 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Name or code..."
-                  className="pl-10 rounded-xl"
-                  value={filters.search}
-                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                />
-              </div>
-              <Input
-                placeholder="Material..."
-                className="rounded-xl"
-                value={filters.material}
-                onChange={(e) => setFilters((f) => ({ ...f, material: e.target.value }))}
-              />
-              <Input
-                placeholder="City/Location..."
-                className="rounded-xl"
-                value={filters.city}
-                onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))}
-              />
-              <select
-                className="h-11 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                value={filters.category}
-                onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value }))}
+              <SectionCard
+                title="Material Requirements"
+                description={`${items.length} material ${items.length === 1 ? "line" : "lines"} in this RFQ`}
+                icon={Package}
               >
-                <option value="">All Categories</option>
-                {availableCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {loadingSuppliers ? (
-            <div className="flex h-48 items-center justify-center gap-2">
-              <Loader2 className="size-6 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Searching supplier master...</p>
-            </div>
-          ) : suppliers.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-2xl border-border/40">
-              No suppliers found matching your criteria.
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {suppliers.map((s) => {
-                const supplierId = supplierIdOf(s);
-                const isSelected = selectedSuppliers.includes(supplierId);
-                return (
-                  <div
-                    key={supplierId}
-                    onClick={() => toggleSupplier(supplierId)}
-                    className={cn(
-                      "relative cursor-pointer rounded-2xl border p-4 transition-all hover:bg-accent/30",
-                      isSelected
-                        ? "border-primary bg-primary-soft/10 ring-1 ring-primary"
-                        : "border-border/60 bg-card",
-                    )}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={cn(
-                          "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
-                          isSelected
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {isSelected ? (
-                          <CheckCircle2 className="size-6" />
-                        ) : (
-                          <Building2 className="size-6" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-bold">{supplierNameOf(s)}</p>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
-                          {supplierCategoryText(s)}
+                <div className="space-y-4">
+                  {items.map((item, index) => (
+                    <div
+                      key={index}
+                      className="overflow-hidden rounded-xl border border-[#DCE6F3] bg-white transition-all"
+                    >
+                      <div className="flex items-center justify-between border-b border-[#DCE6F3] bg-[#F5F8FF] px-4 py-3">
+                        <p className="text-xs font-extrabold uppercase tracking-wider text-[#0866FF]">
+                          Material {String(index + 1).padStart(2, "0")}
                         </p>
+                        <Badge
+                          variant="outline"
+                          className="border-[#DCE6F3] bg-white text-[10px] font-bold text-[#526580]"
+                        >
+                          {item.category || "Uncategorized"}
+                        </Badge>
+                      </div>
+
+                      <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="space-y-1.5 font-mono text-xs font-bold text-primary">
+                          <Label className="text-xs font-semibold">Material Code</Label>
+                          <Input
+                            className="h-10 rounded-xl bg-muted/50 font-mono text-xs font-bold text-primary"
+                            value={item.material_code}
+                            readOnly
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold">Variant Code</Label>
+                          <Input
+                            className="h-10 rounded-xl font-mono text-xs text-teal-600 bg-muted/50 font-semibold"
+                            value={item.variant_code || "—"}
+                            readOnly
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold">Order Quantity</Label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            required
+                            className="h-10 rounded-xl font-mono font-bold text-orange-600 bg-background"
+                            value={item.quantity ?? ""}
+                            onChange={(event) =>
+                              handleItemChange(index, "quantity", event.target.value)
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold">UOM</Label>
+                          <Input
+                            className="h-10 rounded-xl font-bold uppercase text-muted-foreground bg-muted/50"
+                            value={item.uom || "PCS"}
+                            readOnly
+                          />
+                        </div>
+
+                        <div className="space-y-1.5 sm:col-span-2 xl:col-span-4">
+                          <Label className="text-xs font-semibold">Material Name &amp; Specs</Label>
+                          <Input
+                            className="h-10 rounded-xl font-medium bg-muted/50"
+                            value={item.material_name}
+                            readOnly
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              </SectionCard>
             </div>
-          )}
-          {selectedSuppliers.length > 0 && (
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-primary-soft/20 px-4 py-2 border border-primary/20">
-              <p className="text-xs font-semibold text-primary">
-                {selectedSuppliers.length} supplier(s) selected for invitation
-              </p>
+
+            <SectionCard
+              title="Select Suppliers"
+              description="Search and select active vendors from the master data"
+              icon={Building2}
+              className="min-w-0 lg:sticky lg:top-6 lg:col-span-4"
+            >
+              <div className="mb-4 rounded-xl border border-[#DCE6F3] bg-[#F5F8FF] p-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Name or code..."
+                      aria-label="Supplier name or code"
+                      className={cn(inputClass, "pl-10")}
+                      value={filters.search}
+                      onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                    />
+                  </div>
+                  <Input
+                    placeholder="Material..."
+                    aria-label="Supplier material"
+                    className={inputClass}
+                    value={filters.material}
+                    onChange={(e) => setFilters((f) => ({ ...f, material: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="City/Location..."
+                    aria-label="Supplier city or location"
+                    className={inputClass}
+                    value={filters.city}
+                    onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))}
+                  />
+                  <select
+                    aria-label="Supplier category"
+                    className="h-11 rounded-xl border border-[#DCE6F3] bg-white px-3 text-sm text-[#101D3A] outline-none focus:border-[#0866FF] focus:ring-2 focus:ring-[#0866FF]/15"
+                    value={filters.category}
+                    onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value }))}
+                  >
+                    <option value="">All Categories</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {loadingSuppliers ? (
+                <div className="flex h-48 items-center justify-center gap-2">
+                  <Loader2 className="size-6 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">Searching supplier master...</p>
+                </div>
+              ) : suppliers.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-2xl border-border/40">
+                  No suppliers found matching your criteria.
+                </div>
+              ) : (
+                <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">
+                  {suppliers.map((s) => {
+                    const supplierId = supplierIdOf(s);
+                    const isSelected = selectedSuppliers.includes(supplierId);
+                    return (
+                      <button
+                        type="button"
+                        key={supplierId}
+                        onClick={() => toggleSupplier(supplierId)}
+                        aria-pressed={isSelected}
+                        className={cn(
+                          "relative w-full cursor-pointer rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0866FF]/30",
+                          isSelected
+                            ? "border-[#0866FF] bg-[#EBF3FF] ring-1 ring-[#0866FF]/20"
+                            : "border-[#DCE6F3] bg-white hover:border-[#0866FF]/40",
+                        )}
+                      >
+                        <div className="flex items-start gap-4">
+                          <div
+                            className={cn(
+                              "grid size-12 shrink-0 place-items-center rounded-xl transition-colors",
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {isSelected ? (
+                              <CheckCircle2 className="size-6" />
+                            ) : (
+                              <Building2 className="size-6" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-sm font-bold">{supplierNameOf(s)}</p>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                              {supplierCategoryText(s)}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedSuppliers.length > 0 && (
+                <div className="mt-4 flex items-center justify-between rounded-xl bg-primary-soft/20 px-4 py-2 border border-primary/20">
+                  <p className="text-xs font-semibold text-primary">
+                    {selectedSuppliers.length} supplier(s) selected for invitation
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[10px] text-primary hover:bg-primary-soft/30"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedSuppliers([]);
+                    }}
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-2xl border border-[#DCE6F3] bg-white p-5 shadow-xs sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <p className="text-sm font-medium text-[#526580]">
+              Creating this RFQ will save a draft for review before supplier emails are sent.
+            </p>
+            <div className="flex items-center gap-3 self-end sm:self-auto">
               <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-[10px] text-primary hover:bg-primary-soft/30"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedSuppliers([]);
-                }}
+                type="button"
+                variant="outline"
+                className="h-11 rounded-xl border-[#DCE6F3] px-5 font-semibold"
+                onClick={() => navigate({ to: "/procurement/rfqs" })}
               >
-                Clear all
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="lg"
+                className="h-11 rounded-xl bg-[#0866FF] px-6 font-bold text-white shadow-xs hover:bg-[#0054D6]"
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 size-4" />
+                )}
+                Create RFQ
               </Button>
             </div>
-          )}
-        </SectionCard>
-
-        <div className="flex items-center justify-end gap-4 rounded-2xl border border-primary/10 bg-primary-soft/5 p-6 shadow-soft">
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            Creating this RFQ will save a draft for review before supplier emails are sent.
-          </p>
-          <Button type="submit" size="lg" className="rounded-xl shadow-glow" disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 size-4" />
-            )}
-            Create RFQ
-          </Button>
-        </div>
-      </form>
+          </div>
+        </form>
+      </div>
 
       {/* PRE-SUBMISSION CATEGORIZED SUPPLIER REVIEW POPUP MODAL */}
       <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-        <DialogContent className="max-w-2xl w-full rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
-          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-start">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-2xl grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-2xl border-[#DCE6F3] bg-white p-0 shadow-xl sm:rounded-2xl [&>button]:bg-transparent [&>button]:text-white">
+          <div className="bg-[#0B2A55] p-5 pr-12 text-white sm:pl-6">
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <DialogTitle className="text-xl font-bold tracking-tight text-white">
                   Pre-Submission Supplier Review
                 </DialogTitle>
@@ -709,23 +810,27 @@ function NewRfq() {
                 </Badge>
               </div>
               <DialogDescription className="text-blue-100 text-xs">
-                Review Material Request requirements and category-matched suppliers before publishing
+                Review the materials and selected suppliers before saving the RFQ draft.
               </DialogDescription>
             </div>
           </div>
 
-          <div className="p-6 space-y-5">
+          <div className="min-h-0 min-w-0 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
             {/* Selected Material Request Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-muted/20 border border-border/40 text-xs">
               <div>
-                <p className="text-[10px] uppercase font-black text-muted-foreground">Material Request</p>
+                <p className="text-[10px] uppercase font-black text-muted-foreground">
+                  Material Request
+                </p>
                 <p className="font-mono font-bold text-primary text-sm mt-0.5">
                   {formData.material_request_number || "Direct RFQ"}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase font-black text-muted-foreground">Department</p>
-                <p className="font-bold text-foreground text-sm mt-0.5">{formData.department || "Procurement"}</p>
+                <p className="font-bold text-foreground text-sm mt-0.5">
+                  {formData.department || "Procurement"}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase font-black text-muted-foreground">Warehouse</p>
@@ -753,7 +858,10 @@ function NewRfq() {
                         </p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="font-bold text-xs bg-card border-blue-500/30">
+                    <Badge
+                      variant="outline"
+                      className="font-bold text-xs bg-card border-blue-500/30"
+                    >
                       {selectedSuppliers.length} Selected
                     </Badge>
                   </div>
@@ -761,7 +869,8 @@ function NewRfq() {
                   {/* List of Category Suppliers */}
                   <div className="space-y-2">
                     <p className="text-[10px] uppercase font-black text-muted-foreground">
-                      Categorized Suppliers To Be Invited ({selectedSuppliers.length} of {suppliers.length})
+                      Categorized Suppliers To Be Invited ({selectedSuppliers.length} of{" "}
+                      {suppliers.length})
                     </p>
                     <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
                       {suppliers.map((sup: any) => {
@@ -787,7 +896,10 @@ function NewRfq() {
                               <div>
                                 <p className="font-bold text-foreground">{supplierNameOf(sup)}</p>
                                 <p className="text-[10px] text-muted-foreground font-mono">
-                                  {sup.gstin || sup.supplierCode || sup.supplier_code || "Active Vendor"}
+                                  {sup.gstin ||
+                                    sup.supplierCode ||
+                                    sup.supplier_code ||
+                                    "Active Vendor"}
                                 </p>
                               </div>
                             </div>
@@ -804,7 +916,7 @@ function NewRfq() {
             })()}
           </div>
 
-          <div className="p-4 bg-muted/10 border-t border-border/60 flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#DCE6F3] bg-[#F5F8FF] px-5 py-3 sm:px-6">
             <Button
               type="button"
               variant="ghost"
@@ -815,7 +927,7 @@ function NewRfq() {
             </Button>
             <Button
               type="button"
-              className="rounded-full px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase shadow-glow"
+              className="rounded-xl bg-[#0866FF] px-5 text-xs font-bold text-white hover:bg-[#0054D6]"
               onClick={executeSubmitRfq}
               disabled={submitting}
             >
@@ -824,7 +936,7 @@ function NewRfq() {
               ) : (
                 <Send className="mr-2 size-4" />
               )}
-              Confirm &amp; Send RFQ
+              Save RFQ Draft
             </Button>
           </div>
         </DialogContent>

@@ -129,7 +129,7 @@ export const Route = createFileRoute("/my-store")({
   },
   head: () => ({
     meta: [
-      { title: "My Store · KaizenX" },
+      { title: "My Store · Warehub 360 degree" },
       {
         name: "description",
         content:
@@ -489,11 +489,19 @@ function MyStorePage() {
   const searchParams = Route.useSearch();
   const [activeTab, setActiveTab] = useState<
     "overview" | "putaway" | "pickup" | "takeaway" | "history" | "zones" | "inventory" | "docks"
-  >(searchParams.tab === "dashboard" ? "overview" : searchParams.tab || "overview");
+  >(
+    searchParams.tab === "dashboard" || searchParams.tab === "putaway"
+      ? "overview"
+      : searchParams.tab || "overview",
+  );
 
   useEffect(() => {
     if (searchParams.tab) {
-      setActiveTab(searchParams.tab === "dashboard" ? "overview" : searchParams.tab);
+      setActiveTab(
+        searchParams.tab === "dashboard" || searchParams.tab === "putaway"
+          ? "overview"
+          : searchParams.tab,
+      );
     }
   }, [searchParams.tab]);
   const [store, setStore] = useState<Store | null>(null);
@@ -1643,19 +1651,6 @@ function MyStorePage() {
             </Button>
 
             <Button
-              variant={activeTab === "putaway" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setActiveTab("putaway")}
-              className="rounded-xl text-xs font-semibold gap-2 whitespace-nowrap shrink-0"
-            >
-              <PackageCheck className="size-4" />
-              Inbound Putaway Tasks
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-primary/20 text-primary font-bold">
-                {putawayTasks.filter((t) => t.status !== "PUTAWAY_COMPLETED").length}
-              </span>
-            </Button>
-
-            <Button
               variant={activeTab === "pickup" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("pickup")}
@@ -2025,25 +2020,6 @@ function MyStorePage() {
                   <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-rose-500 transition-colors" />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("putaway")}
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-border/60 bg-gradient-to-br from-card to-muted/20 hover:border-emerald-500/50 transition-all text-left group shadow-2xs"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="size-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                      <PackageCheck className="size-5" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-foreground">Inbound Putaway</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {putawayTasks.filter((t) => t.status !== "PUTAWAY_COMPLETED").length}{" "}
-                        Pending Tasks
-                      </p>
-                    </div>
-                  </div>
-                  <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
-                </button>
               </div>
 
               {/* Store Inventory Summary & Recent Activity Grid */}
@@ -2098,16 +2074,6 @@ function MyStorePage() {
                           This store has no received inventory yet. Review assigned putaway tasks to
                           bring accepted materials into stock.
                         </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setActiveTab("putaway")}
-                          className="mt-2 rounded-xl text-xs"
-                        >
-                          <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks{" "}
-                          <ArrowRight className="size-3.5 ml-1" />
-                        </Button>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -2366,7 +2332,7 @@ function MyStorePage() {
           )}
 
           {/* TAB 1: INBOUND PUTAWAY TASKS */}
-          {activeTab === "putaway" && (
+          {false && activeTab === "putaway" && (
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="relative w-72">
@@ -2794,18 +2760,6 @@ function MyStorePage() {
                                   <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-5">
                                     <Button
                                       type="button"
-                                      disabled={!assignedTask}
-                                      onClick={() => assignedTask && (
-                                        (assignedTask.status || "").toUpperCase() === "PUTAWAY_PENDING"
-                                          ? handleStartPutaway(assignedTask)
-                                          : handleOpenExecuteModal(assignedTask)
-                                      )}
-                                      className="h-11 rounded-xl border-2 border-slate-950 bg-[#1683c5] px-5 text-base font-extrabold text-white shadow-md hover:bg-[#0d6fa9]"
-                                    >
-                                      Add Material
-                                    </Button>
-                                    <Button
-                                      type="button"
                                       variant="outline"
                                       onClick={() => handleViewBinQR(b, z)}
                                       className="h-11 rounded-xl bg-[#e6eef9] px-5 text-base font-extrabold text-slate-950"
@@ -3007,16 +2961,6 @@ function MyStorePage() {
                       No physical stock has been confirmed for this store. Start with assigned
                       putaway tasks to scan materials into zones and bins.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setActiveTab("putaway")}
-                      className="mt-2 rounded-xl text-xs"
-                    >
-                      <PackageCheck className="size-3.5 mr-1.5" /> View Putaway Tasks{" "}
-                      <ArrowRight className="size-3.5 ml-1" />
-                    </Button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
